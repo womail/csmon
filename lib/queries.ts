@@ -1,5 +1,9 @@
+import { classifyItem } from "./classify";
 import { colorFor } from "./colors";
 import { getDb } from "./db";
+import { hintSources } from "./explore";
+import { type IntelFeed } from "./intel-feeds";
+import { scoreKev, type KevEntry } from "./kev";
 import type {
   DiscoveredSource,
   Item,
@@ -40,6 +44,8 @@ type ItemRow = {
   author: string | null;
   published_at: number | null;
   tags: string;
+  topics?: string;
+  locations?: string;
   fetched_at: number;
 };
 
@@ -81,13 +87,21 @@ function mapSource(
   };
 }
 
-function mapItem(row: ItemRow): Item {
-  let tags: string[] = [];
+function parseJsonArray(raw: string | undefined) {
+  if (!raw) return [] as string[];
   try {
-    tags = JSON.parse(row.tags) as string[];
+    const value = JSON.parse(raw) as unknown;
+    return Array.isArray(value) ? value.map(String) : [];
   } catch {
-    tags = [];
+    return [];
   }
+}
+
+function mapItem(row: ItemRow): Item {
+  const classified = classifyItem(row.title, row.summary);
+  const topics = parseJsonArray(row.topics);
+  const locations = parseJsonArray(row.locations);
+  let tags = parseJsonArray(row.tags);
   return {
     id: row.id,
     sourceId: row.source_id,
@@ -97,7 +111,9 @@ function mapItem(row: ItemRow): Item {
     url: row.url,
     author: row.author,
     publishedAt: row.published_at,
-    tags,
+    tags: tags.length ? tags : classified.tags,
+    topics: topics.length ? topics : classified.topics,
+    locations: locations.length ? locations : classified.locations,
     fetchedAt: row.fetched_at,
   };
 }
@@ -227,8 +243,8 @@ export function insertItems(sourceId: number, items: ScrapedItem[]) {
   const now = Date.now();
   const stmt = db.prepare(
     `INSERT INTO items
-     (source_id, external_id, title, summary, url, author, published_at, tags, fetched_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     (source_id, external_id, title, summary, url, author, published_at, tags, topics, locations, fetched_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(source_id, external_id) DO UPDATE SET
        title = excluded.title,
        summary = excluded.summary,
@@ -236,9 +252,12 @@ export function insertItems(sourceId: number, items: ScrapedItem[]) {
        author = excluded.author,
        published_at = excluded.published_at,
        tags = excluded.tags,
+       topics = excluded.topics,
+       locations = excluded.locations,
        fetched_at = excluded.fetched_at`,
   );
   for (const item of items) {
+    const classified = classifyItem(item.title, item.summary);
     stmt.run(
       sourceId,
       item.externalId,
@@ -247,7 +266,9 @@ export function insertItems(sourceId: number, items: ScrapedItem[]) {
       item.url,
       item.author,
       item.publishedAt,
-      JSON.stringify(item.tags),
+      JSON.stringify(item.tags.length ? item.tags : classified.tags),
+      JSON.stringify(item.topics.length ? item.topics : classified.topics),
+      JSON.stringify(item.locations.length ? item.locations : classified.locations),
       now,
     );
   }
@@ -335,9 +356,195 @@ export function listItems(limit = 500): Item[] {
 }
 
 export function getMonitorState(): MonitorState {
+  const sources = listSources();
+  const items = listItems();
   return {
     users: listUsers(),
-    sources: listSources(),
-    items: listItems(),
+    sources,
+    items,
+    hints: hintSources(items, sources),
+    kev: listKev(),
   };
+}
+
+export function replaceKev(entries: KevEntry[]) {
+  const db = getDb();
+  const now = Date.now();
+  db.exec("DELETE FROM kev");
+  const stmt = db.prepare(
+    `INSERT INTO kev
+     (cve_id, vendor, product, name, description, date_added, due_date, ransomware, required_action, notes, fetched_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const entry of entries) {
+    stmt.run(
+      entry.cveId,
+      entry.vendor,
+      entry.product,
+      entry.name,
+      entry.description,
+      entry.dateAdded,
+      entry.dueDate,
+      entry.ransomware ? 1 : 0,
+      entry.requiredAction,
+      entry.notes,
+      now,
+    );
+  }
+}
+
+export function listKev(): KevEntry[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM kev ORDER BY date_added DESC, ransomware DESC LIMIT 400`,
+    )
+    .all() as {
+    cve_id: string;
+    vendor: string;
+    product: string;
+    name: string;
+    description: string | null;
+    date_added: number | null;
+    due_date: number | null;
+    ransomware: number;
+    required_action: string | null;
+    notes: string | null;
+  }[];
+  return rows.map((row) => {
+    const ransomware = row.ransomware === 1;
+    const dueDate = row.due_date ?? 0;
+    return {
+      cveId: row.cve_id,
+      vendor: row.vendor,
+      product: row.product,
+      name: row.name,
+      description: row.description ?? "",
+      dateAdded: row.date_added ?? 0,
+      dueDate,
+      ransomware,
+      requiredAction: row.required_action ?? "",
+      notes: row.notes ?? "",
+      url: `https://nvd.nist.gov/vuln/detail/${row.cve_id}`,
+      ...scoreKev({ dueDate, dateAdded: row.date_added ?? 0, ransomware }),
+    };
+  });
+}
+
+function intelSeedUserId() {
+  const db = getDb();
+  const existing = db
+    .prepare("SELECT id FROM seed_users WHERE handle = ? AND platform = ?")
+    .get("intel-pack", "rss") as { id: number } | undefined;
+  if (existing) return existing.id;
+  const now = Date.now();
+  const inserted = db
+    .prepare(
+      `INSERT INTO seed_users
+       (handle, platform, did, display_name, avatar_url, description, profile_url, last_scraped_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      "intel-pack",
+      "rss",
+      null,
+      "Free intel feeds",
+      null,
+      "Curated public RSS",
+      "https://localhost/intel",
+      now,
+      now,
+    );
+  return Number(inserted.lastInsertRowid);
+}
+
+export function registerIntelFeeds(feeds: IntelFeed[], enable: boolean) {
+  const db = getDb();
+  const now = Date.now();
+  const seedId = intelSeedUserId();
+  const ids: number[] = [];
+  for (const feed of feeds) {
+    const key = `rss:${feed.feedUrl}`;
+    const current = db.prepare("SELECT id FROM sources WHERE key = ?").get(key) as
+      | { id: number }
+      | undefined;
+    let id: number;
+    if (current) {
+      id = current.id;
+      if (enable) {
+        db.prepare("UPDATE sources SET enabled = 1 WHERE id = ?").run(id);
+      }
+    } else {
+      const inserted = db
+        .prepare(
+          `INSERT INTO sources
+           (key, name, handle, url, feed_url, platform, kind, description, avatar_url, color, enabled, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          key,
+          feed.name,
+          feed.id,
+          feed.url,
+          feed.feedUrl,
+          "rss",
+          "feed",
+          feed.blurb,
+          null,
+          colorFor(key),
+          enable ? 1 : 0,
+          now,
+        );
+      id = Number(inserted.lastInsertRowid);
+    }
+    db.prepare(
+      `INSERT INTO source_origins (source_id, seed_user_id, reason, weight)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(source_id, seed_user_id, reason)
+       DO UPDATE SET weight = MAX(weight, excluded.weight)`,
+    ).run(id, seedId, "intel", 50);
+    ids.push(id);
+  }
+  return ids;
+}
+
+export function registerExploredSource(input: {
+  name: string;
+  url: string;
+  feedUrl: string | null;
+  host: string;
+}) {
+  const db = getDb();
+  const now = Date.now();
+  const seedId = intelSeedUserId();
+  const key = input.feedUrl ? `rss:${input.feedUrl}` : `web:${input.host}`;
+  const current = db.prepare("SELECT id FROM sources WHERE key = ?").get(key) as
+    | { id: number }
+    | undefined;
+  if (current) return current.id;
+  const inserted = db
+    .prepare(
+      `INSERT INTO sources
+       (key, name, handle, url, feed_url, platform, kind, description, avatar_url, color, enabled, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      key,
+      input.name,
+      input.host,
+      input.url,
+      input.feedUrl,
+      input.feedUrl ? "rss" : "web",
+      input.feedUrl ? "feed" : "site",
+      "Auto-discovered from coverage",
+      null,
+      colorFor(key),
+      1,
+      now,
+    );
+  const id = Number(inserted.lastInsertRowid);
+  db.prepare(
+    `INSERT INTO source_origins (source_id, seed_user_id, reason, weight)
+     VALUES (?, ?, ?, ?)`,
+  ).run(id, seedId, "explore", 20);
+  return id;
 }

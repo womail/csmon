@@ -1,6 +1,6 @@
 export type Platform = "bluesky" | "rss" | "web";
 export type SourceKind = "account" | "feed" | "site";
-export type OriginReason = "self" | "follow" | "mention" | "link";
+export type OriginReason = "self" | "follow" | "mention" | "link" | "intel" | "explore";
 
 export type SeedUser = {
   id: number;
@@ -43,6 +43,8 @@ export type Item = {
   author: string | null;
   publishedAt: number | null;
   tags: string[];
+  topics: string[];
+  locations: string[];
   fetchedAt: number;
 };
 
@@ -69,6 +71,8 @@ export type ScrapedItem = {
   author: string | null;
   publishedAt: number | null;
   tags: string[];
+  topics: string[];
+  locations: string[];
 };
 
 export type ScrapeResult = {
@@ -85,10 +89,23 @@ export type ScrapeResult = {
   items: ScrapedItem[];
 };
 
+export type SourceHint = {
+  host: string;
+  url: string;
+  count: number;
+  sample: string;
+  feedUrl: string | null;
+};
+
+import type { KevEntry } from "./kev";
+
 export type MonitorState = {
   users: SeedUser[];
   sources: Source[];
   items: Item[];
+  hints: SourceHint[];
+  kev: KevEntry[];
 };
 
 export type TimeRange = "1h" | "6h" | "24h" | "7d" | "all";
+export type ConsumeMode = "brief" | "scan" | "pulse" | "patch";

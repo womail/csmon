@@ -2,19 +2,102 @@
 
 import { Ago } from "@/components/monitor/ago";
 import { tagStyle } from "@/lib/colors";
+import type { Story } from "@/lib/cluster";
 import type { Item, Source } from "@/lib/types";
+
+export function StoryCard({
+  story,
+  sources,
+  onOpen,
+  onTopic,
+  onPlace,
+}: {
+  story: Story;
+  sources: Map<number, Source>;
+  onOpen: () => void;
+  onTopic: (topic: string) => void;
+  onPlace: (place: string) => void;
+}) {
+  return (
+    <article className="card-tile cursor-pointer" onClick={onOpen}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap gap-0.5">
+          {story.topics.slice(0, 3).map((topic) => {
+            const style = tagStyle(topic);
+            return (
+              <button
+                key={topic}
+                type="button"
+                className="tag"
+                style={{ background: style.bg, color: style.fg }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onTopic(topic);
+                }}
+              >
+                {topic}
+              </button>
+            );
+          })}
+          {story.locations.slice(0, 2).map((place) => (
+            <button
+              key={place}
+              type="button"
+              className="tag"
+              style={{ background: "#ecfeff", color: "#0e7490" }}
+              onClick={(event) => {
+                event.stopPropagation();
+                onPlace(place);
+              }}
+            >
+              {place}
+            </button>
+          ))}
+        </div>
+        <Ago ts={story.latestAt} className="shrink-0 text-[10px] text-slate-400" />
+      </div>
+      <p className="mt-1.5 line-clamp-4 text-[12.5px] leading-[1.35] font-medium text-slate-800">
+        {story.title}
+      </p>
+      {story.summary ? (
+        <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-slate-500">{story.summary}</p>
+      ) : null}
+      <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-slate-500">
+        <span className="flex -space-x-0.5">
+          {story.sourceIds.slice(0, 4).map((id) => (
+            <span
+              key={id}
+              className="inline-block size-1.5 rounded-full ring-1 ring-white"
+              style={{ background: sources.get(id)?.color ?? "#94a3b8" }}
+            />
+          ))}
+        </span>
+        <span className="truncate">
+          {story.sourceIds.length > 1
+            ? `${story.sourceIds.length} sources`
+            : sources.get(story.sourceIds[0])?.name ?? "source"}
+        </span>
+      </div>
+    </article>
+  );
+}
 
 export function ItemCard({
   item,
   source,
   onTag,
+  onOpen,
 }: {
   item: Item;
   source?: Source;
   onTag: (tag: string) => void;
+  onOpen?: () => void;
 }) {
   return (
-    <article className="card-tile">
+    <article
+      className={`card-tile ${onOpen ? "cursor-pointer" : ""}`}
+      onClick={onOpen}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-wrap gap-0.5">
           {item.tags.map((tag) => {
@@ -25,7 +108,10 @@ export function ItemCard({
                 type="button"
                 className="tag"
                 style={{ background: style.bg, color: style.fg }}
-                onClick={() => onTag(tag)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onTag(tag);
+                }}
               >
                 {tag}
               </button>
@@ -37,12 +123,7 @@ export function ItemCard({
           className="shrink-0 text-[10px] text-slate-400"
         />
       </div>
-      <a
-        href={item.url}
-        target="_blank"
-        rel="noreferrer"
-        className="mt-1.5 block no-underline"
-      >
+      <div className="mt-1.5">
         <p className="line-clamp-4 text-[12.5px] leading-[1.35] font-medium text-slate-800">
           {item.title}
         </p>
@@ -51,7 +132,7 @@ export function ItemCard({
             {item.summary}
           </p>
         ) : null}
-      </a>
+      </div>
       <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-slate-500">
         <span
           className="inline-block size-1.5 rounded-full"

@@ -65,31 +65,43 @@ const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS idx_items_source ON items(source_id);
     `,
   },
+  {
+    name: "003_kev",
+    sql: `
+      CREATE TABLE IF NOT EXISTS kev (
+        cve_id TEXT PRIMARY KEY,
+        vendor TEXT NOT NULL,
+        product TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        date_added INTEGER,
+        due_date INTEGER,
+        ransomware INTEGER NOT NULL DEFAULT 0,
+        required_action TEXT,
+        notes TEXT,
+        fetched_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_kev_due ON kev(due_date);
+      CREATE INDEX IF NOT EXISTS idx_kev_ransomware ON kev(ransomware);
+    `,
+  },
 ];
 
 const globalForDb = globalThis as unknown as { csmonDb?: DatabaseSync };
 
-export function getDb() {
-  if (globalForDb.csmonDb) return globalForDb.csmonDb;
-
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-  const db = new DatabaseSync(DB_PATH);
-  db.exec("PRAGMA journal_mode = WAL");
-  db.exec("PRAGMA foreign_keys = ON");
+function applyMigrations(db: DatabaseSync) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS _migrations (
       name TEXT PRIMARY KEY,
       applied_at INTEGER NOT NULL
     );
   `);
-
   const applied = new Set(
     db
       .prepare("SELECT name FROM _migrations")
       .all()
       .map((row) => String((row as { name: string }).name)),
   );
-
   for (const migration of MIGRATIONS) {
     if (applied.has(migration.name)) continue;
     db.exec(migration.sql);
@@ -98,7 +110,19 @@ export function getDb() {
       Date.now(),
     );
   }
+}
 
+export function getDb() {
+  if (globalForDb.csmonDb) {
+    applyMigrations(globalForDb.csmonDb);
+    return globalForDb.csmonDb;
+  }
+
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+  const db = new DatabaseSync(DB_PATH);
+  db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA foreign_keys = ON");
+  applyMigrations(db);
   globalForDb.csmonDb = db;
   return db;
 }

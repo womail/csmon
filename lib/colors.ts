@@ -26,9 +26,14 @@ export const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
   climate: { bg: "#ccfbf1", fg: "#0f766e" },
   politics: { bg: "#fef9c3", fg: "#a16207" },
   science: { bg: "#e0f2fe", fg: "#0369a1" },
+  energy: { bg: "#fce7f3", fg: "#be185d" },
+  health: { bg: "#d1fae5", fg: "#047857" },
+  diplomacy: { bg: "#e0e7ff", fg: "#4338ca" },
+  disaster: { bg: "#ffe4e6", fg: "#9f1239" },
   world: { bg: "#e2e8f0", fg: "#334155" },
+  place: { bg: "#ecfeff", fg: "#0e7490" },
 };
 
 export function tagStyle(tag: string) {
-  return TAG_COLORS[tag] ?? { bg: "#f1f5f9", fg: "#475569" };
+  return TAG_COLORS[tag] ?? TAG_COLORS.place;
 }

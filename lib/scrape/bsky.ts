@@ -1,4 +1,4 @@
-import { classifyText } from "../tags";
+import { classifyItem } from "../classify";
 import { fetchJson } from "../http";
 import type { DiscoveredSource, ScrapeResult, ScrapedItem } from "../types";
 
@@ -50,6 +50,7 @@ function asItem(post: BskyFeed["feed"][number]["post"]): ScrapedItem {
     .replace(/\s+/g, " ")
     .slice(0, 220);
   const summary = post.embed?.external?.description || post.record.embed?.external?.description || null;
+  const classified = classifyItem(title, `${summary ?? ""} ${text}`);
   return {
     externalId: post.uri,
     title,
@@ -57,7 +58,9 @@ function asItem(post: BskyFeed["feed"][number]["post"]): ScrapedItem {
     url: postUrl(post.author.handle, post.uri),
     author: post.author.displayName || post.author.handle,
     publishedAt: post.record.createdAt ? Date.parse(post.record.createdAt) : null,
-    tags: classifyText(`${title} ${summary ?? ""} ${text}`),
+    tags: classified.tags,
+    topics: classified.topics,
+    locations: classified.locations,
   };
 }
 

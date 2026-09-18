@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 import Parser from "rss-parser";
-import { classifyText } from "../tags";
+import { classifyItem } from "../classify";
 import { fetchText, UA } from "../http";
 import type { DiscoveredSource, ScrapeResult, ScrapedItem } from "../types";
 
@@ -18,6 +18,7 @@ function asItems(feed: Parser.Output<Parser.Item>, fallbackUrl: string): Scraped
     const title = (item.title || item.contentSnippet || "Untitled").replace(/\s+/g, " ").slice(0, 220);
     const summary = (item.contentSnippet || item.content || "").replace(/<[^>]+>/g, "").slice(0, 280) || null;
     const url = item.link || fallbackUrl;
+    const classified = classifyItem(title, summary);
     return {
       externalId: item.guid || item.link || `${fallbackUrl}#${index}`,
       title,
@@ -25,7 +26,9 @@ function asItems(feed: Parser.Output<Parser.Item>, fallbackUrl: string): Scraped
       url,
       author: item.creator || feed.title || null,
       publishedAt: item.isoDate ? Date.parse(item.isoDate) : item.pubDate ? Date.parse(item.pubDate) : null,
-      tags: classifyText(`${title} ${summary ?? ""}`),
+      tags: classified.tags,
+      topics: classified.topics,
+      locations: classified.locations,
     };
   });
 }
