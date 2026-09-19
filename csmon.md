@@ -6,9 +6,9 @@ Navigation is desks, not a firehose. Filters live in the URL so a view can be bo
 
 Maps are their own panes, never a background under copy. Every map has zoom controls and a pop-out. Country fills are Natural Earth 110m with atlas-style tints; Flights uses Esri World Street Map (political countries and cities) plus heading-aware top-down plane icons instead of dots.
 
-Click a **source** (Home top sources, a card chip, or Sources) to drill into that layer: a source dossier lists its items even if other chips would have hidden them. CISA and similar feeds no longer go blank because a leftover topic filter was still on.
+Click a **source** (Home top sources, a card chip, or Sources) to drill into that layer: a source dossier lists its items even if other chips would have hidden them. Source chips are tag-sized like topics: short names, thin padding, wrapping onto extra lines instead of one fat pill. CISA and similar feeds no longer go blank because a leftover topic filter was still on.
 
-Click a **map place** (a city/country dot, or a country fill) to open a place dossier: stories, topics, and sources that mention that location. London and UK share a family so the London-area pin still shows British coverage even when older items were tagged only as UK.
+Click a **map place** (a city/country dot, or a country fill) to open a place dossier: stories, topics, and sources that mention that location. London and UK share a family so the London-area pin still shows British coverage even when older items were tagged only as UK. Shipping chokepoints (Hormuz, Malacca, Suez, Panama, Bab el-Mandeb, Gibraltar, Bosporus) are tagged the same way when they appear in copy.
 
 ## How to consume
 
@@ -68,7 +68,7 @@ Source (layer, origin, freshness)
   Story ─KEV─ catalog row when a CVE is on both
   Story ─map─ geocoded places + USGS quake points + public ADS-B
   Place (city/country) ─mentioned─ Item / Story
-  Person (author) ─wrote─ Item
+  Person (author or named figure) ─wrote/mentioned─ Item
   Document (PDF / report / advisory) ─cited─ Story
 ```
 
@@ -92,13 +92,15 @@ CISA KEV is the exploited-in-the-wild catalog. That is the patch list; CVSS-only
 
 Type your stack (`microsoft, openssl, chrome, apache`) to hide vulns that do not match vendor/product. Vendor chips and the ransomware toggle further slice both KEV and advisory copy.
 
-NVD link opens in the reader pane. **KEV** button refreshes the catalog (cached 1h). **RSS** adds a public feed or discovers one from a site. **Options** stores default desk, range, stack, compact layout, home language, home location, auto-translate, and auto-load of security RSS / hazards / KEV.
+NVD link opens in the reader pane. **KEV** button refreshes the catalog (cached 1h). **RSS** adds a public feed or discovers one from a site. **Options** stores default desk, range, stack, compact layout, home language, home location, **light/dark palette**, auto-translate, and auto-load of security RSS / hazards / KEV. A **Dark / Light** toggle in the header switches the palette immediately.
 
-**Load world RSS** includes DW, France 24, and Sky News. Relief adds GDACS and OCHA. **Load security RSS** includes CISA, CISA ICS, Krebs, BleepingComputer, The Record, NCSC UK, Schneier, Bellingcat, CFR, The Hacker News, Dark Reading, MSRC, CERT-EU. **Load hazards** includes USGS (significant + M4.5+), NWS CAP alerts, NHC Atlantic, Met Éireann, Met Office UK, GDACS, Crisis Group.
+**Load world RSS** includes DW, France 24, and Sky News. Relief adds GDACS and OCHA. **Load security RSS** includes CISA, CISA ICS, Krebs, BleepingComputer, The Record, NCSC UK, Schneier, Bellingcat, CFR, CSIS, Brookings, Defense One, War on the Rocks, Breaking Defense, The War Zone, The Diplomat, Al-Monitor, DoD news, The Hacker News, Dark Reading, MSRC, CERT-EU. **Load tech RSS** includes Hacker News, Ars Technica, The Verge, MIT Tech Review, arXiv cs.AI, OpenAI news. **Load markets RSS** includes CNBC, MarketWatch, BBC Business, White House, Federal Reserve, SEC. **Load sports RSS** includes BBC Sport, BBC Football, Guardian Sport, ESPN, NYT Sports, and Sky Sports. **Load hazards** includes USGS (significant + M4.5+), NWS CAP alerts, NHC Atlantic, Met Éireann, Met Office UK, GDACS, Crisis Group.
 
 This is not an asset inventory. It tells you what is being exploited and how soon CISA expects a fix; you still map that to the software you actually run.
 
-Public APIs and RSS only. No recon scanners or unauthorized probing. Maps use Natural Earth country polygons, Esri World Street Map tiles on Flights, geocoded places, USGS GeoJSON, weather warning feeds, and OpenSky ADS-B (cached ~20s, 100 km around home). Aircraft drill-in uses HexDb metadata plus public globe links. This is not Osiris RECON and not a targeting tool.
+Public APIs and RSS only. No recon scanners or unauthorized probing. Maps use Natural Earth country polygons, Esri World Street Map (light) or Dark Gray Canvas (dark) on Flights, geocoded places, USGS GeoJSON, weather warning feeds, and OpenSky ADS-B (cached ~20s, 100 km around home). Aircraft drill-in uses HexDb metadata plus public globe links. This is not Osiris RECON and not a targeting tool.
+
+Public feed lists were expanded from [situation-monitor](https://github.com/hipcityreg/situation-monitor) config (tech, markets, think-tank/defense RSS). We did not take Finnhub/FRED keys, CORS proxies, or military-site overlays.
 
 ## What we take from Osiris (osirisai.live)
 
@@ -108,7 +110,7 @@ We reuse the **upstream public sources** (CISA, USGS-style RSS, vendor advisorie
 
 ## Options
 
-Browser-local (`localStorage` `csmon.options`): start desk, time range, stack, compact cards, home language, auto-translate, **home location**, auto-load security RSS, auto-load hazards, auto-load KEV. Shared links still override via the query string.
+Browser-local (`localStorage` `csmon.options`): start desk, time range, stack, compact cards, home language, auto-translate, **home location**, **palette** (`light` / `dark`, follows the OS until you toggle), auto-load security RSS, auto-load hazards, auto-load KEV. Shared links still override via the query string.
 
 Saved custom filters live in `csmon.saved-filters` (name + full `BoardFilters` snapshot). User desks live in `csmon.user-desks`. Applying either writes the URL the same way chips do. Hide/read triage is `csmon.triage`; Follow next collapse is `csmon.follow-open`.
 

@@ -74,7 +74,7 @@ export function DeskRail({
           <Tip key={item.id} text={`${item.label}: ${item.hint}`}>
             <div
               className={`mx-2 mb-0.5 flex items-start gap-1 rounded-md ${
-                active ? "bg-slate-900 text-white" : "text-slate-600"
+                active ? "bg-foreground text-background" : "text-slate-600"
               }`}
             >
               <button
@@ -92,12 +92,12 @@ export function DeskRail({
                   <span className="flex items-baseline justify-between gap-1">
                     <span className="text-[12px] font-medium">{item.label}</span>
                     {count != null ? (
-                      <span className={`text-[10px] ${active ? "text-slate-300" : "text-slate-400"}`}>
+                      <span className={`text-[10px] ${active ? "opacity-70" : "text-slate-400"}`}>
                         {count}
                       </span>
                     ) : null}
                   </span>
-                  <span className={`block text-[10px] ${active ? "text-slate-300" : "text-slate-400"}`}>
+                  <span className={`block text-[10px] ${active ? "opacity-70" : "text-slate-400"}`}>
                     {item.hint}
                   </span>
                 </span>
@@ -105,7 +105,7 @@ export function DeskRail({
               {!isBuiltinDesk(item.id) && onDeleteDesk ? (
                 <button
                   type="button"
-                  className={`px-1 py-1 text-[10px] ${active ? "text-slate-300" : "text-slate-400"}`}
+                  className={`px-1 py-1 text-[10px] ${active ? "opacity-70" : "text-slate-400"}`}
                   onClick={() => onDeleteDesk(item.id)}
                 >
                   ×

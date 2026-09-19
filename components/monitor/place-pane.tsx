@@ -2,6 +2,7 @@
 
 import { MapPin } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
+import { SourceChip } from "@/components/monitor/cards";
 import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
 import { tagStyle } from "@/lib/colors";
@@ -98,19 +99,17 @@ export function PlacePane({
             <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
               Sources reporting here
             </div>
-            <div className="mt-1 flex flex-wrap gap-1">
+            <div className="mt-1 flex flex-wrap content-start gap-1">
               {sourceRows.map(({ source, count }) =>
                 source ? (
-                  <Tip key={source.id} text={`Open ${source.name}`}>
-                    <button
-                      type="button"
-                      className="source-chip rounded-full bg-slate-100 px-2 py-0.5"
-                      onClick={() => onSource(source.id)}
-                    >
-                      <span className="source-chip-dot" style={{ background: source.color }} />
-                      {source.name} {count}
-                    </button>
-                  </Tip>
+                  <SourceChip
+                    key={source.id}
+                    name={source.name}
+                    color={source.color}
+                    count={count}
+                    filled
+                    onClick={() => onSource(source.id)}
+                  />
                 ) : null,
               )}
             </div>

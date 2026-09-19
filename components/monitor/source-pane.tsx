@@ -4,6 +4,7 @@ import { ExternalLink, Rss } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
 import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
+import { shortSourceName } from "@/lib/source-label";
 import type { Item, Source } from "@/lib/types";
 
 export function SourcePane({
@@ -30,7 +31,7 @@ export function SourcePane({
           </div>
           <div className="flex items-center gap-1.5 text-[15px] font-semibold text-slate-900">
             <span className="size-2 shrink-0 rounded-full" style={{ background: source.color }} />
-            <span className="truncate">{source.name}</span>
+            <span className="leading-snug">{shortSourceName(source.name)}</span>
           </div>
           <div className="text-[11px] text-slate-500">
             {source.platform} · {source.kind}

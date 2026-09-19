@@ -35,6 +35,9 @@ export const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
   quake: { bg: "#ffedd5", fg: "#c2410c" },
   war: { bg: "#fee2e2", fg: "#991b1b" },
   unrest: { bg: "#ede9fe", fg: "#6d28d9" },
+  nuclear: { bg: "#fef3c7", fg: "#b45309" },
+  defense: { bg: "#e2e8f0", fg: "#1e3a5f" },
+  sports: { bg: "#ecfccb", fg: "#3f6212" },
   world: { bg: "#e2e8f0", fg: "#334155" },
   place: { bg: "#ecfeff", fg: "#0e7490" },
 };

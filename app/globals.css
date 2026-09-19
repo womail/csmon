@@ -49,6 +49,7 @@
 }
 
 :root {
+  color-scheme: light;
   --background: #e6e8ee;
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -84,6 +85,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -147,22 +149,25 @@
 .card-tile {
   display: block;
   border-radius: 9px;
-  border: 1px solid #e2e5eb;
-  background: #fff;
+  border: 1px solid var(--border);
+  background: var(--card);
   padding: 10px 12px;
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
 }
 
 .card-tile:hover {
-  border-color: #c5ccd8;
+  border-color: color-mix(in oklch, var(--border), var(--foreground) 18%);
   box-shadow: 0 2px 6px rgb(15 23 42 / 0.06);
 }
 
-.card-tile:has(.map-panel) {
-  padding: 0;
+.card-tile.source-layer-card {
+  padding: 7px 9px;
 }
 
 .tag {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
   border-radius: 3px;
   padding: 2px 6px;
   font-size: 9.5px;
@@ -170,33 +175,66 @@
   letter-spacing: 0.04em;
   line-height: 1.4;
   text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 .source-chip {
   display: inline-flex;
+  max-width: 11.5rem;
   min-width: 0;
-  max-width: 100%;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
   padding: 0;
   border: 0;
   background: transparent;
-  color: #64748b;
+  color: var(--muted-foreground);
   font-size: 10.5px;
   line-height: 1.3;
+  text-align: left;
   cursor: pointer;
 }
 
+.source-chip-fill {
+  align-items: center;
+  gap: 4px;
+  border-radius: 3px;
+  padding: 2px 6px;
+  background: var(--muted);
+  color: var(--foreground);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .source-chip:hover {
-  color: #334155;
+  color: var(--foreground);
   text-decoration: underline;
 }
 
+.source-chip-active {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.source-chip-active:hover {
+  background: var(--foreground);
+}
+
 .source-chip-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   flex-shrink: 0;
+  margin-top: 0;
   border-radius: 999px;
+}
+
+.source-chip-label {
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .origin-badge {
@@ -204,8 +242,8 @@
   align-items: center;
   border-radius: 3px;
   padding: 2px 6px;
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--muted);
+  color: var(--muted-foreground);
   font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.03em;
@@ -215,7 +253,7 @@
 .card-cue {
   font-size: 10px;
   line-height: 1.3;
-  color: #94a3b8;
+  color: var(--muted-foreground);
 }
 
 .tip {
@@ -235,8 +273,8 @@
   transform: translateX(-50%);
   padding: 4px 7px;
   border-radius: 4px;
-  background: #0f172a;
-  color: #f8fafc;
+  background: var(--foreground);
+  color: var(--background);
   font-size: 10px;
   line-height: 1.35;
   pointer-events: none;
@@ -255,7 +293,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #fff;
+  background: var(--card);
 }
 
 .map-toolbar {
@@ -264,8 +302,8 @@
   justify-content: space-between;
   gap: 8px;
   padding: 8px 10px;
-  border-bottom: 1px solid #e2e5eb;
-  background: #fff;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
 }
 
 .map-tool {
@@ -274,13 +312,13 @@
   width: 28px;
   height: 28px;
   border-radius: 6px;
-  border: 1px solid #e2e5eb;
-  color: #334155;
-  background: #fff;
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  background: var(--card);
 }
 
 .map-tool:hover:not(:disabled) {
-  background: #f8fafc;
+  background: var(--muted);
 }
 
 .map-tool:disabled {
@@ -356,7 +394,7 @@
   height: min(80vh, 760px);
   overflow: hidden;
   border-radius: 10px;
-  background: #fff;
+  background: var(--card);
   box-shadow: 0 20px 50px rgb(15 23 42 / 0.25);
 }
 
@@ -383,4 +421,50 @@
 .aircraft-icon.is-active .aircraft-rot svg {
   fill: #0f172a;
   stroke: #fde68a;
+}
+
+html.dark .bg-white {
+  background-color: var(--card) !important;
+}
+html.dark .bg-slate-50 {
+  background-color: var(--background) !important;
+}
+html.dark .bg-slate-100 {
+  background-color: var(--muted) !important;
+}
+html.dark .border-slate-200,
+html.dark .border-slate-100 {
+  border-color: var(--border) !important;
+}
+html.dark .text-slate-800,
+html.dark .text-slate-700 {
+  color: var(--foreground) !important;
+}
+html.dark .text-slate-600,
+html.dark .text-slate-500,
+html.dark .text-slate-400 {
+  color: var(--muted-foreground) !important;
+}
+html.dark .hover\:bg-slate-50:hover {
+  background-color: var(--muted) !important;
+}
+html.dark .leaflet-container {
+  background: #1e293b !important;
+}
+html.dark .geo-map-frame,
+html.dark .geo-map-canvas,
+html.dark .geo-map-skeleton {
+  background: #1e293b;
+}
+html.dark .country-name span {
+  color: #f8fafc;
+  text-shadow: 0 0 4px #0f172a, 0 0 8px #0f172a, 0 1px 0 #0f172a;
+}
+html.dark .leaflet-control-zoom {
+  border-color: var(--border) !important;
+}
+html.dark select {
+  background-color: var(--card);
+  color: var(--foreground);
+  border-color: var(--border);
 }

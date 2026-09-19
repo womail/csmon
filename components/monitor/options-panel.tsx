@@ -139,6 +139,19 @@ export function OptionsButton({
                 placeholder="microsoft, linux, openssl, chrome"
               />
             </label>
+            <label className="block text-[11px] font-medium text-slate-600">
+              Palette
+              <select
+                className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-[12px]"
+                value={options.palette}
+                onChange={(e) =>
+                  setOptions((o) => ({ ...o, palette: e.target.value as UserOptions["palette"] }))
+                }
+              >
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
             <label className="flex items-center gap-2 text-[12px] text-slate-700">
               <input
                 type="checkbox"

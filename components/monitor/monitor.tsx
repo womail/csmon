@@ -23,6 +23,7 @@ import { OptionsButton } from "@/components/monitor/options-panel";
 import { ReaderPane } from "@/components/monitor/reader";
 import { SavedFilters } from "@/components/monitor/saved-filters";
 import { ScrapeDialog } from "@/components/monitor/scrape-dialog";
+import { ThemeToggle } from "@/components/monitor/theme-toggle";
 import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +40,8 @@ import { matchesLane, type SituationLane } from "@/lib/lanes";
 import { kevForStory, itemsForCve, relatedStories, similarStories } from "@/lib/link";
 import { isAdvisoryItem, itemHasVendor, matchVendorName, mineItem, vendorFamily } from "@/lib/mine";
 import { loadOptions, saveOptions } from "@/lib/options";
+import { applyPalette } from "@/lib/theme";
+import { shortSourceName } from "@/lib/source-label";
 import { itemHasPerson, peopleFromItems } from "@/lib/people";
 import { isCountry, itemHasPlace, resolvePlace } from "@/lib/places";
 import type { QuakeEvent } from "@/lib/quakes";
@@ -57,6 +60,7 @@ import {
   type TriageUndo,
 } from "@/lib/triage";
 import type { Desk, DiscoveredSource, Item, MonitorState, OriginReason, TimeRange } from "@/lib/types";
+import type { IntelPack } from "@/lib/intel-feeds";
 import type { WeatherEvent } from "@/lib/weather";
 import {
   createUserDesk,
@@ -68,6 +72,7 @@ import {
 
 const STACK_CHIPS = [
   { label: "AI", kind: "topic" as const, value: "ai" },
+  { label: "Sports", kind: "topic" as const, value: "sports" },
   { label: "Microsoft", kind: "vendor" as const, value: "Microsoft" },
   { label: "Linux", kind: "vendor" as const, value: "Linux" },
   { label: "Oracle", kind: "vendor" as const, value: "Oracle" },
@@ -177,6 +182,7 @@ export function Monitor({
   useEffect(() => {
     setCustomDesks(loadUserDesks());
     const opts = loadOptions();
+    applyPalette(opts.palette);
     setCompact(opts.compact);
     setHomeLanguage(opts.homeLanguage);
     setAutoTranslate(opts.autoTranslate);
@@ -491,7 +497,7 @@ export function Monitor({
     }
   }
 
-  async function loadIntel(pack: "core" | "security" | "hazard" | "relief") {
+  async function loadIntel(pack: IntelPack) {
     setBusy(true);
     try {
       setState(
@@ -952,7 +958,7 @@ export function Monitor({
                   type="button"
                   onClick={() => setRange(r)}
                   className={`rounded px-1.5 py-0.5 text-[11px] ${
-                    range === r ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                    range === r ? "bg-background text-foreground shadow-sm" : "text-slate-500"
                   }`}
                 >
                   {r}
@@ -972,6 +978,7 @@ export function Monitor({
               </Button>
             </Tip>
             <SavedFilters current={currentFilters} onApply={applyFilters} />
+            <ThemeToggle />
             <OptionsButton
               onApply={(options) => {
                 setCompact(options.compact);
@@ -1009,7 +1016,7 @@ export function Monitor({
                       ? `${documents.length} reports and advisories`
                   : brief}
           </div>
-          <div className="flex items-center gap-2 overflow-x-auto px-3 pb-2">
+          <div className="flex flex-wrap content-start gap-1 px-3 pb-2">
             {layer ? (
               <button
                 type="button"
@@ -1017,16 +1024,18 @@ export function Monitor({
                   setLayer(null);
                   setOpenSourceId(null);
                 }}
-                className="rounded-full bg-slate-900 px-2 py-0.5 text-[11px] text-white"
+                className="tag"
+                style={{ background: "#0f172a", color: "#fff" }}
               >
-                {byId.get(layer)?.name ?? "layer"} ×
+                {shortSourceName(byId.get(layer)?.name ?? "layer")} ×
               </button>
             ) : null}
             {place ? (
               <button
                 type="button"
                 onClick={() => setPlace(null)}
-                className="rounded-full bg-cyan-800 px-2 py-0.5 text-[11px] text-white"
+                className="tag"
+                style={{ background: "#0e7490", color: "#fff" }}
               >
                 {place} ×
               </button>
@@ -1035,7 +1044,8 @@ export function Monitor({
               <button
                 type="button"
                 onClick={() => setPerson(null)}
-                className="rounded-full bg-violet-800 px-2 py-0.5 text-[11px] text-white"
+                className="tag"
+                style={{ background: "#6d28d9", color: "#fff" }}
               >
                 {person} ×
               </button>
@@ -1044,7 +1054,8 @@ export function Monitor({
               <button
                 type="button"
                 onClick={() => setVendor(null)}
-                className="rounded-full bg-red-800 px-2 py-0.5 text-[11px] text-white"
+                className="tag"
+                style={{ background: "#9f1239", color: "#fff" }}
               >
                 {vendor} ×
               </button>
@@ -1054,9 +1065,10 @@ export function Monitor({
                 <button
                   type="button"
                   onClick={() => applyTriage(undoTriage(triage, triageUndo))}
-                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700"
+                  className="tag inline-flex items-center gap-0.5"
+                  style={{ background: "#f1f5f9", color: "#334155" }}
                 >
-                  <Undo2 className="size-3" />
+                  <Undo2 className="size-2.5" />
                   Undo
                 </button>
               </Tip>
@@ -1068,9 +1080,11 @@ export function Monitor({
                     key={id}
                     type="button"
                     onClick={() => setRiskFilter(id)}
-                    className={`rounded-full px-2 py-0.5 text-[11px] ${
-                      riskFilter === id ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"
-                    }`}
+                    className="tag"
+                    style={{
+                      background: riskFilter === id ? "#0f172a" : "#f1f5f9",
+                      color: riskFilter === id ? "#fff" : "#475569",
+                    }}
                   >
                     {id === "all" ? "all" : RISK_LABEL[id]}
                   </button>
@@ -1078,9 +1092,11 @@ export function Monitor({
                 <button
                   type="button"
                   onClick={() => setRansomware((v) => !v)}
-                  className={`rounded-full px-2 py-0.5 text-[11px] ${
-                    ransomware ? "bg-rose-800 text-white" : "bg-rose-50 text-rose-800"
-                  }`}
+                  className="tag"
+                  style={{
+                    background: ransomware ? "#9f1239" : "#ffe4e6",
+                    color: ransomware ? "#fff" : "#9f1239",
+                  }}
                 >
                   ransomware
                 </button>
@@ -1103,18 +1119,22 @@ export function Monitor({
                 <button
                   type="button"
                   onClick={() => setCross((v) => !v)}
-                  className={`rounded-full px-2 py-0.5 text-[11px] ${
-                    cross ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"
-                  }`}
+                  className="tag"
+                  style={{
+                    background: cross ? "#0f172a" : "#f1f5f9",
+                    color: cross ? "#fff" : "#475569",
+                  }}
                 >
                   2+ sources
                 </button>
                 <button
                   type="button"
                   onClick={() => setRansomware((v) => !v)}
-                  className={`rounded-full px-2 py-0.5 text-[11px] ${
-                    ransomware ? "bg-rose-800 text-white" : "bg-rose-50 text-rose-800"
-                  }`}
+                  className="tag"
+                  style={{
+                    background: ransomware ? "#9f1239" : "#ffe4e6",
+                    color: ransomware ? "#fff" : "#9f1239",
+                  }}
                 >
                   ransomware
                 </button>
@@ -1123,9 +1143,11 @@ export function Monitor({
                     key={id}
                     type="button"
                     onClick={() => setOrigin((current) => (current === id ? null : id))}
-                    className={`rounded-full px-2 py-0.5 text-[11px] ${
-                      origin === id ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"
-                    }`}
+                    className="tag"
+                    style={{
+                      background: origin === id ? "#0f172a" : "#f1f5f9",
+                      color: origin === id ? "#fff" : "#475569",
+                    }}
                   >
                     {id}
                   </button>
@@ -1133,6 +1155,7 @@ export function Monitor({
                 {STACK_CHIPS.map((chip) => {
                   const active =
                     chip.kind === "topic" ? topic === chip.value : vendor === chip.value;
+                  const style = tagStyle(chip.kind === "topic" ? chip.value : "cyber");
                   return (
                     <Tip key={chip.label} text={`Filter to ${chip.label}`}>
                       <button
@@ -1140,85 +1163,113 @@ export function Monitor({
                         onClick={() =>
                           chip.kind === "topic" ? toggleTopic(chip.value) : toggleVendor(chip.value)
                         }
-                        className={`rounded-full px-2 py-0.5 text-[11px] ${
-                          active ? "bg-slate-900 text-white" : "bg-fuchsia-50 text-fuchsia-900"
-                        }`}
+                        className="tag"
+                        style={{
+                          background: active ? style.fg : style.bg,
+                          color: active ? "#fff" : style.fg,
+                        }}
                       >
                         {chip.label}
                       </button>
                     </Tip>
                   );
                 })}
-                {(desk === "home" ? catalogTopics : topics).slice(0, 10).map(([name, count]) => (
-                  <Tip key={name} text={topic === name ? `Clear ${name}` : `Filter this desk to ${name}`}>
+                {(desk === "home" ? catalogTopics : topics).slice(0, 10).map(([name, count]) => {
+                  const style = tagStyle(name);
+                  const active = topic === name;
+                  return (
+                    <Tip key={name} text={active ? `Clear ${name}` : `Filter this desk to ${name}`}>
+                      <button
+                        type="button"
+                        onClick={() => toggleTopic(name)}
+                        className="tag"
+                        style={{
+                          background: active ? style.fg : style.bg,
+                          color: active ? "#fff" : style.fg,
+                        }}
+                      >
+                        {name} {count}
+                      </button>
+                    </Tip>
+                  );
+                })}
+                {places
+                  .filter(([name]) => isCountry(name))
+                  .slice(0, 8)
+                  .map(([name, count]) => {
+                    const style = tagStyle("place");
+                    const active = place === name;
+                    return (
+                      <button
+                        key={`country-${name}`}
+                        type="button"
+                        onClick={() => focusPlace(name)}
+                        className="tag"
+                        style={{
+                          background: active ? style.fg : style.bg,
+                          color: active ? "#fff" : style.fg,
+                        }}
+                      >
+                        {name} {count}
+                      </button>
+                    );
+                  })}
+                {places
+                  .filter(([name]) => !isCountry(name))
+                  .slice(0, 5)
+                  .map(([name, count]) => {
+                    const style = tagStyle("place");
+                    const active = place === name;
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => focusPlace(name)}
+                        className="tag"
+                        style={{
+                          background: active ? style.fg : style.bg,
+                          color: active ? "#fff" : style.fg,
+                        }}
+                      >
+                        {name} {count}
+                      </button>
+                    );
+                  })}
+                {vendors.slice(0, 6).map(([name, count]) => {
+                  const active = vendor === name;
+                  return (
                     <button
+                      key={name}
                       type="button"
-                      onClick={() => toggleTopic(name)}
-                      className="rounded-full px-2 py-0.5 text-[11px]"
+                      onClick={() => toggleVendor(name)}
+                      className="tag"
                       style={{
-                        background: topic === name ? tagStyle(name).fg : tagStyle(name).bg,
-                        color: topic === name ? "#fff" : tagStyle(name).fg,
+                        background: active ? "#9f1239" : "#fee2e2",
+                        color: active ? "#fff" : "#9f1239",
                       }}
                     >
                       {name} {count}
                     </button>
-                  </Tip>
-                ))}
-                {places
-                  .filter(([name]) => isCountry(name))
-                  .slice(0, 8)
-                  .map(([name, count]) => (
-                    <button
-                      key={`country-${name}`}
-                      type="button"
-                      onClick={() => focusPlace(name)}
-                      className={`rounded-full px-2 py-0.5 text-[11px] ${
-                        place === name ? "bg-cyan-800 text-white" : "bg-cyan-50 text-cyan-800"
-                      }`}
-                    >
-                      {name} {count}
-                    </button>
-                  ))}
-                {places
-                  .filter(([name]) => !isCountry(name))
-                  .slice(0, 5)
-                  .map(([name, count]) => (
-                    <button
-                      key={name}
-                      type="button"
-                      onClick={() => focusPlace(name)}
-                      className={`rounded-full px-2 py-0.5 text-[11px] ${
-                        place === name ? "bg-teal-800 text-white" : "bg-teal-50 text-teal-800"
-                      }`}
-                    >
-                      {name} {count}
-                    </button>
-                  ))}
-                {vendors.slice(0, 6).map(([name, count]) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => toggleVendor(name)}
-                    className={`rounded-full px-2 py-0.5 text-[11px] ${
-                      vendor === name ? "bg-red-800 text-white" : "bg-red-50 text-red-800"
-                    }`}
-                  >
-                    {name} {count}
-                  </button>
-                ))}
-                {peopleCatalog.slice(0, 5).map((row) => (
-                  <Tip key={row.name} text={`Filter to ${row.name}`}>
-                    <button
-                      type="button"
-                      onClick={() => togglePerson(row.name)}
-                      className={`rounded-full px-2 py-0.5 text-[11px] ${
-                        person === row.name ? "bg-violet-800 text-white" : "bg-violet-50 text-violet-800"
-                      }`}
-                    >
-                      {row.name} {row.count}
-                    </button>
-                  </Tip>
-                ))}
+                  );
+                })}
+                {peopleCatalog.slice(0, 5).map((row) => {
+                  const active = person === row.name;
+                  return (
+                    <Tip key={row.name} text={`Filter to ${row.name}`}>
+                      <button
+                        type="button"
+                        onClick={() => togglePerson(row.name)}
+                        className="tag"
+                        style={{
+                          background: active ? "#6d28d9" : "#ede9fe",
+                          color: active ? "#fff" : "#6d28d9",
+                        }}
+                      >
+                        {row.name} {row.count}
+                      </button>
+                    </Tip>
+                  );
+                })}
               </>
             ) : (
               <>
@@ -1235,6 +1286,21 @@ export function Monitor({
                 <Tip text="USGS quakes, NWS/Met Office warnings, Crisis Group">
                   <Button size="xs" variant="outline" onClick={() => loadIntel("hazard")} disabled={busy}>
                     Hazard RSS
+                  </Button>
+                </Tip>
+                <Tip text="Hacker News, Ars, Verge, MIT Tech Review, arXiv AI">
+                  <Button size="xs" variant="outline" onClick={() => loadIntel("tech")} disabled={busy}>
+                    Tech RSS
+                  </Button>
+                </Tip>
+                <Tip text="CNBC, MarketWatch, BBC Business, Fed, SEC">
+                  <Button size="xs" variant="outline" onClick={() => loadIntel("markets")} disabled={busy}>
+                    Markets RSS
+                  </Button>
+                </Tip>
+                <Tip text="BBC Sport, Football, Guardian, ESPN, NYT, Sky">
+                  <Button size="xs" variant="outline" onClick={() => loadIntel("sports")} disabled={busy}>
+                    Sports RSS
                   </Button>
                 </Tip>
               </>
@@ -1255,7 +1321,7 @@ export function Monitor({
                   Brief clusters world coverage. Advisories and Patch are the cyber rail: public
                   RSS plus CISA KEV, filtered to vendor, stack, and ransomware.
                 </p>
-                <div className="mt-4 flex justify-center gap-2">
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
                   <Button size="sm" onClick={() => loadIntel("core")} disabled={busy}>
                     Load world RSS
                   </Button>
@@ -1264,6 +1330,15 @@ export function Monitor({
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => loadIntel("hazard")} disabled={busy}>
                     Load hazards
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => loadIntel("tech")} disabled={busy}>
+                    Load tech RSS
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => loadIntel("markets")} disabled={busy}>
+                    Load markets RSS
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => loadIntel("sports")} disabled={busy}>
+                    Load sports RSS
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => loadKev()} disabled={busy}>
                     Load KEV
@@ -1593,7 +1668,9 @@ export function Monitor({
                         style={{ background: source.color }}
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[12px] text-slate-800">{source.name}</span>
+                        <span className="block text-[11px] leading-snug font-medium text-slate-800">
+                          {shortSourceName(source.name)}
+                        </span>
                         <span className="block truncate text-[10px] text-slate-400">
                           {source.origins[0]?.reason ?? source.kind}
                         </span>

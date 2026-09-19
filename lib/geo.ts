@@ -67,6 +67,15 @@ export const PLACE_COORDS: GeoPoint[] = [
   { name: "New Zealand", lat: -41.3, lng: 174.8 },
   { name: "Florida", lat: 27.8, lng: -81.7 },
   { name: "Bangladesh", lat: 23.8, lng: 90.4 },
+  { name: "Singapore", lat: 1.35, lng: 103.82 },
+  { name: "Greenland", lat: 64.18, lng: -51.72 },
+  { name: "Hormuz", lat: 26.5, lng: 56.5 },
+  { name: "Malacca", lat: 2.5, lng: 101.0 },
+  { name: "Suez", lat: 30.0, lng: 32.5 },
+  { name: "Panama", lat: 9.1, lng: -79.7 },
+  { name: "Bab el-Mandeb", lat: 12.5, lng: 43.3 },
+  { name: "Gibraltar", lat: 36.0, lng: -5.5 },
+  { name: "Bosporus", lat: 41.1, lng: 29.0 },
 ];
 
 const BY_NAME = new Map(PLACE_COORDS.map((point) => [point.name.toLowerCase(), point]));

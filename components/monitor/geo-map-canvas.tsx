@@ -47,17 +47,32 @@ const COUNTRY_LABELS = [
 ];
 
 const ATLAS_FILL = ["#d7e4c8", "#f0dcc0", "#d4e0ef", "#ebd3d3", "#ddd4ea", "#cfe6df", "#efe3c4", "#d8d6c4"];
+const ATLAS_FILL_DARK = ["#314236", "#3d3428", "#2c3644", "#3a2c2c", "#332e40", "#2a3c38", "#3a3424", "#34342c"];
+
+function useDark() {
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    const root = document.documentElement;
+    const sync = () => setDark(root.classList.contains("dark"));
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+  return dark;
+}
 
 function countryName(properties: GeoJSON.GeoJsonProperties) {
   if (!properties) return "";
   return String(properties.NAME || properties.ADMIN || properties.SOVEREIGNT || "");
 }
 
-function countryFill(properties: GeoJSON.GeoJsonProperties) {
+function countryFill(properties: GeoJSON.GeoJsonProperties, dark = false) {
   const name = countryName(properties);
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  return ATLAS_FILL[hash % ATLAS_FILL.length];
+  const palette = dark ? ATLAS_FILL_DARK : ATLAS_FILL;
+  return palette[hash % palette.length];
 }
 
 function planeIcon(heading: number | null | undefined, active: boolean, size: number) {
@@ -248,6 +263,7 @@ export default function GeoMapCanvas({
   anchor?: { lat: number; lng: number } | null;
 }) {
   const [countries, setCountries] = useState<FeatureCollection | null>(null);
+  const dark = useDark();
   const focus = markers.find((row) => row.id === focusId) ?? null;
 
   useEffect(() => {
@@ -290,18 +306,24 @@ export default function GeoMapCanvas({
       ) : null}
       {showTiles ? (
         <TileLayer
-          url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
+          key={dark ? "dark" : "light"}
+          url={
+            dark
+              ? "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+              : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
+          }
           attribution="Tiles &copy; Esri"
         />
       ) : null}
       {countries ? (
         <GeoJSON
+          key={dark ? "countries-dark" : "countries-light"}
           data={countries}
           style={(feature) => ({
-            color: showTiles ? "#1e293b" : "#475569",
+            color: showTiles ? (dark ? "#94a3b8" : "#1e293b") : dark ? "#64748b" : "#475569",
             weight: showTiles ? 0.9 : 1,
-            fillColor: countryFill(feature?.properties ?? null),
-            fillOpacity: showTiles ? 0.08 : 0.92,
+            fillColor: countryFill(feature?.properties ?? null, dark),
+            fillOpacity: showTiles ? (dark ? 0.12 : 0.08) : 0.92,
           })}
           onEachFeature={(feature, layer) => {
             const name = countryName(feature.properties);

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { INTEL_FEEDS } from "@/lib/intel-feeds";
+import { INTEL_FEEDS, type IntelPack } from "@/lib/intel-feeds";
 import { getMonitorState, registerIntelFeeds } from "@/lib/queries";
 import { refreshSources } from "@/lib/scrape/refresh";
 
@@ -13,7 +13,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as {
-      pack?: "core" | "relief" | "security" | "hazard" | "all";
+      pack?: IntelPack | "all";
       enable?: boolean;
     };
     const pack = body.pack ?? "core";

@@ -66,8 +66,20 @@ const TOPICS: { tag: string; re: RegExp }[] = [
     re: /\b(nasa|study|research|quantum|physics|space|telescope)\b/i,
   },
   {
+    tag: "nuclear",
+    re: /\b(nuclear|icbm|warhead|nonproliferation|uranium enrichment|plutonium|atomic weapon)\b/i,
+  },
+  {
+    tag: "defense",
+    re: /\b(pentagon|department of defense|\bdod\b|nato|air force|navy|army|military base|defense budget)\b/i,
+  },
+  {
     tag: "disaster",
     re: /\b(earthquake|tsunami|eruption|landslide|explosion|collapse|evacuate)\b/i,
+  },
+  {
+    tag: "sports",
+    re: /\b(premier league|champions league|world cup|six nations|super bowl|formula 1|\bf1\b|grand slam|wimbledon|olympics|transfer window|match report|\bnfl\b|\bnba\b|\bmlb\b|\bnhl\b|\bfifa\b|\buefa\b|\bgaa\b|football|soccer|rugby|cricket|tennis|golf)\b/i,
   },
 ];
 
@@ -131,6 +143,15 @@ const PLACES: { name: string; re: RegExp }[] = [
   { name: "New Zealand", re: /\b(new zealand|wellington|auckland)\b/i },
   { name: "Florida", re: /\b(florida|miami|tampa)\b/i },
   { name: "Bangladesh", re: /\b(bangladesh|dhaka)\b/i },
+  { name: "Singapore", re: /\b(singapore|malacca strait)\b/i },
+  { name: "Greenland", re: /\b(greenland|nuuk)\b/i },
+  { name: "Hormuz", re: /\b(hormuz|strait of hormuz)\b/i },
+  { name: "Malacca", re: /\b(malacca|strait of malacca)\b/i },
+  { name: "Suez", re: /\b(suez|suez canal)\b/i },
+  { name: "Panama", re: /\b(panama canal)\b/i },
+  { name: "Bab el-Mandeb", re: /\b(bab el-mandeb|bab el mandeb)\b/i },
+  { name: "Gibraltar", re: /\b(gibraltar|strait of gibraltar)\b/i },
+  { name: "Bosporus", re: /\b(bosporus|bosphorus)\b/i },
 ];
 
 export function classify(text: string): Classification {

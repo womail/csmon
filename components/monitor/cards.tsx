@@ -5,7 +5,51 @@ import { Tip } from "@/components/monitor/tip";
 import { tagStyle } from "@/lib/colors";
 import type { Story } from "@/lib/cluster";
 import { mineItem } from "@/lib/mine";
+import { shortSourceName } from "@/lib/source-label";
 import type { Item, OriginReason, Source } from "@/lib/types";
+
+export function SourceChip({
+  name,
+  color,
+  extra,
+  count,
+  filled,
+  active,
+  onClick,
+}: {
+  name: string;
+  color: string;
+  extra?: string;
+  count?: number;
+  filled?: boolean;
+  active?: boolean;
+  onClick?: () => void;
+}) {
+  const label = shortSourceName(name);
+  return (
+    <Tip text={`Scan only ${name}${extra ? ` · ${extra}` : ""}`}>
+      <button
+        type="button"
+        className={
+          filled
+            ? `source-chip source-chip-fill${active ? " source-chip-active" : ""}`
+            : "source-chip"
+        }
+        onClick={(event) => {
+          event.stopPropagation();
+          onClick?.();
+        }}
+      >
+        <span className="source-chip-dot" style={{ background: color }} />
+        <span className="source-chip-label">
+          {label}
+          {count != null ? ` ${count}` : ""}
+          {extra ? ` · ${extra}` : ""}
+        </span>
+      </button>
+    </Tip>
+  );
+}
 
 const ORIGIN_LABEL: Record<OriginReason, string> = {
   self: "Seed layer",
@@ -29,35 +73,6 @@ function originCopy(source: Source) {
     label: ORIGIN_LABEL[origin.reason],
     via: origin.seedHandle || null,
   };
-}
-
-function SourceChip({
-  name,
-  color,
-  extra,
-  onClick,
-}: {
-  name: string;
-  color: string;
-  extra?: string;
-  onClick?: () => void;
-}) {
-  return (
-    <Tip text={`Scan only ${name}${extra ? ` · ${extra}` : ""}`}>
-      <button
-        type="button"
-        className="source-chip"
-        onClick={(event) => {
-          event.stopPropagation();
-          onClick?.();
-        }}
-      >
-        <span className="source-chip-dot" style={{ background: color }} />
-        <span className="truncate">{name}</span>
-        {extra ? <span className="truncate text-slate-400">· {extra}</span> : null}
-      </button>
-    </Tip>
-  );
 }
 
 function CardActions({
@@ -470,14 +485,16 @@ export function SourceLayerCard({
 
   return (
     <article
-      className={`card-tile cursor-pointer ${active ? "ring-1 ring-slate-800" : ""}`}
+      className={`card-tile source-layer-card cursor-pointer ${active ? "ring-1 ring-slate-800" : ""}`}
       onClick={onOpen}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="size-2 shrink-0 rounded-full" style={{ background: source.color }} />
+        <div className="flex min-w-0 items-start gap-1.5">
+          <span className="mt-1 size-1.5 shrink-0 rounded-full" style={{ background: source.color }} />
           <Tip text={source.url}>
-            <span className="truncate text-[13px] font-medium text-slate-800">{source.name}</span>
+            <span className="text-[11px] leading-snug font-semibold tracking-wide text-slate-800 uppercase">
+              {shortSourceName(source.name)}
+            </span>
           </Tip>
         </div>
         <button
@@ -500,21 +517,15 @@ export function SourceLayerCard({
           <span className="truncate text-[10px] text-slate-400">{source.handle}</span>
         ) : null}
       </div>
-      <p className="mt-1.5 text-[11px] text-slate-500">
+      <p className="mt-1 text-[10px] leading-snug text-slate-500">
         {itemCount} {itemCount === 1 ? "item" : "items"} ·{" "}
         {source.lastFetchedAt ? <Ago ts={source.lastFetchedAt} /> : "never fetched"}
       </p>
       {sample ? (
-        <div className="mt-2">
-          <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
-            Latest
-          </div>
-          <p className="mt-1 line-clamp-3 text-[12px] leading-relaxed text-slate-700">{sample}</p>
-        </div>
+        <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-slate-600">{sample}</p>
       ) : (
-        <p className="mt-2 text-[11px] text-slate-400">No items in this window.</p>
+        <p className="mt-1 text-[10px] text-slate-400">No items in this window.</p>
       )}
-      <p className="card-cue mt-2">Click to scan this layer</p>
     </article>
   );
 }

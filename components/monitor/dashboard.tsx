@@ -2,6 +2,7 @@
 
 import { CloudLightning, Landmark, Siren, Waves } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
+import { SourceChip } from "@/components/monitor/cards";
 import { SituationMap, placeMarkers } from "@/components/monitor/map";
 import { Tip } from "@/components/monitor/tip";
 import type { MapMarker } from "@/lib/geo";
@@ -109,23 +110,17 @@ export function HomeDashboard({
         <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
           Top sources
         </div>
-        <div className="mt-2 flex flex-wrap gap-1">
-          {catalogSources.slice(0, 10).map((source) => (
-            <Tip
+        <div className="mt-2 flex flex-wrap content-start gap-1">
+          {catalogSources.slice(0, 16).map((source) => (
+            <SourceChip
               key={source.id}
-              text={layer === source.id ? `Clear ${source.name}` : `Filter dashboard to ${source.name}`}
-            >
-              <button
-                type="button"
-                className={`source-chip rounded-full px-2 py-0.5 ${
-                  layer === source.id ? "bg-slate-900 text-white" : "bg-slate-100"
-                }`}
-                onClick={() => onSource(source.id)}
-              >
-                <span className="source-chip-dot" style={{ background: source.color }} />
-                {source.name} {source.count}
-              </button>
-            </Tip>
+              name={source.name}
+              color={source.color}
+              count={source.count}
+              filled
+              active={layer === source.id}
+              onClick={() => onSource(source.id)}
+            />
           ))}
         </div>
       </section>
@@ -138,9 +133,11 @@ export function HomeDashboard({
               <Tip key={row.name} text={`Filter to items by ${row.name}`}>
                 <button
                   type="button"
-                  className={`rounded-full px-2 py-0.5 text-[11px] ${
-                    person === row.name ? "bg-slate-900 text-white" : "bg-violet-50 text-violet-800"
-                  }`}
+                  className="tag"
+                  style={{
+                    background: person === row.name ? "#6d28d9" : "#ede9fe",
+                    color: person === row.name ? "#fff" : "#6d28d9",
+                  }}
                   onClick={() => onPerson(row.name)}
                 >
                   {row.name} {row.count}

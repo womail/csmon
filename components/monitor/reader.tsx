@@ -13,6 +13,7 @@ import type { KevEntry } from "@/lib/kev";
 import { languageName } from "@/lib/lang";
 import { relatedDocuments } from "@/lib/documents";
 import { matchItemByUrl, matchSourceByHost, storySignals } from "@/lib/link";
+import { shortSourceName } from "@/lib/source-label";
 import { personName } from "@/lib/people";
 import type { ArticleRead } from "@/lib/read";
 import type { Item, Source } from "@/lib/types";
@@ -312,7 +313,7 @@ export function ReaderPane({
                         if (source) onSource(source.id);
                       }}
                     >
-                      {source?.name ?? "source"}
+                      {source ? shortSourceName(source.name) : "source"}
                     </button>
                   </Tip>
                   <Tip text={item.url}>

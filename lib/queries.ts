@@ -182,11 +182,10 @@ export function upsertScrape(result: ScrapeResult) {
     if (current) {
       id = current.id;
       db.prepare(
-        `UPDATE sources SET name = ?, handle = ?, url = ?, feed_url = COALESCE(?, feed_url),
+        `UPDATE sources SET handle = ?, url = ?, feed_url = COALESCE(?, feed_url),
          description = COALESCE(?, description), avatar_url = COALESCE(?, avatar_url)
          WHERE id = ?`,
       ).run(
-        source.name,
         source.handle,
         source.url,
         source.feedUrl,
@@ -474,9 +473,11 @@ export function registerIntelFeeds(feeds: IntelFeed[], enable: boolean) {
     let id: number;
     if (current) {
       id = current.id;
-      if (enable) {
-        db.prepare("UPDATE sources SET enabled = 1 WHERE id = ?").run(id);
-      }
+      db.prepare(
+        `UPDATE sources SET name = ?, handle = ?, url = ?, feed_url = ?, description = COALESCE(?, description)${
+          enable ? ", enabled = 1" : ""
+        } WHERE id = ?`,
+      ).run(feed.name, feed.id, feed.url, feed.feedUrl, feed.blurb, id);
     } else {
       const inserted = db
         .prepare(
