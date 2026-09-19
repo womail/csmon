@@ -8,6 +8,9 @@ export const VENDOR_NAMES = [
   "Microsoft",
   "Google",
   "Apple",
+  "macOS",
+  "Mac OS",
+  "Mac",
   "Cisco",
   "Adobe",
   "Oracle",
@@ -66,6 +69,37 @@ export function mineText(text: string): MinedSignals {
 
 export function mineItem(item: Pick<Item, "title" | "summary">): MinedSignals {
   return mineText(`${item.title} ${item.summary ?? ""}`);
+}
+
+export function vendorFamily(name: string) {
+  const key = name.trim().toLowerCase();
+  if (key === "apple" || key === "mac" || key === "macos" || key === "mac os" || key === "os x") {
+    return ["Apple", "macOS", "Mac OS", "Mac"];
+  }
+  if (key === "microsoft" || key === "windows") return ["Microsoft", "Windows"];
+  if (key === "linux" || key === "ubuntu" || key === "red hat") return ["Linux", "Ubuntu", "Red Hat"];
+  return [name];
+}
+
+export function matchVendorName(name: string) {
+  const key = name.trim().toLowerCase();
+  if (key === "mac" || key === "macos" || key === "mac os") return "Apple";
+  const hit = VENDOR_NAMES.find((vendor) => vendor.toLowerCase() === key);
+  return hit ?? null;
+}
+
+export function itemHasVendor(item: Pick<Item, "title" | "summary">, vendor: string | null) {
+  if (!vendor) return true;
+  const aliases = vendorFamily(vendor);
+  const mined = mineItem(item);
+  if (mined.vendors.some((name) => aliases.some((alias) => alias.toLowerCase() === name.toLowerCase()))) {
+    return true;
+  }
+  const hay = `${item.title} ${item.summary ?? ""}`;
+  return aliases.some((alias) => {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${escaped}\\b`, "i").test(hay);
+  });
 }
 
 export function isAdvisoryItem(item: Item, source?: Source) {

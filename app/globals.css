@@ -158,6 +158,10 @@
   box-shadow: 0 2px 6px rgb(15 23 42 / 0.06);
 }
 
+.card-tile:has(.map-panel) {
+  padding: 0;
+}
+
 .tag {
   border-radius: 3px;
   padding: 2px 6px;
@@ -212,4 +216,171 @@
   font-size: 10px;
   line-height: 1.3;
   color: #94a3b8;
+}
+
+.tip {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.tip[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  z-index: 40;
+  width: max-content;
+  max-width: 220px;
+  transform: translateX(-50%);
+  padding: 4px 7px;
+  border-radius: 4px;
+  background: #0f172a;
+  color: #f8fafc;
+  font-size: 10px;
+  line-height: 1.35;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 80ms ease;
+}
+
+.tip:hover::after,
+.tip:focus-within::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+.map-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #fff;
+}
+
+.map-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e2e5eb;
+  background: #fff;
+}
+
+.map-tool {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid #e2e5eb;
+  color: #334155;
+  background: #fff;
+}
+
+.map-tool:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.map-tool:disabled {
+  opacity: 0.4;
+}
+
+.geo-map-frame {
+  position: relative;
+  isolation: isolate;
+  flex: 1 0 auto;
+  min-height: 240px;
+  background: #9bb4c7;
+}
+
+.geo-map-canvas,
+.geo-map-skeleton {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #9bb4c7;
+}
+
+.geo-map-skeleton {
+  display: grid;
+  place-items: center;
+  color: #334155;
+  font-size: 12px;
+}
+
+.leaflet-container {
+  background: #6d8aa0 !important;
+  font: inherit;
+}
+
+.country-name {
+  background: none !important;
+  border: none !important;
+}
+
+.country-name span {
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 4px #fff, 0 0 8px #fff, 0 1px 0 #fff;
+  white-space: nowrap;
+}
+
+.leaflet-tooltip.country-tip {
+  font-size: 11px;
+}
+
+.leaflet-control-zoom {
+  border: 1px solid #e2e5eb !important;
+  box-shadow: none !important;
+}
+
+.map-popout {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(15 23 42 / 0.45);
+}
+
+.map-popout-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, 100%);
+  height: min(80vh, 760px);
+  overflow: hidden;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 20px 50px rgb(15 23 42 / 0.25);
+}
+
+.aircraft-icon {
+  background: none !important;
+  border: none !important;
+}
+
+.aircraft-rot {
+  display: grid;
+  place-items: center;
+  filter: drop-shadow(0 1px 1px rgb(15 23 42 / 0.45));
+}
+
+.aircraft-rot svg {
+  width: 100%;
+  height: 100%;
+  fill: #1d4ed8;
+  stroke: #fff;
+  stroke-width: 1.6;
+  paint-order: stroke fill;
+}
+
+.aircraft-icon.is-active .aircraft-rot svg {
+  fill: #0f172a;
+  stroke: #fde68a;
 }

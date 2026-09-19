@@ -11,6 +11,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DESKS } from "@/lib/board-state";
+import { HOME_CITIES } from "@/lib/geo";
+import { HOME_LANGUAGES } from "@/lib/lang";
 import {
   DEFAULT_OPTIONS,
   loadOptions,
@@ -18,6 +20,7 @@ import {
   type UserOptions,
 } from "@/lib/options";
 import type { TimeRange } from "@/lib/types";
+import { Tip } from "@/components/monitor/tip";
 
 const RANGES: TimeRange[] = ["1h", "6h", "24h", "7d", "all"];
 
@@ -41,10 +44,12 @@ export function OptionsButton({
 
   return (
     <>
-      <Button size="xs" variant="outline" onClick={() => setOpen(true)}>
-        <Settings className="size-3" />
-        Options
-      </Button>
+      <Tip text="Language, layout, and what loads when the board is empty">
+        <Button size="xs" variant="outline" onClick={() => setOpen(true)}>
+          <Settings className="size-3" />
+          Options
+        </Button>
+      </Tip>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -87,6 +92,45 @@ export function OptionsButton({
               </select>
             </label>
             <label className="block text-[11px] font-medium text-slate-600">
+              Home location
+              <select
+                className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-[12px]"
+                value={options.homePlace}
+                onChange={(e) => setOptions((o) => ({ ...o, homePlace: e.target.value }))}
+              >
+                <option value="">World (no 100 km cap)</option>
+                {HOME_CITIES.map((city) => (
+                  <option key={city.name} value={city.name}>
+                    {city.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-[11px] font-medium text-slate-600">
+              Home language
+              <select
+                className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-[12px]"
+                value={options.homeLanguage}
+                onChange={(e) =>
+                  setOptions((o) => ({ ...o, homeLanguage: e.target.value }))
+                }
+              >
+                {HOME_LANGUAGES.map((lang) => (
+                  <option key={lang.id} value={lang.id}>
+                    {lang.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-[12px] text-slate-700">
+              <input
+                type="checkbox"
+                checked={options.autoTranslate}
+                onChange={(e) => setOptions((o) => ({ ...o, autoTranslate: e.target.checked }))}
+              />
+              Auto-translate articles into the home language
+            </label>
+            <label className="block text-[11px] font-medium text-slate-600">
               Software stack
               <Input
                 className="mt-1 h-8 text-[12px]"
@@ -118,6 +162,14 @@ export function OptionsButton({
                 onChange={(e) => setOptions((o) => ({ ...o, autoLoadKev: e.target.checked }))}
               />
               Auto-load CISA KEV when Patch is empty
+            </label>
+            <label className="flex items-center gap-2 text-[12px] text-slate-700">
+              <input
+                type="checkbox"
+                checked={options.autoLoadHazards}
+                onChange={(e) => setOptions((o) => ({ ...o, autoLoadHazards: e.target.checked }))}
+              />
+              Auto-load weather, quake, war, and unrest RSS when empty
             </label>
             <div className="flex justify-end gap-2 pt-1">
               <Button size="sm" variant="outline" onClick={() => setOpen(false)}>

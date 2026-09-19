@@ -3,7 +3,7 @@ export type IntelFeed = {
   name: string;
   url: string;
   feedUrl: string;
-  pack: "core" | "relief" | "security";
+  pack: "core" | "relief" | "security" | "hazard";
   blurb: string;
 };
 
@@ -223,5 +223,69 @@ export const INTEL_FEEDS: IntelFeed[] = [
     feedUrl: "https://cert.europa.eu/publications/security-advisories-rss",
     pack: "security",
     blurb: "EU advisories",
+  },
+  {
+    id: "usgs-m45",
+    name: "USGS M4.5+",
+    url: "https://earthquake.usgs.gov",
+    feedUrl: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.atom",
+    pack: "hazard",
+    blurb: "M4.5+ quakes",
+  },
+  {
+    id: "usgs-sig",
+    name: "USGS significant",
+    url: "https://earthquake.usgs.gov",
+    feedUrl: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_week.atom",
+    pack: "hazard",
+    blurb: "Significant quakes",
+  },
+  {
+    id: "nws-alerts",
+    name: "NWS alerts",
+    url: "https://alerts.weather.gov",
+    feedUrl: "https://alerts.weather.gov/cap/us.php?x=1",
+    pack: "hazard",
+    blurb: "US weather warnings",
+  },
+  {
+    id: "met-eireann",
+    name: "Met Éireann warnings",
+    url: "https://www.met.ie/warnings",
+    feedUrl: "https://www.met.ie/warningsxml/rss.xml",
+    pack: "hazard",
+    blurb: "Irish weather warnings",
+  },
+  {
+    id: "nhc-atlantic",
+    name: "NHC Atlantic",
+    url: "https://www.nhc.noaa.gov",
+    feedUrl: "https://www.nhc.noaa.gov/index-at.xml",
+    pack: "hazard",
+    blurb: "Atlantic storms",
+  },
+  {
+    id: "metoffice-uk",
+    name: "Met Office UK",
+    url: "https://www.metoffice.gov.uk",
+    feedUrl: "https://www.metoffice.gov.uk/public/data/PWSCache/WarningsRSS/Region/UK",
+    pack: "hazard",
+    blurb: "UK weather warnings",
+  },
+  {
+    id: "gdacs-hazard",
+    name: "GDACS alerts",
+    url: "https://www.gdacs.org",
+    feedUrl: "https://www.gdacs.org/xml/rss.xml",
+    pack: "hazard",
+    blurb: "Global disaster alerts",
+  },
+  {
+    id: "crisisgroup",
+    name: "Crisis Group",
+    url: "https://www.crisisgroup.org",
+    feedUrl: "https://www.crisisgroup.org/rss.xml",
+    pack: "hazard",
+    blurb: "War and unrest analysis",
   },
 ];

@@ -78,6 +78,39 @@ export function relatedStories(story: Story, pool: Story[]) {
     .slice(0, 8);
 }
 
+export function similarStories(story: Story, pool: Story[], take = 6) {
+  const relatedIds = new Set(relatedStories(story, pool).map((row) => row.story.id));
+  const toks = clusterTokens(story.title);
+  const places = new Set(story.locations);
+  const topics = new Set(story.topics.filter((topic) => topic !== "world"));
+  return pool
+    .filter((other) => other.id !== story.id && !relatedIds.has(other.id))
+    .map((other) => {
+      const otherToks = clusterTokens(other.title);
+      let inter = 0;
+      for (const token of toks) if (otherToks.has(token)) inter += 1;
+      const union = toks.size + otherToks.size - inter;
+      const jac = union ? inter / union : 0;
+      let score = jac * 8 + inter;
+      const why: string[] = [];
+      if (jac >= 0.12 && inter >= 2) why.push("similar copy");
+      const sharedPlace = other.locations.find((place) => places.has(place));
+      const sharedTopic = other.topics.find((topic) => topics.has(topic));
+      if (sharedPlace) {
+        score += 1.4;
+        why.push(sharedPlace);
+      }
+      if (sharedTopic) {
+        score += 0.8;
+        why.push(sharedTopic);
+      }
+      return { story: other, score, why: why[0] ?? "nearby" };
+    })
+    .filter((row) => row.score >= 1.6)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, take);
+}
+
 export function itemsForCve(items: Item[], cve: string) {
   const needle = cve.toUpperCase();
   return items.filter((item) => mineItem(item).cves.includes(needle));

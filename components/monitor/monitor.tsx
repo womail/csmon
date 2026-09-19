@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Layers, Plus, RefreshCw, Search, Shield } from "lucide-react";
+import { Layers, Plus, RefreshCw, Search, Shield, ChevronDown, ChevronRight, Undo2 } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
 import {
   CacheCard,
@@ -12,23 +12,68 @@ import {
   StoryCard,
 } from "@/components/monitor/cards";
 import { PulseCard, TopicMix } from "@/components/monitor/charts";
+import { DeskEditor } from "@/components/monitor/desk-editor";
+import { EntityDesk, HomeDashboard } from "@/components/monitor/dashboard";
+import { AircraftPane, FlightDesk } from "@/components/monitor/flights";
+import { PlacePane } from "@/components/monitor/place-pane";
+import { SourcePane } from "@/components/monitor/source-pane";
+import { SituationMap, placeMarkers } from "@/components/monitor/map";
 import { DeskRail, DeskTabs } from "@/components/monitor/nav";
-import { ReaderPane } from "@/components/monitor/reader";
 import { OptionsButton } from "@/components/monitor/options-panel";
+import { ReaderPane } from "@/components/monitor/reader";
+import { SavedFilters } from "@/components/monitor/saved-filters";
 import { ScrapeDialog } from "@/components/monitor/scrape-dialog";
+import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { BoardFilters } from "@/lib/board-state";
-import { syncBoardUrl } from "@/lib/board-state";
+import { defaultBoardFilters, syncBoardUrl } from "@/lib/board-state";
+import { isKnownTopic, itemHasTopic } from "@/lib/classify";
 import { clusterItems, itemAsStory, situationLine, storyContaining, type Story } from "@/lib/cluster";
 import { tagStyle } from "@/lib/colors";
+import { documentsFromItems, isDocumentItem } from "@/lib/documents";
+import type { AircraftProfile, Flight } from "@/lib/flights";
+import { homeCity, type MapMarker } from "@/lib/geo";
 import { matchesStack, type KevEntry, type PatchRisk } from "@/lib/kev";
-import { kevForStory, itemsForCve, relatedStories } from "@/lib/link";
-import { isAdvisoryItem, mineItem } from "@/lib/mine";
-import { loadOptions } from "@/lib/options";
+import { matchesLane, type SituationLane } from "@/lib/lanes";
+import { kevForStory, itemsForCve, relatedStories, similarStories } from "@/lib/link";
+import { isAdvisoryItem, itemHasVendor, matchVendorName, mineItem, vendorFamily } from "@/lib/mine";
+import { loadOptions, saveOptions } from "@/lib/options";
+import { itemHasPerson, peopleFromItems } from "@/lib/people";
+import { isCountry, itemHasPlace, resolvePlace } from "@/lib/places";
+import type { QuakeEvent } from "@/lib/quakes";
 import { rangeStart } from "@/lib/time";
+import {
+  hideKeys,
+  itemKey,
+  kevKey,
+  loadTriage,
+  loadTriageUndo,
+  persistTriage,
+  readKeys,
+  storyKeys,
+  undoTriage,
+  type TriageState,
+  type TriageUndo,
+} from "@/lib/triage";
 import type { Desk, DiscoveredSource, Item, MonitorState, OriginReason, TimeRange } from "@/lib/types";
+import type { WeatherEvent } from "@/lib/weather";
+import {
+  createUserDesk,
+  deleteUserDesk,
+  findUserDesk,
+  loadUserDesks,
+  type UserDesk,
+} from "@/lib/user-desks";
 
+const STACK_CHIPS = [
+  { label: "AI", kind: "topic" as const, value: "ai" },
+  { label: "Microsoft", kind: "vendor" as const, value: "Microsoft" },
+  { label: "Linux", kind: "vendor" as const, value: "Linux" },
+  { label: "Oracle", kind: "vendor" as const, value: "Oracle" },
+  { label: "macOS", kind: "vendor" as const, value: "Apple" },
+  { label: "Mac", kind: "vendor" as const, value: "Apple" },
+];
 const RANGES: TimeRange[] = ["1h", "6h", "24h", "7d", "all"];
 const RISK_LABEL: Record<PatchRisk, string> = {
   p0: "Patch now",
@@ -63,7 +108,10 @@ function buckets(items: { publishedAt: number | null; fetchedAt: number }[], ran
 
 function matchesVendor(hay: string, vendor: string | null) {
   if (!vendor) return true;
-  return hay.toLowerCase().includes(vendor.toLowerCase());
+  return vendorFamily(vendor).some((alias) => {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${escaped}\\b`, "i").test(hay);
+  });
 }
 
 export function Monitor({
@@ -99,7 +147,23 @@ export function Monitor({
   const [ransomware, setRansomware] = useState(seed.ransomware);
   const [layer, setLayer] = useState<number | null>(seed.layer);
   const [origin, setOrigin] = useState<OriginReason | null>(seed.origin);
+  const [person, setPerson] = useState<string | null>(seed.person);
   const [compact, setCompact] = useState(false);
+  const [homeLanguage, setHomeLanguage] = useState("en");
+  const [autoTranslate, setAutoTranslate] = useState(false);
+  const [quakes, setQuakes] = useState<QuakeEvent[]>([]);
+  const [flights, setFlights] = useState<Flight[]>([]);
+  const [flightError, setFlightError] = useState<string | null>(null);
+  const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
+  const [aircraft, setAircraft] = useState<AircraftProfile | null>(null);
+  const [openSourceId, setOpenSourceId] = useState<number | null>(null);
+  const [customDesks, setCustomDesks] = useState<UserDesk[]>([]);
+  const [deskEditorOpen, setDeskEditorOpen] = useState(false);
+  const [homePlace, setHomePlace] = useState("Dublin");
+  const [weatherEvents, setWeatherEvents] = useState<WeatherEvent[]>([]);
+  const [followOpen, setFollowOpen] = useState(true);
+  const [triage, setTriage] = useState<TriageState>({ hidden: [], read: [] });
+  const [triageUndo, setTriageUndo] = useState<TriageUndo[]>([]);
 
   function setState(next: MonitorState) {
     setStateRaw({
@@ -111,18 +175,28 @@ export function Monitor({
   }
 
   useEffect(() => {
+    setCustomDesks(loadUserDesks());
     const opts = loadOptions();
     setCompact(opts.compact);
+    setHomeLanguage(opts.homeLanguage);
+    setAutoTranslate(opts.autoTranslate);
+    setHomePlace(opts.homePlace || "Dublin");
+    setTriage(loadTriage());
+    setTriageUndo(loadTriageUndo());
+    setFollowOpen(window.localStorage.getItem("csmon.follow-open") !== "0");
     if (!seed.stack) {
       setStack(opts.stack || window.localStorage.getItem("csmon.stack") || "");
     }
     const params = new URLSearchParams(window.location.search);
-    if (!params.get("desk") && opts.defaultDesk !== "brief") setDesk(opts.defaultDesk);
+    if (!params.get("desk") && opts.defaultDesk !== "home") setDesk(opts.defaultDesk);
     if (!params.get("range") && opts.defaultRange !== "24h") setRange(opts.defaultRange);
     let cancelled = false;
+    const city = homeCity(opts.homePlace || "Dublin");
+    const near = city ? `lat=${city.lat}&lng=${city.lng}&km=100&place=${encodeURIComponent(city.name)}` : "";
     (async () => {
       try {
-        if (opts.autoLoadSecurity && initial.sources.filter((source) => source.enabled).length === 0) {
+        const empty = initial.sources.filter((source) => source.enabled).length === 0;
+        if (opts.autoLoadSecurity && empty) {
           const next = await json<MonitorState>("/api/intel", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -130,9 +204,37 @@ export function Monitor({
           });
           if (!cancelled) setState(next);
         }
+        if (opts.autoLoadHazards && empty) {
+          const next = await json<MonitorState>("/api/intel", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pack: "hazard", enable: true }),
+          });
+          if (!cancelled) setState(next);
+        }
         if (opts.autoLoadKev && !(initial.kev?.length)) {
           const next = await json<MonitorState>("/api/kev", { method: "POST" });
           if (!cancelled) setState(next);
+        }
+        const [quakeRes, flightRes, weatherRes] = await Promise.all([
+          fetch("/api/quakes"),
+          fetch(`/api/flights${near ? `?${near}` : ""}`),
+          fetch(`/api/weather${near ? `?${near}` : ""}`),
+        ]);
+        if (quakeRes.ok) {
+          const data = (await quakeRes.json()) as { quakes?: QuakeEvent[] };
+          if (!cancelled) setQuakes(data.quakes ?? []);
+        }
+        if (flightRes.ok) {
+          const data = (await flightRes.json()) as { flights?: Flight[] };
+          if (!cancelled) setFlights(data.flights ?? []);
+        } else if (flightRes.status) {
+          const data = (await flightRes.json().catch(() => ({}))) as { error?: string };
+          if (!cancelled) setFlightError(data.error ?? "ADS-B unavailable");
+        }
+        if (weatherRes.ok) {
+          const data = (await weatherRes.json()) as { events?: WeatherEvent[] };
+          if (!cancelled) setWeatherEvents(data.events ?? []);
         }
       } catch {
         /* options bootstrap is best-effort */
@@ -157,8 +259,9 @@ export function Monitor({
       ransomware,
       layer,
       origin,
+      person,
     });
-  }, [cross, desk, layer, origin, place, query, range, ransomware, riskFilter, stack, topic, vendor]);
+  }, [cross, desk, layer, origin, person, place, query, range, ransomware, riskFilter, stack, topic, vendor]);
 
   const enabled = state.sources.filter((s) => s.enabled);
   const byId = useMemo(
@@ -186,13 +289,17 @@ export function Monitor({
       if (layer && item.sourceId !== layer) return false;
       if (origin && !source?.origins.some((entry) => entry.reason === origin)) return false;
       if (desk === "advisories" && !isAdvisoryItem(item, source)) return false;
-      if (topic && !item.topics.includes(topic) && !item.tags.includes(topic)) return false;
-      if (place && !item.locations.includes(place)) return false;
-      const mined = mineItem(item);
-      if (ransomware && !mined.ransomware) return false;
-      if (vendor && !matchesVendor(`${item.title} ${mined.vendors.join(" ")}`, vendor)) {
+      if (desk === "weather" && !matchesLane(item, "weather") && !itemHasTopic(item, "weather")) {
         return false;
       }
+      if (desk === "documents" && !isDocumentItem(item)) return false;
+      if (topic && !itemHasTopic(item, topic)) return false;
+      if (place && !itemHasPlace(item, place)) return false;
+      if (person && !itemHasPerson(item, person, source)) return false;
+      if (triage.hidden.includes(itemKey(item.id))) return false;
+      const mined = mineItem(item);
+      if (ransomware && !mined.ransomware) return false;
+      if (vendor && !itemHasVendor(item, vendor)) return false;
       if (
         q &&
         !`${item.title} ${item.summary ?? ""} ${source?.name ?? ""} ${item.locations.join(" ")} ${mined.cves.join(" ")}`
@@ -203,12 +310,14 @@ export function Monitor({
       }
       return true;
     });
-  }, [byId, desk, layer, origin, place, query, rangedItems, ransomware, topic, vendor]);
+  }, [byId, desk, layer, origin, person, place, query, rangedItems, ransomware, topic, triage.hidden, vendor]);
 
   const stories = useMemo(() => {
     const clustered = clusterItems(items);
-    return cross ? clustered.filter((s) => s.sourceIds.length > 1) : clustered;
-  }, [cross, items]);
+    return (cross ? clustered.filter((s) => s.sourceIds.length > 1) : clustered).filter(
+      (story) => !triage.hidden.includes(`story:${story.id}`),
+    );
+  }, [cross, items, triage.hidden]);
 
   const topics = useMemo(() => {
     const counts = new Map<string, number>();
@@ -248,12 +357,13 @@ export function Monitor({
       .filter((entry) => (riskFilter === "all" ? true : entry.risk === riskFilter))
       .filter((entry) => !ransomware || entry.ransomware)
       .filter((entry) => matchesVendor(`${entry.vendor} ${entry.product}`, vendor))
+      .filter((entry) => !triage.hidden.includes(kevKey(entry.cveId)))
       .filter((entry) => {
         const q = query.trim().toLowerCase();
         if (!q) return true;
         return `${entry.cveId} ${entry.vendor} ${entry.product} ${entry.name}`.toLowerCase().includes(q);
       });
-  }, [query, ransomware, riskFilter, stack, state.kev, vendor]);
+  }, [query, ransomware, riskFilter, stack, state.kev, triage.hidden, vendor]);
 
   const stats = useMemo(() => {
     const sixH = Date.now() - 6 * 60 * 60 * 1000;
@@ -381,7 +491,7 @@ export function Monitor({
     }
   }
 
-  async function loadIntel(pack: "core" | "security") {
+  async function loadIntel(pack: "core" | "security" | "hazard" | "relief") {
     setBusy(true);
     try {
       setState(
@@ -392,10 +502,115 @@ export function Monitor({
         }),
       );
       if (pack === "security") setDesk("advisories");
+      if (pack === "hazard") setDesk("home");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Intel pack failed");
     } finally {
       setBusy(false);
+    }
+  }
+
+  function applyFilters(next: BoardFilters) {
+    setDesk(next.desk);
+    setQuery(next.q);
+    setTopic(next.topic);
+    setPlace(next.place);
+    setRange(next.range);
+    setCross(next.cross);
+    setStack(next.stack);
+    setRiskFilter(next.risk);
+    setVendor(next.vendor);
+    setRansomware(next.ransomware);
+    setLayer(next.layer);
+    setOrigin(next.origin);
+    setPerson(next.person);
+  }
+
+  function goHome() {
+    const next = defaultBoardFilters(stack);
+    applyFilters(next);
+    closeReader();
+    setOpenSourceId(null);
+  }
+
+  function openLane(lane: SituationLane) {
+    setTopic((current) => (current === lane ? null : lane));
+  }
+
+  function togglePerson(name: string) {
+    setPerson((current) => (current === name ? null : name));
+  }
+
+  async function loadFlights() {
+    setBusy(true);
+    setFlightError(null);
+    try {
+      const city = homeCity(homePlace);
+      const qs = city ? `?lat=${city.lat}&lng=${city.lng}&km=100` : "";
+      const res = await fetch(`/api/flights${qs}`);
+      const data = (await res.json()) as { flights?: Flight[]; error?: string };
+      if (!res.ok) throw new Error(data.error || "ADS-B failed");
+      setFlights(data.flights ?? []);
+    } catch (err) {
+      setFlightError(err instanceof Error ? err.message : "ADS-B failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadWeather() {
+    try {
+      const city = homeCity(homePlace);
+      const qs = city
+        ? `?lat=${city.lat}&lng=${city.lng}&place=${encodeURIComponent(city.name)}`
+        : "";
+      const res = await fetch(`/api/weather${qs}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { events?: WeatherEvent[] };
+      setWeatherEvents(data.events ?? []);
+    } catch {
+      /* weather is best-effort */
+    }
+  }
+
+  function changeHomePlace(name: string) {
+    setHomePlace(name);
+    const opts = loadOptions();
+    saveOptions({ ...opts, homePlace: name });
+    const city = homeCity(name);
+    const qs = city ? `lat=${city.lat}&lng=${city.lng}&km=100&place=${encodeURIComponent(city.name)}` : "";
+    void (async () => {
+      try {
+        const [flightRes, weatherRes] = await Promise.all([
+          fetch(`/api/flights${qs ? `?${qs}` : ""}`),
+          fetch(`/api/weather${qs ? `?${qs}` : ""}`),
+        ]);
+        if (flightRes.ok) {
+          const data = (await flightRes.json()) as { flights?: Flight[] };
+          setFlights(data.flights ?? []);
+          setFlightError(null);
+        }
+        if (weatherRes.ok) {
+          const data = (await weatherRes.json()) as { events?: WeatherEvent[] };
+          setWeatherEvents(data.events ?? []);
+        }
+      } catch {
+        setFlightError("ADS-B failed");
+      }
+    })();
+  }
+
+  async function openAircraft(flight: Flight) {
+    setSelectedFlight(flight);
+    setAircraft(null);
+    closeReader();
+    try {
+      const res = await fetch(`/api/aircraft?icao24=${encodeURIComponent(flight.icao24)}`);
+      const data = (await res.json()) as { profile?: AircraftProfile; flight?: Flight };
+      if (data.flight) setSelectedFlight(data.flight);
+      setAircraft(data.profile ?? null);
+    } catch {
+      setAircraft(null);
     }
   }
 
@@ -431,7 +646,43 @@ export function Monitor({
   }
 
   function toggleVendor(name: string) {
-    setVendor((current) => (current === name ? null : name));
+    const canon = matchVendorName(name) ?? name;
+    setVendor((current) => (current === canon ? null : canon));
+  }
+
+  function clickChip(name: string) {
+    const vendor = matchVendorName(name);
+    if (vendor) {
+      toggleVendor(vendor);
+      return;
+    }
+    if (name.toLowerCase() === "ai" || isKnownTopic(name)) {
+      toggleTopic(name.toLowerCase() === "ai" ? "ai" : name);
+      return;
+    }
+    focusPlace(name);
+  }
+
+  function applyTriage(next: { state: TriageState; undo: TriageUndo[] }) {
+    setTriage(next.state);
+    setTriageUndo(next.undo);
+    persistTriage(next.state, next.undo);
+  }
+
+  function hideStory(story: Story) {
+    applyTriage(hideKeys(triage, triageUndo, storyKeys(story.id, story.items.map((item) => item.id))));
+  }
+
+  function readStory(story: Story) {
+    applyTriage(readKeys(triage, triageUndo, storyKeys(story.id, story.items.map((item) => item.id))));
+  }
+
+  function hideItem(item: Item) {
+    applyTriage(hideKeys(triage, triageUndo, [itemKey(item.id)]));
+  }
+
+  function readItem(item: Item) {
+    applyTriage(readKeys(triage, triageUndo, [itemKey(item.id)]));
   }
 
   function openReader(next: Story) {
@@ -457,8 +708,25 @@ export function Monitor({
   }
 
   function focusSource(id: number) {
-    setLayer((current) => (current === id ? null : id));
-    if (desk === "sources" || desk === "patch") setDesk("scan");
+    if (openSourceId === id && layer === id) {
+      setOpenSourceId(null);
+      setLayer(null);
+      return;
+    }
+    const sourceItems = state.items.filter((item) => item.sourceId === id);
+    const inWindow = rangedItems.filter((item) => item.sourceId === id);
+    setTopic(null);
+    setPlace(null);
+    setPerson(null);
+    setCross(false);
+    setQuery("");
+    setLayer(id);
+    setOpenSourceId(id);
+    setSelectedFlight(null);
+    setAircraft(null);
+    closeReader();
+    if (inWindow.length === 0 && sourceItems.length > 0) setRange("all");
+    if (desk === "home" || desk === "sources" || desk === "pulse") setDesk("scan");
   }
 
   function focusCve(cve: string) {
@@ -471,8 +739,26 @@ export function Monitor({
     setTopic((current) => (current === name ? null : name));
   }
 
-  function togglePlace(name: string) {
-    setPlace((current) => (current === name ? null : name));
+  function focusPlace(name: string) {
+    const next = resolvePlace(name);
+    if (place === next) {
+      setPlace(null);
+      return;
+    }
+    const placeItems = state.items.filter((item) => itemHasPlace(item, next));
+    const inWindow = rangedItems.filter((item) => itemHasPlace(item, next));
+    setTopic(null);
+    setLayer(null);
+    setPerson(null);
+    setCross(false);
+    setQuery("");
+    setOpenSourceId(null);
+    setPlace(next);
+    setSelectedFlight(null);
+    setAircraft(null);
+    closeReader();
+    if (inWindow.length === 0 && placeItems.length > 0) setRange("all");
+    if (desk === "home" || desk === "sources" || desk === "pulse") setDesk("scan");
   }
 
   useEffect(() => {
@@ -490,20 +776,132 @@ export function Monitor({
     return () => window.removeEventListener("keydown", onKey);
   }, [trail.length]);
 
-  const emptyBoard = items.length === 0 && enabled.length === 0 && desk !== "patch" && desk !== "sources";
+  const emptyBoard =
+    items.length === 0 &&
+    enabled.length === 0 &&
+    desk !== "patch" &&
+    desk !== "sources" &&
+    desk !== "home" &&
+    desk !== "flights";
+
+  const currentFilters: BoardFilters = {
+    desk,
+    q: query,
+    topic,
+    place,
+    range,
+    cross,
+    stack,
+    risk: riskFilter,
+    vendor,
+    ransomware,
+    layer,
+    origin,
+    person,
+  };
+
+  const catalogTopics = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of rangedItems) {
+      for (const name of item.topics) counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [rangedItems]);
+
+  const catalogSources = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const item of rangedItems) {
+      counts.set(item.sourceId, (counts.get(item.sourceId) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([id, count]) => ({
+        id,
+        name: byId.get(id)?.name ?? "source",
+        count,
+        color: byId.get(id)?.color ?? "#94a3b8",
+      }));
+  }, [byId, rangedItems]);
+
+  const people = useMemo(() => peopleFromItems(items, byId), [byId, items]);
+  const peopleCatalog = useMemo(() => peopleFromItems(rangedItems, byId), [byId, rangedItems]);
+  const documents = useMemo(() => documentsFromItems(items), [items]);
+
+  const mapMarkers: MapMarker[] = useMemo(() => {
+    const places = new Map<string, number>();
+    for (const item of items) {
+      for (const name of item.locations) places.set(name, (places.get(name) ?? 0) + 1);
+    }
+    return [
+      ...placeMarkers(
+        [...places.entries()].map(([name, count]) => ({ name, count })),
+        "place",
+      ),
+      ...quakes.slice(0, 16).map((quake) => ({
+        id: quake.id,
+        name: quake.place.split(",").at(-1)?.trim() || quake.place,
+        lat: quake.lat,
+        lng: quake.lng,
+        kind: "quake" as const,
+        hint: `M${quake.mag.toFixed(1)} · ${quake.place}`,
+      })),
+      ...(desk === "flights" || desk === "home"
+        ? flights.map((flight) => ({
+            id: flight.icao24,
+            name: flight.callsign || flight.icao24,
+            lat: flight.lat,
+            lng: flight.lng,
+            kind: "flight" as const,
+            heading: flight.heading,
+            hint: `${flight.country} · ${flight.altitude != null ? `${Math.round(flight.altitude)}m` : "airborne"}`,
+          }))
+        : []),
+      ...weatherEvents
+        .filter((event) => event.lat != null && event.lng != null)
+        .slice(0, 24)
+        .map((event) => ({
+          id: event.id,
+          name: event.place,
+          lat: event.lat as number,
+          lng: event.lng as number,
+          kind: "weather" as const,
+          hint: `${event.severity} · ${event.title}`,
+        })),
+    ];
+  }, [desk, flights, items, quakes, weatherEvents]);
+
+  function changeDesk(next: Desk) {
+    const custom = findUserDesk(next, customDesks);
+    if (custom) applyFilters(custom.filters);
+    else setDesk(next);
+    if (next === "flights") void loadFlights();
+  }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-slate-50">
       <DeskRail
         desk={desk}
-        onChange={setDesk}
+        onChange={changeDesk}
+        onHome={goHome}
         counts={{
+          home: rangedItems.length,
           brief: stories.length,
           scan: items.length,
           pulse: items.length,
+          weather: rangedItems.filter((item) => matchesLane(item, "weather") || itemHasTopic(item, "weather")).length,
+          people: peopleCatalog.length,
+          documents: documentsFromItems(rangedItems).length,
+          flights: flights.length,
           advisories: advisoryCount,
           patch: p0,
           sources: enabled.length,
+        }}
+        customDesks={customDesks}
+        onCreateDesk={() => setDeskEditorOpen(true)}
+        onDeleteDesk={(id) => {
+          const next = deleteUserDesk(id, customDesks);
+          setCustomDesks(next);
+          if (desk === id) setDesk("home");
         }}
         onClearFilters={() => {
           setQuery("");
@@ -514,21 +912,24 @@ export function Monitor({
           setRansomware(false);
           setLayer(null);
           setOrigin(null);
+          setPerson(null);
           setRiskFilter("p0");
         }}
       />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
+      <div className="flex min-w-0 flex-1 flex-col bg-slate-50">
+        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
           <div className="flex items-center gap-3 px-3 py-2">
-            <div className="flex items-center gap-2">
-              <div className="grid size-7 place-items-center rounded-md bg-orange-500 text-[11px] font-bold text-white">
-                cs
-              </div>
-              <div>
-                <div className="text-[13px] leading-none font-semibold tracking-wide">csmon</div>
-                <div className="text-[10px] text-slate-400">current situation</div>
-              </div>
-            </div>
+            <Tip text="Home dashboard — click a topic or source to filter in place">
+              <button type="button" onClick={goHome} className="flex items-center gap-2">
+                <div className="grid size-7 place-items-center rounded-md bg-orange-500 text-[11px] font-bold text-white">
+                  cs
+                </div>
+                <div className="text-left">
+                  <div className="text-[13px] leading-none font-semibold tracking-wide">csmon</div>
+                  <div className="text-[10px] text-slate-400">home dashboard</div>
+                </div>
+              </button>
+            </Tip>
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute top-1.5 left-2 size-3.5 text-slate-400" />
               <Input
@@ -542,7 +943,7 @@ export function Monitor({
               />
             </div>
             <div className="rounded-md bg-slate-100 p-0.5 lg:hidden">
-              <DeskTabs desk={desk} onChange={setDesk} />
+              <DeskTabs desk={desk} onChange={changeDesk} customDesks={customDesks} />
             </div>
             <div className="flex rounded-md bg-slate-100 p-0.5">
               {RANGES.map((r) => (
@@ -558,43 +959,107 @@ export function Monitor({
                 </button>
               ))}
             </div>
-            <Button size="xs" variant="outline" onClick={() => refresh()} disabled={refreshing}>
-              <RefreshCw className={refreshing ? "animate-spin" : ""} />
-              Refresh
-            </Button>
-            <Button size="xs" variant="outline" onClick={() => loadKev()} disabled={busy}>
-              <Shield className="size-3" />
-              KEV
-            </Button>
+            <Tip text="Re-fetch enabled layers from cache or origin">
+              <Button size="xs" variant="outline" onClick={() => refresh()} disabled={refreshing}>
+                <RefreshCw className={refreshing ? "animate-spin" : ""} />
+                Refresh
+              </Button>
+            </Tip>
+            <Tip text="Load the CISA Known Exploited Vulnerabilities catalog">
+              <Button size="xs" variant="outline" onClick={() => loadKev()} disabled={busy}>
+                <Shield className="size-3" />
+                KEV
+              </Button>
+            </Tip>
+            <SavedFilters current={currentFilters} onApply={applyFilters} />
             <OptionsButton
               onApply={(options) => {
                 setCompact(options.compact);
                 if (options.stack) setStack(options.stack);
                 setDesk(options.defaultDesk);
                 setRange(options.defaultRange);
+                setHomeLanguage(options.homeLanguage);
+                setAutoTranslate(options.autoTranslate);
+                changeHomePlace(options.homePlace || "");
               }}
             />
-            <Button size="xs" onClick={() => setScrapeOpen(true)}>
-              <Plus />
-              RSS
-            </Button>
+            <Tip text="Add a public RSS feed or Bluesky handle">
+              <Button size="xs" onClick={() => setScrapeOpen(true)}>
+                <Plus />
+                RSS
+              </Button>
+            </Tip>
           </div>
           <div className="flex items-center gap-2 overflow-x-auto px-3 pb-1 text-[11px] text-slate-500">
             {desk === "patch"
               ? `${kev.length} in your stack · ${p0} patch now · ${ransomwareCount} ransomware`
               : desk === "sources"
                 ? `${enabled.length} layers · cache ${state.cache.entries} bodies`
-                : brief}
+                : desk === "home"
+                  ? topic
+                    ? `Filtered to ${topic}`
+                    : "Weather · quakes · war · unrest · click a topic to filter"
+                : desk === "flights"
+                  ? homeCity(homePlace)
+                    ? `${flights.length} airborne within 100 km of ${homeCity(homePlace)?.name}`
+                    : `${flights.length} airborne tracks (world sample)`
+                  : desk === "people"
+                    ? `${people.length} people on the board`
+                    : desk === "documents"
+                      ? `${documents.length} reports and advisories`
+                  : brief}
           </div>
           <div className="flex items-center gap-2 overflow-x-auto px-3 pb-2">
             {layer ? (
               <button
                 type="button"
-                onClick={() => setLayer(null)}
+                onClick={() => {
+                  setLayer(null);
+                  setOpenSourceId(null);
+                }}
                 className="rounded-full bg-slate-900 px-2 py-0.5 text-[11px] text-white"
               >
                 {byId.get(layer)?.name ?? "layer"} ×
               </button>
+            ) : null}
+            {place ? (
+              <button
+                type="button"
+                onClick={() => setPlace(null)}
+                className="rounded-full bg-cyan-800 px-2 py-0.5 text-[11px] text-white"
+              >
+                {place} ×
+              </button>
+            ) : null}
+            {person ? (
+              <button
+                type="button"
+                onClick={() => setPerson(null)}
+                className="rounded-full bg-violet-800 px-2 py-0.5 text-[11px] text-white"
+              >
+                {person} ×
+              </button>
+            ) : null}
+            {vendor ? (
+              <button
+                type="button"
+                onClick={() => setVendor(null)}
+                className="rounded-full bg-red-800 px-2 py-0.5 text-[11px] text-white"
+              >
+                {vendor} ×
+              </button>
+            ) : null}
+            {triageUndo.length > 0 ? (
+              <Tip text="Undo the last hide or read">
+                <button
+                  type="button"
+                  onClick={() => applyTriage(undoTriage(triage, triageUndo))}
+                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700"
+                >
+                  <Undo2 className="size-3" />
+                  Undo
+                </button>
+              </Tip>
             ) : null}
             {desk === "patch" ? (
               <>
@@ -665,32 +1130,70 @@ export function Monitor({
                     {id}
                   </button>
                 ))}
-                {topics.slice(0, 8).map(([name, count]) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => toggleTopic(name)}
-                    className="rounded-full px-2 py-0.5 text-[11px]"
-                    style={{
-                      background: topic === name ? tagStyle(name).fg : tagStyle(name).bg,
-                      color: topic === name ? "#fff" : tagStyle(name).fg,
-                    }}
-                  >
-                    {name} {count}
-                  </button>
+                {STACK_CHIPS.map((chip) => {
+                  const active =
+                    chip.kind === "topic" ? topic === chip.value : vendor === chip.value;
+                  return (
+                    <Tip key={chip.label} text={`Filter to ${chip.label}`}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          chip.kind === "topic" ? toggleTopic(chip.value) : toggleVendor(chip.value)
+                        }
+                        className={`rounded-full px-2 py-0.5 text-[11px] ${
+                          active ? "bg-slate-900 text-white" : "bg-fuchsia-50 text-fuchsia-900"
+                        }`}
+                      >
+                        {chip.label}
+                      </button>
+                    </Tip>
+                  );
+                })}
+                {(desk === "home" ? catalogTopics : topics).slice(0, 10).map(([name, count]) => (
+                  <Tip key={name} text={topic === name ? `Clear ${name}` : `Filter this desk to ${name}`}>
+                    <button
+                      type="button"
+                      onClick={() => toggleTopic(name)}
+                      className="rounded-full px-2 py-0.5 text-[11px]"
+                      style={{
+                        background: topic === name ? tagStyle(name).fg : tagStyle(name).bg,
+                        color: topic === name ? "#fff" : tagStyle(name).fg,
+                      }}
+                    >
+                      {name} {count}
+                    </button>
+                  </Tip>
                 ))}
-                {places.slice(0, 6).map(([name, count]) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => togglePlace(name)}
-                    className={`rounded-full px-2 py-0.5 text-[11px] ${
-                      place === name ? "bg-cyan-700 text-white" : "bg-cyan-50 text-cyan-800"
-                    }`}
-                  >
-                    {name} {count}
-                  </button>
-                ))}
+                {places
+                  .filter(([name]) => isCountry(name))
+                  .slice(0, 8)
+                  .map(([name, count]) => (
+                    <button
+                      key={`country-${name}`}
+                      type="button"
+                      onClick={() => focusPlace(name)}
+                      className={`rounded-full px-2 py-0.5 text-[11px] ${
+                        place === name ? "bg-cyan-800 text-white" : "bg-cyan-50 text-cyan-800"
+                      }`}
+                    >
+                      {name} {count}
+                    </button>
+                  ))}
+                {places
+                  .filter(([name]) => !isCountry(name))
+                  .slice(0, 5)
+                  .map(([name, count]) => (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => focusPlace(name)}
+                      className={`rounded-full px-2 py-0.5 text-[11px] ${
+                        place === name ? "bg-teal-800 text-white" : "bg-teal-50 text-teal-800"
+                      }`}
+                    >
+                      {name} {count}
+                    </button>
+                  ))}
                 {vendors.slice(0, 6).map(([name, count]) => (
                   <button
                     key={name}
@@ -703,15 +1206,37 @@ export function Monitor({
                     {name} {count}
                   </button>
                 ))}
+                {peopleCatalog.slice(0, 5).map((row) => (
+                  <Tip key={row.name} text={`Filter to ${row.name}`}>
+                    <button
+                      type="button"
+                      onClick={() => togglePerson(row.name)}
+                      className={`rounded-full px-2 py-0.5 text-[11px] ${
+                        person === row.name ? "bg-violet-800 text-white" : "bg-violet-50 text-violet-800"
+                      }`}
+                    >
+                      {row.name} {row.count}
+                    </button>
+                  </Tip>
+                ))}
               </>
             ) : (
               <>
-                <Button size="xs" variant="outline" onClick={() => loadIntel("core")} disabled={busy}>
-                  World RSS
-                </Button>
-                <Button size="xs" variant="outline" onClick={() => loadIntel("security")} disabled={busy}>
-                  Security RSS
-                </Button>
+                <Tip text="BBC, Guardian, NYT, and other world desks">
+                  <Button size="xs" variant="outline" onClick={() => loadIntel("core")} disabled={busy}>
+                    World RSS
+                  </Button>
+                </Tip>
+                <Tip text="CISA, Krebs, NCSC, and other security desks">
+                  <Button size="xs" variant="outline" onClick={() => loadIntel("security")} disabled={busy}>
+                    Security RSS
+                  </Button>
+                </Tip>
+                <Tip text="USGS quakes, NWS/Met Office warnings, Crisis Group">
+                  <Button size="xs" variant="outline" onClick={() => loadIntel("hazard")} disabled={busy}>
+                    Hazard RSS
+                  </Button>
+                </Tip>
               </>
             )}
           </div>
@@ -737,6 +1262,9 @@ export function Monitor({
                   <Button size="sm" variant="outline" onClick={() => loadIntel("security")} disabled={busy}>
                     Load security RSS
                   </Button>
+                  <Button size="sm" variant="outline" onClick={() => loadIntel("hazard")} disabled={busy}>
+                    Load hazards
+                  </Button>
                   <Button size="sm" variant="outline" onClick={() => loadKev()} disabled={busy}>
                     Load KEV
                   </Button>
@@ -750,10 +1278,70 @@ export function Monitor({
                   <KevCard
                     key={entry.cveId}
                     entry={entry}
+                    read={triage.read.includes(kevKey(entry.cveId))}
                     onOpen={() => openReader(kevStory(entry, rangedItems))}
+                    onVendor={toggleVendor}
+                    onHide={() => applyTriage(hideKeys(triage, triageUndo, [kevKey(entry.cveId)]))}
+                    onRead={() => applyTriage(readKeys(triage, triageUndo, [kevKey(entry.cveId)]))}
                   />
                 ))}
               </div>
+            ) : desk === "home" ? (
+              <HomeDashboard
+                stories={stories}
+                items={items}
+                catalogTopics={catalogTopics}
+                catalogSources={catalogSources}
+                people={peopleCatalog}
+                quakes={quakes}
+                weatherEvents={weatherEvents}
+                topic={topic}
+                layer={layer}
+                person={person}
+                place={place}
+                onOpenStory={openReader}
+                onLane={openLane}
+                onTopic={toggleTopic}
+                onPlace={focusPlace}
+                onSource={focusSource}
+                onPerson={togglePerson}
+              />
+            ) : desk === "flights" ? (
+              <FlightDesk
+                flights={flights}
+                selected={selectedFlight}
+                profile={aircraft}
+                error={flightError}
+                onSelect={(flight) => void openAircraft(flight)}
+                onRefresh={() => void loadFlights()}
+                busy={busy}
+                home={homeCity(homePlace)}
+                radiusKm={100}
+                onHomeChange={changeHomePlace}
+              />
+            ) : desk === "people" ? (
+              <EntityDesk
+                title="People"
+                hint="Authors and named voices on the current board. Click to filter everything to that person."
+                rows={people.map((row) => ({
+                  id: row.name,
+                  title: row.name,
+                  meta: `${row.count} items · ${row.topics.slice(0, 3).join(" · ") || "no topic"} · ${row.sample}`,
+                }))}
+                onOpen={togglePerson}
+              />
+            ) : desk === "documents" ? (
+              <EntityDesk
+                title="Documents"
+                hint="Reports, PDFs, and advisory-shaped items. Click to read in place."
+                rows={items.filter(isDocumentItem).map((item) => ({
+                  id: String(item.id),
+                  title: item.title,
+                  meta: `${byId.get(item.sourceId)?.name ?? "source"} · ${item.url.replace(/^https?:\/\//, "").slice(0, 48)}`,
+                  onOpen: () => openItem(item),
+                }))}
+                onOpen={() => undefined}
+              />
             ) : desk === "sources" ? (
               <div className={`board p-2 ${compact ? "board-compact" : ""}`}>
                 <CacheCard entries={state.cache.entries} bytes={state.cache.bytes} />
@@ -766,17 +1354,36 @@ export function Monitor({
                     sample={rangedItems.find((item) => item.sourceId === source.id)?.title}
                     active={layer === source.id}
                     onToggle={() => toggleLayer(source.id, true)}
-                    onOpen={() => {
-                      const latest = rangedItems.find((item) => item.sourceId === source.id);
-                      setLayer(source.id);
-                      setDesk("scan");
-                      if (latest) openItem(latest);
-                    }}
+                    onOpen={() => focusSource(source.id)}
                   />
                 ))}
               </div>
             ) : (
               <div className={`board p-2 ${compact ? "board-compact" : ""}`}>
+                {desk === "weather" && weatherEvents.length > 0 ? (
+                  <section className="card-tile sm:col-span-2">
+                    <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+                      Weather events
+                    </div>
+                    <div className="mt-2 space-y-1">
+                      {weatherEvents.slice(0, 12).map((event) => (
+                        <a
+                          key={event.id}
+                          href={event.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block rounded px-1 py-1 hover:bg-slate-50"
+                        >
+                          <span className="text-[12px] font-medium text-slate-800">{event.title}</span>
+                          <span className="block text-[10px] text-slate-400">
+                            {event.place} · {event.severity}
+                            {event.hint ? ` · ${event.hint}` : ""}
+                          </span>
+                        </a>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
                 {desk !== "scan" ? (
                   <>
                     <HealthCard value={stats.health} fresh={stats.fresh} total={enabled.length} />
@@ -785,7 +1392,19 @@ export function Monitor({
                       <TopicMix rows={stats.topicRows} onSelect={toggleTopic} />
                     ) : null}
                     {stats.placeRows.length > 0 ? (
-                      <RankedCard title="Places" rows={stats.placeRows} onSelect={togglePlace} />
+                      <SituationMap
+                        title="Where coverage relates"
+                        markers={placeMarkers(
+                          stats.placeRows.map((row) => ({
+                            name: row.label,
+                            count: row.value,
+                          })),
+                        )}
+                        onSelect={focusPlace}
+                      />
+                    ) : null}
+                    {stats.placeRows.length > 0 ? (
+                      <RankedCard title="Places" rows={stats.placeRows} onSelect={focusPlace} />
                     ) : null}
                     {stats.vendorRows.length > 0 ? (
                       <RankedCard title="Vendors" rows={stats.vendorRows} onSelect={toggleVendor} />
@@ -798,9 +1417,14 @@ export function Monitor({
                         key={item.id}
                         item={item}
                         source={byId.get(item.sourceId)}
-                        onTag={toggleTopic}
+                        onTag={clickChip}
+                        onPlace={focusPlace}
+                        onVendor={toggleVendor}
                         onSource={focusSource}
                         onOpen={() => openItem(item)}
+                        onHide={() => hideItem(item)}
+                        onRead={() => readItem(item)}
+                        read={triage.read.includes(itemKey(item.id))}
                       />
                     ))
                   : desk === "pulse"
@@ -811,8 +1435,12 @@ export function Monitor({
                           sources={byId}
                           onOpen={() => openReader(story)}
                           onTopic={toggleTopic}
-                          onPlace={togglePlace}
+                          onPlace={focusPlace}
+                          onVendor={toggleVendor}
                           onSource={focusSource}
+                          onHide={() => hideStory(story)}
+                          onRead={() => readStory(story)}
+                          read={triage.read.includes(`story:${story.id}`)}
                         />
                       ))
                     : stories.map((story) => (
@@ -822,8 +1450,12 @@ export function Monitor({
                           sources={byId}
                           onOpen={() => openReader(story)}
                           onTopic={toggleTopic}
-                          onPlace={togglePlace}
+                          onPlace={focusPlace}
+                          onVendor={toggleVendor}
                           onSource={focusSource}
+                          onHide={() => hideStory(story)}
+                          onRead={() => readStory(story)}
+                          read={triage.read.includes(`story:${story.id}`)}
                         />
                       ))}
               </div>
@@ -835,26 +1467,96 @@ export function Monitor({
               story={openStory}
               sources={byId}
               related={relatedStories(openStory, poolStories)}
+              similar={similarStories(openStory, poolStories)}
               kevHits={kevForStory(openStory, state.kev)}
               boardItems={rangedItems}
+              homeLanguage={homeLanguage}
+              autoTranslate={autoTranslate}
               canBack={trail.length > 0}
               onBack={backReader}
               onClose={closeReader}
               onFollow={followHint}
               onTopic={toggleTopic}
-              onPlace={togglePlace}
+              onPlace={focusPlace}
               onVendor={toggleVendor}
               onCve={focusCve}
               onSource={focusSource}
               onOpenStory={openReader}
               onOpenItem={openItem}
+              onPerson={togglePerson}
+            />
+          ) : desk === "flights" && selectedFlight ? (
+            <AircraftPane
+              flight={selectedFlight}
+              profile={aircraft}
+              onClose={() => {
+                setSelectedFlight(null);
+                setAircraft(null);
+              }}
+            />
+          ) : desk !== "flights" && place ? (
+            <PlacePane
+              place={place}
+              items={[...state.items]
+                .filter((item) => itemHasPlace(item, place))
+                .sort((a, b) => (b.publishedAt ?? b.fetchedAt) - (a.publishedAt ?? a.fetchedAt))}
+              rangedCount={rangedItems.filter((item) => itemHasPlace(item, place)).length}
+              sources={byId}
+              onClose={() => setPlace(null)}
+              onOpenItem={openItem}
+              onScan={() => {
+                setDesk("scan");
+                setPlace(place);
+              }}
+              onTopic={toggleTopic}
+              onSource={focusSource}
+            />
+          ) : desk !== "flights" && openSourceId && byId.get(openSourceId) ? (
+            <SourcePane
+              source={byId.get(openSourceId)!}
+              items={[...state.items]
+                .filter((item) => item.sourceId === openSourceId)
+                .sort((a, b) => (b.publishedAt ?? b.fetchedAt) - (a.publishedAt ?? a.fetchedAt))}
+              rangedCount={rangedItems.filter((item) => item.sourceId === openSourceId).length}
+              onClose={() => setOpenSourceId(null)}
+              onOpenItem={openItem}
+              onScan={() => {
+                setDesk("scan");
+                setLayer(openSourceId);
+              }}
+            />
+          ) : selectedFlight ? (
+            <AircraftPane
+              flight={selectedFlight}
+              profile={aircraft}
+              onClose={() => {
+                setSelectedFlight(null);
+                setAircraft(null);
+              }}
             />
           ) : (
             <aside className="border-t border-slate-200 bg-white lg:border-t-0 lg:border-l">
               <div className="sticky top-[96px] p-3">
-                <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
-                  Follow next
-                </div>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between text-left"
+                  onClick={() => {
+                    const next = !followOpen;
+                    setFollowOpen(next);
+                    window.localStorage.setItem("csmon.follow-open", next ? "1" : "0");
+                  }}
+                >
+                  <span className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+                    Follow next
+                  </span>
+                  {followOpen ? (
+                    <ChevronDown className="size-3.5 text-slate-400" />
+                  ) : (
+                    <ChevronRight className="size-3.5 text-slate-400" />
+                  )}
+                </button>
+                {followOpen ? (
+                  <>
                 <div className="mt-2 space-y-1">
                   {state.hints.slice(0, 6).map((hint) => (
                     <button
@@ -900,12 +1602,26 @@ export function Monitor({
                     </button>
                   ))}
                 </div>
+                  </>
+                ) : (
+                  <p className="mt-2 text-[11px] text-slate-400">Collapsed. Click to expand the source pool.</p>
+                )}
               </div>
             </aside>
           )}
         </div>
       </div>
 
+      <DeskEditor
+        open={deskEditorOpen}
+        onOpenChange={setDeskEditorOpen}
+        current={currentFilters}
+        onCreate={(label) => {
+          const next = createUserDesk(label, currentFilters, customDesks);
+          setCustomDesks(next);
+          if (next[0]) applyFilters(next[0].filters);
+        }}
+      />
       <ScrapeDialog
         open={scrapeOpen}
         onOpenChange={setScrapeOpen}
@@ -950,9 +1666,23 @@ function kevStory(entry: KevEntry, boardItems: Item[]): Story {
   };
 }
 
-function KevCard({ entry, onOpen }: { entry: KevEntry; onOpen: () => void }) {
+function KevCard({
+  entry,
+  onOpen,
+  onVendor,
+  onHide,
+  onRead,
+  read,
+}: {
+  entry: KevEntry;
+  onOpen: () => void;
+  onVendor?: (vendor: string) => void;
+  onHide?: () => void;
+  onRead?: () => void;
+  read?: boolean;
+}) {
   return (
-    <article className="card-tile cursor-pointer" onClick={onOpen}>
+    <article className={`card-tile cursor-pointer ${read ? "opacity-55" : ""}`} onClick={onOpen}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-wrap gap-0.5">
           <span className="tag text-white" style={{ background: RISK_COLOR[entry.risk] }}>
@@ -972,6 +1702,17 @@ function KevCard({ entry, onOpen }: { entry: KevEntry; onOpen: () => void }) {
               {entry.daysUntilDue}d
             </span>
           )}
+          <button
+            type="button"
+            className="tag"
+            style={{ background: "#fee2e2", color: "#9f1239" }}
+            onClick={(event) => {
+              event.stopPropagation();
+              onVendor?.(entry.vendor);
+            }}
+          >
+            {entry.vendor}
+          </button>
         </div>
         <Ago ts={entry.dateAdded} className="text-[10px] text-slate-400" />
       </div>
@@ -983,6 +1724,23 @@ function KevCard({ entry, onOpen }: { entry: KevEntry; onOpen: () => void }) {
         {entry.name}. {entry.description}
       </p>
       <p className="mt-1.5 text-[10px] text-slate-400">{entry.requiredAction}</p>
+      <div className="mt-2 flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+        {onHide ? (
+          <button type="button" className="text-[10px] text-slate-500 hover:text-slate-800" onClick={onHide}>
+            Hide
+          </button>
+        ) : null}
+        {onRead ? (
+          <button
+            type="button"
+            className="text-[10px] text-slate-500 hover:text-slate-800"
+            onClick={onRead}
+            disabled={read}
+          >
+            {read ? "Read ✓" : "Read"}
+          </button>
+        ) : null}
+      </div>
     </article>
   );
 }

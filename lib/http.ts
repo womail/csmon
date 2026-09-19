@@ -19,6 +19,21 @@ export async function fetchJson<T>(url: string, timeoutMs = 12000): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+export async function fetchLiveJson<T>(url: string, timeoutMs = 12000): Promise<T> {
+  const cached = cacheGet(`live:${url}`);
+  if (cached) return JSON.parse(cached) as T;
+  const res = await fetch(url, {
+    headers: { "User-Agent": UA, Accept: "application/json" },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) {
+    throw new Error(`${res.status} ${url}`);
+  }
+  const text = await res.text();
+  cacheSet(`live:${url}`, "live", text, TTL.live);
+  return JSON.parse(text) as T;
+}
+
 export async function fetchText(url: string, timeoutMs = 10000): Promise<string> {
   const cached = cacheGet(`html:${url}`);
   if (cached) return cached;

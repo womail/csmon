@@ -13,7 +13,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as {
-      pack?: "core" | "relief" | "security" | "all";
+      pack?: "core" | "relief" | "security" | "hazard" | "all";
       enable?: boolean;
     };
     const pack = body.pack ?? "core";

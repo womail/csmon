@@ -1,7 +1,7 @@
 import "server-only";
 import { getDb } from "./db";
 
-export type CacheKind = "html" | "json" | "rss" | "kev";
+export type CacheKind = "html" | "json" | "rss" | "kev" | "translate" | "live";
 
 export function cacheGet(key: string): string | null {
   const db = getDb();
@@ -43,4 +43,6 @@ export const TTL = {
   kev: 60 * 60 * 1000,
   html: 6 * 60 * 60 * 1000,
   json: 30 * 60 * 1000,
+  translate: 7 * 24 * 60 * 60 * 1000,
+  live: 20 * 1000,
 };

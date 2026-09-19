@@ -6,6 +6,22 @@ export type Classification = {
 
 const TOPICS: { tag: string; re: RegExp }[] = [
   {
+    tag: "weather",
+    re: /\b(storm|blizzard|tornado|cyclone|typhoon|hurricane|flood|heatwave|wildfire|severe weather|weather warning|weather watch|winter storm|thunderstorm|hail|landfall)\b/i,
+  },
+  {
+    tag: "quake",
+    re: /\b(earthquake|aftershock|seismic|magnitude|m [4-9]\.\d|tsunami watch|tsunami warning)\b/i,
+  },
+  {
+    tag: "war",
+    re: /\b(war|warfare|invasion|airstrike|frontline|occupation|combat|missile strike|troop|shelling|battlefield)\b/i,
+  },
+  {
+    tag: "unrest",
+    re: /\b(protest|protester|riot|rioting|coup|martial law|demonstration|uprising|civil unrest|looting|curfew|clashes)\b/i,
+  },
+  {
     tag: "conflict",
     re: /\b(war|warfare|attack|missile|troop|airstrike|combat|invasion|ceasefire|frontline|drone|shelling|casualt)/i,
   },
@@ -16,6 +32,10 @@ const TOPICS: { tag: string; re: RegExp }[] = [
   {
     tag: "markets",
     re: /\b(stock|stocks|market|markets|fed\b|inflation|bitcoin|oil price|gdp|yields|nasdaq|recession)\b/i,
+  },
+  {
+    tag: "ai",
+    re: /\b(ai\b|artificial intelligence|generative ai|chatgpt|openai|anthropic|llm|machine learning|copilot)\b/i,
   },
   {
     tag: "tech",
@@ -64,7 +84,10 @@ const PLACES: { name: string; re: RegExp }[] = [
   { name: "Sudan", re: /\b(sudan|khartoum|darfur)\b/i },
   { name: "Sahel", re: /\b(sahel|mali|niger|burkina)\b/i },
   { name: "US", re: /\b(united states|\bu\.?s\.a?\b|washington|white house|pentagon)\b/i },
-  { name: "UK", re: /\b(\buk\b|britain|british|london|downing street)\b/i },
+  { name: "London", re: /\b(london|westminster|downing street)\b/i },
+  { name: "Ireland", re: /\b(ireland|irish|dublin|cork|shannon|belfast)\b/i },
+  { name: "Dublin", re: /\b(dublin|dublin airport|dublin bay)\b/i },
+  { name: "UK", re: /\b(\buk\b|britain|british|united kingdom)\b/i },
   { name: "EU", re: /\b(\beu\b|brussels|european union)\b/i },
   { name: "Korea", re: /\b(korea|korean|seoul|pyongyang)\b/i },
   { name: "Japan", re: /\b(japan|japanese|tokyo)\b/i },
@@ -80,6 +103,34 @@ const PLACES: { name: string; re: RegExp }[] = [
   { name: "Arctic", re: /\b(arctic|greenland)\b/i },
   { name: "Red Sea", re: /\b(red sea|bab el-mandeb|suez)\b/i },
   { name: "Taiwan Strait", re: /\b(taiwan strait)\b/i },
+  { name: "Indonesia", re: /\b(indonesia|jakarta|sumatra|java)\b/i },
+  { name: "Philippines", re: /\b(philippines|manila|luzon|mindanao)\b/i },
+  { name: "California", re: /\b(california|los angeles|san francisco|napa)\b/i },
+  { name: "Alaska", re: /\b(alaska|anchorage)\b/i },
+  { name: "Chile", re: /\b(chile|santiago)\b/i },
+  { name: "Italy", re: /\b(italy|italian|rome|sicily)\b/i },
+  { name: "Greece", re: /\b(greece|greek|athens)\b/i },
+  { name: "Afghanistan", re: /\b(afghanistan|kabul|taliban)\b/i },
+  { name: "Myanmar", re: /\b(myanmar|burma|yangon)\b/i },
+  { name: "Ethiopia", re: /\b(ethiopia|addis)\b/i },
+  { name: "Somalia", re: /\b(somalia|mogadishu)\b/i },
+  { name: "Libya", re: /\b(libya|tripoli)\b/i },
+  { name: "Nigeria", re: /\b(nigeria|lagos|abuja)\b/i },
+  { name: "Brazil", re: /\b(brazil|brasilia|rio de janeiro)\b/i },
+  { name: "Australia", re: /\b(australia|sydney|canberra)\b/i },
+  { name: "Canada", re: /\b(canada|ottawa|toronto)\b/i },
+  { name: "Spain", re: /\b(spain|spanish|madrid)\b/i },
+  { name: "Poland", re: /\b(poland|polish|warsaw)\b/i },
+  { name: "Iraq", re: /\b(iraq|iraqi|baghdad)\b/i },
+  { name: "West Bank", re: /\b(west bank|ramallah|jenin)\b/i },
+  { name: "Caribbean", re: /\b(caribbean|puerto rico|jamaica|cuba)\b/i },
+  { name: "Pacific", re: /\b(pacific ocean|guam|tonga|fiji)\b/i },
+  { name: "Horn of Africa", re: /\b(horn of africa)\b/i },
+  { name: "South China Sea", re: /\b(south china sea)\b/i },
+  { name: "Nepal", re: /\b(nepal|kathmandu)\b/i },
+  { name: "New Zealand", re: /\b(new zealand|wellington|auckland)\b/i },
+  { name: "Florida", re: /\b(florida|miami|tampa)\b/i },
+  { name: "Bangladesh", re: /\b(bangladesh|dhaka)\b/i },
 ];
 
 export function classify(text: string): Classification {
@@ -88,8 +139,8 @@ export function classify(text: string): Classification {
   const locations = PLACES.filter(({ re }) => re.test(text)).map(({ name }) => name);
   const tags = [...new Set([...topics, ...locations.map((n) => n.toLowerCase())])];
   return {
-    topics: [...new Set(topics)].slice(0, 4),
-    locations: [...new Set(locations)].slice(0, 4),
+    topics: [...new Set(topics)].slice(0, 6),
+    locations: [...new Set(locations)].slice(0, 6),
     tags: tags.slice(0, 5),
   };
 }
@@ -100,4 +151,36 @@ export function classifyText(text: string) {
 
 export function classifyItem(title: string, summary?: string | null) {
   return classify(`${title} ${summary ?? ""}`);
+}
+
+export function textHasTopic(text: string, topic: string) {
+  const needle = topic.trim().toLowerCase();
+  if (!needle) return true;
+  const def = TOPICS.find((entry) => entry.tag === needle);
+  if (def) return def.re.test(text);
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(text);
+}
+
+export function isKnownTopic(name: string) {
+  const needle = name.trim().toLowerCase();
+  return TOPICS.some((entry) => entry.tag === needle);
+}
+
+export function itemHasTopic(
+  item: { title: string; summary?: string | null; topics: string[]; tags: string[] },
+  topic: string | null,
+) {
+  if (!topic) return true;
+  if (item.topics.includes(topic) || item.tags.includes(topic)) return true;
+  return textHasTopic(`${item.title} ${item.summary ?? ""}`, topic);
+}
+
+export function textHasPlace(text: string, place: string) {
+  const needle = place.trim().toLowerCase();
+  if (!needle) return true;
+  const def = PLACES.find((entry) => entry.name.toLowerCase() === needle);
+  if (def) return def.re.test(text);
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(text);
 }

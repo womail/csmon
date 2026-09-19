@@ -7,6 +7,8 @@ export type ArticleRead = {
   title: string;
   description: string | null;
   paragraphs: string[];
+  quotes: string[];
+  language: string | null;
   related: { href: string; label: string }[];
 };
 
@@ -64,6 +66,19 @@ export async function readArticle(url: string): Promise<ArticleRead> {
     return true;
   }).slice(0, 28);
 
+  const quotes = $("blockquote, q")
+    .map((_, el) => $(el).text().replace(/\s+/g, " ").trim())
+    .get()
+    .filter((quote) => quote.length > 40)
+    .filter((quote, i, all) => all.findIndex((other) => other.slice(0, 48) === quote.slice(0, 48)) === i)
+    .slice(0, 8);
+
+  const language =
+    $("html").attr("lang")?.trim() ||
+    $('meta[property="og:locale"]').attr("content")?.trim() ||
+    $('meta[http-equiv="content-language"]').attr("content")?.trim() ||
+    null;
+
   const related = $("article a[href], main a[href], .related a[href], aside a[href]")
     .map((_, el) => {
       const href = absUrl($(el).attr("href") || "", url);
@@ -81,6 +96,8 @@ export async function readArticle(url: string): Promise<ArticleRead> {
     title,
     description,
     paragraphs,
+    quotes,
+    language,
     related,
   };
 }

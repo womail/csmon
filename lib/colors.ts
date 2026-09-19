@@ -22,6 +22,7 @@ export const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
   cyber: { bg: "#ede9fe", fg: "#6d28d9" },
   markets: { bg: "#dcfce7", fg: "#15803d" },
   tech: { bg: "#dbeafe", fg: "#1d4ed8" },
+  ai: { bg: "#fae8ff", fg: "#86198f" },
   media: { bg: "#ffedd5", fg: "#c2410c" },
   climate: { bg: "#ccfbf1", fg: "#0f766e" },
   politics: { bg: "#fef9c3", fg: "#a16207" },
@@ -30,6 +31,10 @@ export const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
   health: { bg: "#d1fae5", fg: "#047857" },
   diplomacy: { bg: "#e0e7ff", fg: "#4338ca" },
   disaster: { bg: "#ffe4e6", fg: "#9f1239" },
+  weather: { bg: "#e0f2fe", fg: "#0369a1" },
+  quake: { bg: "#ffedd5", fg: "#c2410c" },
+  war: { bg: "#fee2e2", fg: "#991b1b" },
+  unrest: { bg: "#ede9fe", fg: "#6d28d9" },
   world: { bg: "#e2e8f0", fg: "#334155" },
   place: { bg: "#ecfeff", fg: "#0e7490" },
 };

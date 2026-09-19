@@ -1,8 +1,10 @@
 "use client";
 
 import { Ago } from "@/components/monitor/ago";
+import { Tip } from "@/components/monitor/tip";
 import { tagStyle } from "@/lib/colors";
 import type { Story } from "@/lib/cluster";
+import { mineItem } from "@/lib/mine";
 import type { Item, OriginReason, Source } from "@/lib/types";
 
 const ORIGIN_LABEL: Record<OriginReason, string> = {
@@ -41,19 +43,55 @@ function SourceChip({
   onClick?: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className="source-chip"
-      title={extra ? `${name} · ${extra}` : name}
-      onClick={(event) => {
-        event.stopPropagation();
-        onClick?.();
-      }}
-    >
-      <span className="source-chip-dot" style={{ background: color }} />
-      <span className="truncate">{name}</span>
-      {extra ? <span className="truncate text-slate-400">· {extra}</span> : null}
-    </button>
+    <Tip text={`Scan only ${name}${extra ? ` · ${extra}` : ""}`}>
+      <button
+        type="button"
+        className="source-chip"
+        onClick={(event) => {
+          event.stopPropagation();
+          onClick?.();
+        }}
+      >
+        <span className="source-chip-dot" style={{ background: color }} />
+        <span className="truncate">{name}</span>
+        {extra ? <span className="truncate text-slate-400">· {extra}</span> : null}
+      </button>
+    </Tip>
+  );
+}
+
+function CardActions({
+  read,
+  onHide,
+  onRead,
+}: {
+  read?: boolean;
+  onHide?: () => void;
+  onRead?: () => void;
+}) {
+  if (!onHide && !onRead) return null;
+  return (
+    <div className="mt-2 flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+      {onHide ? (
+        <Tip text="Hide this card from the board">
+          <button type="button" className="text-[10px] text-slate-500 hover:text-slate-800" onClick={onHide}>
+            Hide
+          </button>
+        </Tip>
+      ) : null}
+      {onRead ? (
+        <Tip text={read ? "Already marked read" : "Mark as read without opening"}>
+          <button
+            type="button"
+            className="text-[10px] text-slate-500 hover:text-slate-800"
+            onClick={onRead}
+            disabled={read}
+          >
+            {read ? "Read ✓" : "Read"}
+          </button>
+        </Tip>
+      ) : null}
+    </div>
   );
 }
 
@@ -63,27 +101,36 @@ export function StoryCard({
   onOpen,
   onTopic,
   onPlace,
+  onVendor,
   onSource,
+  onHide,
+  onRead,
+  read,
 }: {
   story: Story;
   sources: Map<number, Source>;
   onOpen: () => void;
   onTopic: (topic: string) => void;
   onPlace: (place: string) => void;
+  onVendor?: (vendor: string) => void;
   onSource?: (sourceId: number) => void;
+  onHide?: () => void;
+  onRead?: () => void;
+  read?: boolean;
 }) {
   const shownIds = story.sourceIds.slice(0, 3);
   const extra = story.sourceIds.length - shownIds.length;
+  const vendors = [...new Set(story.items.flatMap((item) => mineItem(item).vendors))].slice(0, 4);
 
   return (
-    <article className="card-tile cursor-pointer" onClick={onOpen}>
+    <article className={`card-tile cursor-pointer ${read ? "opacity-55" : ""}`} onClick={onOpen}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-wrap gap-1">
           {story.topics.slice(0, 3).map((topic) => {
             const style = tagStyle(topic);
             return (
+              <Tip key={topic} text={`Filter to topic ${topic}`}>
               <button
-                key={topic}
                 type="button"
                 className="tag"
                 style={{ background: style.bg, color: style.fg }}
@@ -94,11 +141,12 @@ export function StoryCard({
               >
                 {topic}
               </button>
+              </Tip>
             );
           })}
           {story.locations.slice(0, 2).map((place) => (
+            <Tip key={place} text={`Filter to ${place}`}>
             <button
-              key={place}
               type="button"
               className="tag"
               style={{ background: "#ecfeff", color: "#0e7490" }}
@@ -109,6 +157,22 @@ export function StoryCard({
             >
               {place}
             </button>
+            </Tip>
+          ))}
+          {vendors.map((vendor) => (
+            <Tip key={vendor} text={`Filter to vendor ${vendor}`}>
+              <button
+                type="button"
+                className="tag"
+                style={{ background: "#fee2e2", color: "#9f1239" }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onVendor?.(vendor);
+                }}
+              >
+                {vendor}
+              </button>
+            </Tip>
           ))}
         </div>
         <Ago ts={story.latestAt} className="shrink-0 text-[10px] text-slate-400" />
@@ -137,6 +201,7 @@ export function StoryCard({
           <span className="text-[10px] text-slate-400">+{extra} more</span>
         ) : null}
       </div>
+      <CardActions read={read} onHide={onHide} onRead={onRead} />
     </article>
   );
 }
@@ -145,30 +210,41 @@ export function ItemCard({
   item,
   source,
   onTag,
+  onPlace,
+  onVendor,
   onOpen,
   onSource,
+  onHide,
+  onRead,
+  read,
 }: {
   item: Item;
   source?: Source;
   onTag: (tag: string) => void;
+  onPlace?: (place: string) => void;
+  onVendor?: (vendor: string) => void;
   onOpen?: () => void;
   onSource?: (sourceId: number) => void;
+  onHide?: () => void;
+  onRead?: () => void;
+  read?: boolean;
 }) {
   const author =
     item.author && item.author !== source?.name ? item.author : undefined;
+  const vendors = mineItem(item).vendors.slice(0, 4);
 
   return (
     <article
-      className={`card-tile ${onOpen ? "cursor-pointer" : ""}`}
+      className={`card-tile ${onOpen ? "cursor-pointer" : ""} ${read ? "opacity-55" : ""}`}
       onClick={onOpen}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-wrap gap-1">
-          {item.tags.map((tag) => {
+          {item.topics.concat(item.tags.filter((tag) => !item.topics.includes(tag))).map((tag) => {
             const style = tagStyle(tag);
             return (
+              <Tip key={tag} text={`Filter to ${tag}`}>
               <button
-                key={tag}
                 type="button"
                 className="tag"
                 style={{ background: style.bg, color: style.fg }}
@@ -179,8 +255,39 @@ export function ItemCard({
               >
                 {tag}
               </button>
+              </Tip>
             );
           })}
+          {item.locations.slice(0, 3).map((place) => (
+            <Tip key={place} text={`Filter to ${place}`}>
+              <button
+                type="button"
+                className="tag"
+                style={{ background: "#ecfeff", color: "#0e7490" }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onPlace?.(place);
+                }}
+              >
+                {place}
+              </button>
+            </Tip>
+          ))}
+          {vendors.map((vendor) => (
+            <Tip key={vendor} text={`Filter to vendor ${vendor}`}>
+              <button
+                type="button"
+                className="tag"
+                style={{ background: "#fee2e2", color: "#9f1239" }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onVendor?.(vendor);
+                }}
+              >
+                {vendor}
+              </button>
+            </Tip>
+          ))}
         </div>
         <Ago
           ts={item.publishedAt ?? item.fetchedAt}
@@ -207,6 +314,7 @@ export function ItemCard({
           }}
         />
       </div>
+      <CardActions read={read} onHide={onHide} onRead={onRead} />
     </article>
   );
 }
@@ -368,7 +476,9 @@ export function SourceLayerCard({
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="size-2 shrink-0 rounded-full" style={{ background: source.color }} />
-          <span className="truncate text-[13px] font-medium text-slate-800">{source.name}</span>
+          <Tip text={source.url}>
+            <span className="truncate text-[13px] font-medium text-slate-800">{source.name}</span>
+          </Tip>
         </div>
         <button
           type="button"

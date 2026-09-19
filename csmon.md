@@ -1,27 +1,58 @@
 # csmon
 
-Current Situation Monitor. Harvest public sources, collapse them into desks, and read in place. Cyber desks rank CISA Known Exploited Vulnerabilities and mine vendor / CVE / ransomware signals so a software owner can see **what to patch** and **why it is urgent**.
+Current Situation Monitor. Harvest public sources, collapse them into desks, and read in place. The **Home** dashboard is the start: bad weather, earthquakes, war, and civil unrest, plus a map of where coverage relates. Cyber desks rank CISA Known Exploited Vulnerabilities and mine vendor / CVE / ransomware signals so a software owner can see **what to patch** and **why it is urgent**.
 
-Navigation is desks, not a firehose. Filters live in the URL so a view can be bookmarked (`?desk=patch&risk=p0&stack=linux&ransomware=1&layer=12`).
+Navigation is desks, not a firehose. Filters live in the URL so a view can be bookmarked (`?desk=patch&risk=p0&stack=linux&ransomware=1&layer=12&person=Jane`). Custom filters and **user desks** can also be named and saved in the browser.
+
+Maps are their own panes, never a background under copy. Every map has zoom controls and a pop-out. Country fills are Natural Earth 110m with atlas-style tints; Flights uses Esri World Street Map (political countries and cities) plus heading-aware top-down plane icons instead of dots.
+
+Click a **source** (Home top sources, a card chip, or Sources) to drill into that layer: a source dossier lists its items even if other chips would have hidden them. CISA and similar feeds no longer go blank because a leftover topic filter was still on.
+
+Click a **map place** (a city/country dot, or a country fill) to open a place dossier: stories, topics, and sources that mention that location. London and UK share a family so the London-area pin still shows British coverage even when older items were tagged only as UK.
 
 ## How to consume
 
-Default is **Brief**.
+Default is **Home**.
 
 | Desk | Use when |
 | --- | --- |
+| Home | Situation dashboard. Click **tech**, a top source, a map place, or a person to filter or drill in. |
 | Brief | Clustered stories, 2+ sources first, topic/place/vendor chips. Lowest cognitive load. |
 | Scan | Every item, dense cards. Raw desk. Click a source name to isolate that layer. |
-| Pulse | Volume, topic mix, places, vendors. Pattern hunting. |
+| Pulse | Volume, topic mix, places, vendors, and the same location map. Pattern hunting. |
+| Weather | Storms, floods, heat, official warnings, and live Met Éireann / Met Office / NWS / Open-Meteo events. |
+| People | Authors and named voices. Click a person to filter the graph to them. |
+| Documents | Reports, PDFs, and advisory-shaped items. |
+| Flights | Live public ADS-B (OpenSky) within **100 km of home** (default Dublin). Pick home in Options or on the Flights desk. |
 | Advisories | Cyber-classified items plus security RSS (CISA, Krebs, BleepingComputer, NCSC). |
 | Patch | CISA KEV. Exploited CVEs, due dates, ransomware flag, filter to your stack. |
 | Sources | Layers as objects: origin, item count, latest headline. Click a layer to scan it. |
+| *Your desks* | **New desk** pins the current filters to the rail (`c-…` in the URL). |
 
-Click a story to **read in place**. The pane is a dossier, not a shrink of the card: every contributing source’s full title and summary, then page extract, then related board stories and KEV hits. Topics, places, vendors, CVEs, and source names are all filters. Related stories and page links open forward; back / Esc walks the trail.
+Click a story to **read in place**. The pane is a dossier, not a shrink of the card: every contributing source’s full title and summary, a map of related places, then page extract, deep dive, similar articles, related board stories, documents, people, and KEV hits. Topics, places, vendors, people, CVEs, and source names are all filters — they stay on the current desk. **View page** opens the original article in a new tab (news sites block embeds). Related stories and page links open forward; back / Esc walks the trail.
 
-Filter with topic chips, location chips, vendor chips, ransomware, a **layer**, search, time range, and **2+ sources**. Search also matches mined CVE IDs.
+Hover any source, desk, or outbound link for a tooltip (destination URL or what the filter will do).
 
-**Follow next** on the right is auto-explore: hosts that keep showing up in coverage, one click to add as a layer.
+Filter with topic chips (including **AI**), **country** chips, city chips, vendor chips (**Microsoft**, **Linux**, **Oracle**, **macOS**, **Mac**), ransomware, a **layer**, search, time range, and **2+ sources**. Search also matches mined CVE IDs. **Filters** in the header saves the current URL view under a name.
+
+Cards have **Hide** (drop from the board) and **Read** (keep, mark as seen). **Undo** in the header walks the last hide/read. Triage lives in `csmon.triage` / `csmon.triage-undo`.
+
+**Follow next** on the right is auto-explore: hosts that keep showing up in coverage, one click to add as a layer. Collapse the rail; it stays collapsed in `csmon.follow-open`.
+
+## Home / hazards
+
+Home is the current-situation board. Lanes stay filled even on older items by matching copy, not only stored topic tags.
+
+| Lane | What it catches |
+| --- | --- |
+| Bad weather | Storms, floods, heat, wildfire, official warnings; live events from Open-Meteo (home), Met Éireann, Met Office UK, and NWS |
+| Earthquakes | Quakes, aftershocks, tsunami watches; USGS M4.5+ pins on the map |
+| War | Combat, invasion, airstrikes, front lines |
+| Civil unrest | Protests, riots, coups, martial law |
+
+**Load hazards** pulls USGS, NWS alerts, NHC Atlantic, Met Éireann, Met Office UK, GDACS, and Crisis Group. World RSS still covers the wire desks.
+
+**Home location** (Options, default Dublin) is the ADS-B origin: OpenSky is queried with a bounding box, then tracks farther than 100 km are dropped. That is why Dublin no longer shows a thin global altitude sample. A 100 km ring is drawn on the flight map. Pick World in Options to sample globally again.
 
 ## How the graph is linked
 
@@ -29,14 +60,25 @@ Sources are not a dump of unused handles. A source is a layer you chose (or auto
 
 ```
 Source (layer, origin, freshness)
-  └─ Item (title, summary, url, topics, places)
+  └─ Item (title, summary, url, topics, places, language)
        mined → CVE, vendor, ransomware
   Story = items clustered by URL, shared CVE, or title overlap
   Story ─related─ Story (shared CVE / vendor / similar copy / same place+topic)
+  Story ─similar─ Story (title overlap that did not meet the related bar)
   Story ─KEV─ catalog row when a CVE is on both
+  Story ─map─ geocoded places + USGS quake points + public ADS-B
+  Place (city/country) ─mentioned─ Item / Story
+  Person (author) ─wrote─ Item
+  Document (PDF / report / advisory) ─cited─ Story
 ```
 
 Read-in-place walks that graph. Isolated sources with zero items are pool only — they do not corroborate anything until they fetch.
+
+Deep dive (in the reader) extracts language, places, dates, quotes, and short briefing bullets from the dossier copy.
+
+## Language
+
+Each article gets a detected language (HTML `lang`, script, or function-word scoring). Options stores a **home language**. From the reader, translate the dossier via the public MyMemory API (cached 7 days, 450-character chunks). Auto-translate can run when the article language differs from home.
 
 ## Patch / risk (software owners)
 
@@ -50,13 +92,13 @@ CISA KEV is the exploited-in-the-wild catalog. That is the patch list; CVSS-only
 
 Type your stack (`microsoft, openssl, chrome, apache`) to hide vulns that do not match vendor/product. Vendor chips and the ransomware toggle further slice both KEV and advisory copy.
 
-NVD link opens in the reader pane. **KEV** button refreshes the catalog (cached 1h). **RSS** adds a public feed or discovers one from a site. **Options** stores default desk, range, stack, compact layout, and auto-load of security RSS / KEV.
+NVD link opens in the reader pane. **KEV** button refreshes the catalog (cached 1h). **RSS** adds a public feed or discovers one from a site. **Options** stores default desk, range, stack, compact layout, home language, home location, auto-translate, and auto-load of security RSS / hazards / KEV.
 
-**Load world RSS** now also includes DW, France 24, and Sky News. Relief adds GDACS and OCHA. **Load security RSS** includes CISA, CISA ICS, Krebs, BleepingComputer, The Record, NCSC UK, Schneier, Bellingcat, CFR, The Hacker News, Dark Reading, MSRC, CERT-EU.
+**Load world RSS** includes DW, France 24, and Sky News. Relief adds GDACS and OCHA. **Load security RSS** includes CISA, CISA ICS, Krebs, BleepingComputer, The Record, NCSC UK, Schneier, Bellingcat, CFR, The Hacker News, Dark Reading, MSRC, CERT-EU. **Load hazards** includes USGS (significant + M4.5+), NWS CAP alerts, NHC Atlantic, Met Éireann, Met Office UK, GDACS, Crisis Group.
 
 This is not an asset inventory. It tells you what is being exploited and how soon CISA expects a fix; you still map that to the software you actually run.
 
-Public APIs and RSS only. No recon scanners, maps, or unauthorized probing.
+Public APIs and RSS only. No recon scanners or unauthorized probing. Maps use Natural Earth country polygons, Esri World Street Map tiles on Flights, geocoded places, USGS GeoJSON, weather warning feeds, and OpenSky ADS-B (cached ~20s, 100 km around home). Aircraft drill-in uses HexDb metadata plus public globe links. This is not Osiris RECON and not a targeting tool.
 
 ## What we take from Osiris (osirisai.live)
 
@@ -66,11 +108,13 @@ We reuse the **upstream public sources** (CISA, USGS-style RSS, vendor advisorie
 
 ## Options
 
-Browser-local (`localStorage` `csmon.options`): start desk, time range, stack, compact cards, auto-load security RSS, auto-load KEV. Shared links still override via the query string.
+Browser-local (`localStorage` `csmon.options`): start desk, time range, stack, compact cards, home language, auto-translate, **home location**, auto-load security RSS, auto-load hazards, auto-load KEV. Shared links still override via the query string.
+
+Saved custom filters live in `csmon.saved-filters` (name + full `BoardFilters` snapshot). User desks live in `csmon.user-desks`. Applying either writes the URL the same way chips do. Hide/read triage is `csmon.triage`; Follow next collapse is `csmon.follow-open`.
 
 ## Caching
 
-Outbound fetches go through SQLite `fetch_cache` so refresh does not hammer the same RSS/KEV/HTML.
+Outbound fetches go through SQLite `fetch_cache` so refresh does not hammer the same RSS/KEV/HTML/translation.
 
 | kind | TTL |
 | --- | --- |
@@ -78,14 +122,16 @@ Outbound fetches go through SQLite `fetch_cache` so refresh does not hammer the 
 | json | 30 minutes |
 | kev | 1 hour |
 | html | 6 hours |
+| translate | 7 days |
+| live | 20 seconds (ADS-B) |
 
 Expired rows are deleted on read. The Sources desk shows live entry count and bytes.
 
 ## Flow
 
-1. Load world/security RSS, scrape a Bluesky/RSS desk, or load KEV.
-2. Pick a desk. Filter topics, places, vendors, stack, or a layer.
-3. Open a story. Compare desks in the dossier, jump related coverage, walk back.
+1. Open Home. Load world/hazard/security RSS, scrape a Bluesky/RSS desk, or load KEV.
+2. Pick a desk. Filter topics, places, vendors, stack, or a layer. Save the view if you will reuse it.
+3. Open a story. Compare desks in the dossier, translate if needed, jump similar coverage, walk back.
 
 ## Stack
 
@@ -94,6 +140,11 @@ Expired rows are deleted on read. The Sources desk shows live entry count and by
 - Bluesky public AppView
 - RSS/Atom, HTML article extract (`cheerio`)
 - CISA KEV JSON catalog
+- USGS earthquake GeoJSON
+- NWS, Met Éireann, Met Office UK warnings + Open-Meteo local conditions
+- Natural Earth 110m country polygons (`public/geo/countries.geojson`) on Leaflet maps (pan / zoom on Flights)
+- OpenSky Network ADS-B (100 km around home, or a world grid sample) + HexDb aircraft metadata
+- MyMemory translation (public, no key)
 
 ## Schema
 
@@ -155,7 +206,7 @@ Expired rows are deleted on read. The Sources desk shows live entry count and by
 | author | TEXT | |
 | published_at | INTEGER | unix ms |
 | tags | TEXT NOT NULL | JSON |
-| topics | TEXT NOT NULL | JSON, `002` |
+| topics | TEXT NOT NULL | JSON, `002` — includes `weather`, `quake`, `war`, `unrest` |
 | locations | TEXT NOT NULL | JSON, `002` |
 | fetched_at | INTEGER NOT NULL | |
 | UNIQUE(source_id, external_id) | | |
@@ -180,15 +231,17 @@ CISA Known Exploited Vulnerabilities snapshot (`003_kev`).
 
 ### fetch_cache
 
-TTL body cache for outbound RSS, JSON, KEV, and HTML (`004_fetch_cache`).
+TTL body cache for outbound RSS, JSON, KEV, HTML, and translations (`004_fetch_cache`).
 
 | column | type | notes |
 | --- | --- | --- |
-| cache_key | TEXT PK | e.g. `rss:https://…`, `kev:catalog` |
-| kind | TEXT NOT NULL | `rss` \| `json` \| `kev` \| `html` |
+| cache_key | TEXT PK | e.g. `rss:https://…`, `kev:catalog`, `translate:en:es:…` |
+| kind | TEXT NOT NULL | `rss` \| `json` \| `kev` \| `html` \| `translate` |
 | body | TEXT NOT NULL | raw response |
 | fetched_at | INTEGER NOT NULL | unix ms |
 | expires_at | INTEGER NOT NULL | unix ms |
+
+No new tables for this milestone. Saved filters and language options stay in `localStorage`. USGS points are fetched live (JSON cache 30m) and not persisted as rows.
 
 ## Migrations
 

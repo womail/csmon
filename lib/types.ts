@@ -114,5 +114,28 @@ export type MonitorState = {
 };
 
 export type TimeRange = "1h" | "6h" | "24h" | "7d" | "all";
-export type Desk = "brief" | "scan" | "pulse" | "advisories" | "patch" | "sources";
+export const BUILTIN_DESKS = [
+  "home",
+  "brief",
+  "scan",
+  "pulse",
+  "weather",
+  "people",
+  "documents",
+  "flights",
+  "advisories",
+  "patch",
+  "sources",
+] as const;
+
+export type BuiltinDesk = (typeof BUILTIN_DESKS)[number];
+export type Desk = BuiltinDesk | `c-${string}`;
 export type ConsumeMode = Desk;
+
+export function isBuiltinDesk(id: string): id is BuiltinDesk {
+  return (BUILTIN_DESKS as readonly string[]).includes(id);
+}
+
+export function isDeskId(id: string): id is Desk {
+  return isBuiltinDesk(id) || id.startsWith("c-");
+}

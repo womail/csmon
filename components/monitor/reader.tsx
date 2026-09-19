@@ -1,13 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ExternalLink, Rss, X } from "lucide-react";
+import { ChevronLeft, ExternalLink, Languages, Rss, ScanSearch, X } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
+import { SituationMap, placeMarkers } from "@/components/monitor/map";
+import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
 import { tagStyle } from "@/lib/colors";
 import type { Story } from "@/lib/cluster";
+import { buildDeepDive } from "@/lib/dive";
 import type { KevEntry } from "@/lib/kev";
+import { languageName } from "@/lib/lang";
+import { relatedDocuments } from "@/lib/documents";
 import { matchItemByUrl, matchSourceByHost, storySignals } from "@/lib/link";
+import { personName } from "@/lib/people";
 import type { ArticleRead } from "@/lib/read";
 import type { Item, Source } from "@/lib/types";
 
@@ -15,8 +21,11 @@ export function ReaderPane({
   story,
   sources,
   related = [],
+  similar = [],
   kevHits = [],
   boardItems = [],
+  homeLanguage,
+  autoTranslate,
   canBack,
   onBack,
   onClose,
@@ -28,12 +37,16 @@ export function ReaderPane({
   onSource,
   onOpenStory,
   onOpenItem,
+  onPerson,
 }: {
   story: Story;
   sources: Map<number, Source>;
   related: { story: Story; why: string }[];
+  similar: { story: Story; why: string }[];
   kevHits: KevEntry[];
   boardItems: Item[];
+  homeLanguage: string;
+  autoTranslate: boolean;
   canBack: boolean;
   onBack: () => void;
   onClose: () => void;
@@ -45,18 +58,24 @@ export function ReaderPane({
   onSource: (sourceId: number) => void;
   onOpenStory: (story: Story) => void;
   onOpenItem: (item: Item) => void;
+  onPerson?: (name: string) => void;
 }) {
   const [activeId, setActiveId] = useState(story.items[0].id);
   const [article, setArticle] = useState<ArticleRead | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [frame, setFrame] = useState(false);
+  const [showDive, setShowDive] = useState(false);
+  const [translated, setTranslated] = useState<string[] | null>(null);
+  const [translating, setTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState<string | null>(null);
   const active = story.items.find((item) => item.id === activeId) ?? story.items[0];
   const activeSource = sources.get(active.sourceId);
   const signals = storySignals(story);
 
   useEffect(() => {
     setActiveId(story.items[0].id);
+    setTranslated(null);
+    setShowDive(false);
   }, [story.id, story.items]);
 
   useEffect(() => {
@@ -64,7 +83,7 @@ export function ReaderPane({
     setLoading(true);
     setError(null);
     setArticle(null);
-    setFrame(false);
+    setTranslated(null);
     fetch(`/api/read?url=${encodeURIComponent(active.url)}`)
       .then(async (res) => {
         const data = (await res.json()) as ArticleRead & { error?: string };
@@ -100,24 +119,72 @@ export function ReaderPane({
     return { blocks, seen };
   }, [active.title, article, story.items]);
 
+  const dive = useMemo(() => buildDeepDive(story, article), [article, story]);
+  const articleLang = dive.language.id;
+  const needsTranslate = articleLang && homeLanguage && articleLang !== homeLanguage;
+
+  useEffect(() => {
+    if (!autoTranslate || !needsTranslate || !dossier.blocks.length || translated) return;
+    void runTranslate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoTranslate, needsTranslate, dossier.blocks.length, homeLanguage, active.url]);
+
+  async function runTranslate() {
+    setTranslating(true);
+    setTranslateError(null);
+    try {
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          texts: [story.title, ...dossier.blocks.slice(0, 8)],
+          from: articleLang,
+          to: homeLanguage,
+        }),
+      });
+      const data = (await res.json()) as { texts?: string[]; error?: string };
+      if (!res.ok) throw new Error(data.error || "Translate failed");
+      setTranslated(data.texts ?? []);
+    } catch (err) {
+      setTranslateError(err instanceof Error ? err.message : "Translate failed");
+    } finally {
+      setTranslating(false);
+    }
+  }
+
   const pageLinks = (article?.related ?? []).map((link) => ({
     ...link,
     item: matchItemByUrl(link.href, boardItems),
     source: matchSourceByHost(link.href, [...sources.values()]),
   }));
 
+  const mapMarkers = placeMarkers(
+    [
+      ...story.locations.map((name) => ({ name, hint: "Story place" })),
+      ...dive.places
+        .filter((name) => !story.locations.includes(name))
+        .map((name) => ({ name, hint: "Mentioned in copy" })),
+    ],
+    "place",
+  );
+
+  const shownBlocks = translated && translated.length > 1 ? translated.slice(1) : dossier.blocks;
+  const shownTitle = translated?.[0] ?? story.title;
+
   return (
     <aside className="flex h-full min-h-[70vh] flex-col border-l border-slate-200 bg-white">
       <div className="flex items-start gap-1 border-b border-slate-100 px-3 py-2">
         {canBack ? (
-          <button
-            type="button"
-            onClick={onBack}
-            className="mt-0.5 rounded p-1 text-slate-400 hover:bg-slate-50"
-            aria-label="Previous story"
-          >
-            <ChevronLeft className="size-4" />
-          </button>
+          <Tip text="Previous story">
+            <button
+              type="button"
+              onClick={onBack}
+              className="mt-0.5 rounded p-1 text-slate-400 hover:bg-slate-50"
+              aria-label="Previous story"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+          </Tip>
         ) : null}
         <div className="min-w-0 flex-1">
           <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
@@ -125,71 +192,100 @@ export function ReaderPane({
             {story.sourceIds.length > 1
               ? ` · ${story.sourceIds.length} desks corroborate`
               : " · single desk"}
+            {articleLang ? ` · ${languageName(articleLang)}` : ""}
           </div>
-          <div className="text-[14px] leading-snug font-semibold text-slate-900">{story.title}</div>
+          <div className="text-[14px] leading-snug font-semibold text-slate-900">{shownTitle}</div>
         </div>
-        <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-50">
-          <X className="size-4" />
-        </button>
+        <Tip text="Close reader">
+          <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-50">
+            <X className="size-4" />
+          </button>
+        </Tip>
       </div>
 
       <div className="flex flex-wrap gap-1 border-b border-slate-50 px-3 py-2">
         {story.topics.map((topic) => {
           const style = tagStyle(topic);
           return (
-            <button
-              key={topic}
-              type="button"
-              className="tag"
-              style={{ background: style.bg, color: style.fg }}
-              onClick={() => onTopic(topic)}
-            >
-              {topic}
-            </button>
+            <Tip key={topic} text={`Filter board to ${topic}`}>
+              <button
+                type="button"
+                className="tag"
+                style={{ background: style.bg, color: style.fg }}
+                onClick={() => onTopic(topic)}
+              >
+                {topic}
+              </button>
+            </Tip>
           );
         })}
         {story.locations.map((place) => (
-          <button
-            key={place}
-            type="button"
-            className="tag"
-            style={{ background: "#ecfeff", color: "#0e7490" }}
-            onClick={() => onPlace(place)}
-          >
-            {place}
-          </button>
+          <Tip key={place} text={`Filter board to ${place}`}>
+            <button
+              type="button"
+              className="tag"
+              style={{ background: "#ecfeff", color: "#0e7490" }}
+              onClick={() => onPlace(place)}
+            >
+              {place}
+            </button>
+          </Tip>
         ))}
         {signals.vendors.map((name) => (
-          <button
-            key={name}
-            type="button"
-            className="tag"
-            style={{ background: "#fee2e2", color: "#9f1239" }}
-            onClick={() => onVendor(name)}
-          >
-            {name}
-          </button>
+          <Tip key={name} text={`Filter to vendor ${name}`}>
+            <button
+              type="button"
+              className="tag"
+              style={{ background: "#fee2e2", color: "#9f1239" }}
+              onClick={() => onVendor(name)}
+            >
+              {name}
+            </button>
+          </Tip>
         ))}
         {signals.cves.map((cve) => (
-          <button
-            key={cve}
-            type="button"
-            className="tag font-mono"
-            style={{ background: "#f1f5f9", color: "#0f172a" }}
-            onClick={() => onCve(cve)}
-          >
-            {cve}
-          </button>
+          <Tip key={cve} text={`Open ${cve} on the patch desk`}>
+            <button
+              type="button"
+              className="tag font-mono"
+              style={{ background: "#f1f5f9", color: "#0f172a" }}
+              onClick={() => onCve(cve)}
+            >
+              {cve}
+            </button>
+          </Tip>
         ))}
         {signals.ransomware ? (
           <span className="tag" style={{ background: "#fee2e2", color: "#9f1239" }}>
             ransomware
           </span>
         ) : null}
+        {story.items.map((item) => {
+          const name = personName(item, sources.get(item.sourceId));
+          return name && onPerson ? (
+            <Tip key={`${item.id}-${name}`} text={`Filter the board to ${name}`}>
+              <button
+                type="button"
+                className="tag"
+                style={{ background: "#ede9fe", color: "#5b21b6" }}
+                onClick={() => onPerson(name)}
+              >
+                {name}
+              </button>
+            </Tip>
+          ) : null;
+        })}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+        <SituationMap
+          title="Where this relates"
+          markers={mapMarkers}
+          onSelect={onPlace}
+          empty="No mapped place on this story."
+        />
+
+        <div className="mt-4 text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
           Coverage
         </div>
         <div className="mt-1.5 space-y-2">
@@ -208,44 +304,52 @@ export function ReaderPane({
                     className="size-1.5 shrink-0 rounded-full"
                     style={{ background: source?.color ?? "#94a3b8" }}
                   />
-                  <button
-                    type="button"
-                    className="truncate font-medium text-slate-700 hover:underline"
-                    onClick={() => {
-                      if (source) onSource(source.id);
-                    }}
-                  >
-                    {source?.name ?? "source"}
-                  </button>
-                  <a
-                    href={item.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex shrink-0 items-center gap-0.5 hover:text-slate-800"
-                  >
-                    <ExternalLink className="size-3" />
-                    Original
-                  </a>
-                  {source?.url ? (
-                    <a
-                      href={source.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="shrink-0 hover:text-slate-800 hover:underline"
+                  <Tip text={source ? `Scan ${source.name}` : "Unknown source"}>
+                    <button
+                      type="button"
+                      className="truncate font-medium text-slate-700 hover:underline"
+                      onClick={() => {
+                        if (source) onSource(source.id);
+                      }}
                     >
-                      Home
-                    </a>
-                  ) : null}
-                  {source?.feedUrl ? (
+                      {source?.name ?? "source"}
+                    </button>
+                  </Tip>
+                  <Tip text={item.url}>
                     <a
-                      href={source.feedUrl}
+                      href={item.url}
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex shrink-0 items-center gap-0.5 hover:text-slate-800"
                     >
-                      <Rss className="size-3" />
-                      RSS
+                      <ExternalLink className="size-3" />
+                      Original
                     </a>
+                  </Tip>
+                  {source?.url ? (
+                    <Tip text={source.url}>
+                      <a
+                        href={source.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 hover:text-slate-800 hover:underline"
+                      >
+                        Home
+                      </a>
+                    </Tip>
+                  ) : null}
+                  {source?.feedUrl ? (
+                    <Tip text={source.feedUrl}>
+                      <a
+                        href={source.feedUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex shrink-0 items-center gap-0.5 hover:text-slate-800"
+                      >
+                        <Rss className="size-3" />
+                        RSS
+                      </a>
+                    </Tip>
                   ) : null}
                   <Ago ts={item.publishedAt ?? item.fetchedAt} className="ml-auto" />
                 </div>
@@ -266,19 +370,41 @@ export function ReaderPane({
           })}
         </div>
 
-        <div className="mt-4 text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
-          Full copy
+        <div className="mt-4 flex items-center justify-between gap-2">
+          <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+            Full copy · {languageName(articleLang)}
+          </div>
+          {needsTranslate ? (
+            <Tip text={`Translate this article into ${languageName(homeLanguage)}`}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (translated) setTranslated(null);
+                  else void runTranslate();
+                }}
+                className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
+              >
+                <Languages className="size-3" />
+                {translated
+                  ? "Show original"
+                  : translating
+                    ? "Translating…"
+                    : `Translate to ${languageName(homeLanguage)}`}
+              </button>
+            </Tip>
+          ) : null}
         </div>
+        {translateError ? <p className="mt-1 text-[11px] text-rose-600">{translateError}</p> : null}
         {loading ? <p className="mt-1 text-[12px] text-slate-400">Pulling the piece…</p> : null}
         {error ? (
           <p className="mt-1 text-[12px] text-slate-500">
             Page extract failed ({error}). Board copy above is the source of truth.
           </p>
         ) : null}
-        {article?.title && article.title !== story.title ? (
+        {article?.title && article.title !== story.title && !translated ? (
           <p className="mt-2 text-[12.5px] font-medium text-slate-800">{article.title}</p>
         ) : null}
-        {dossier.blocks.map((block) => (
+        {shownBlocks.map((block) => (
           <p key={block.slice(0, 64)} className="mt-2 text-[12.5px] leading-relaxed text-slate-700">
             {block}
           </p>
@@ -287,24 +413,72 @@ export function ReaderPane({
           <p className="mt-2 text-[12px] text-slate-500">No extra copy on this item.</p>
         ) : null}
 
+        <div className="mt-4">
+          <Tip text="Extract places, dates, quotes, and a short briefing from this story">
+            <button
+              type="button"
+              onClick={() => setShowDive((value) => !value)}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700 hover:text-slate-900"
+            >
+              <ScanSearch className="size-3.5" />
+              {showDive ? "Hide deep dive" : "Deep dive"}
+            </button>
+          </Tip>
+          {showDive ? (
+            <div className="mt-2 rounded-md border border-slate-100 bg-slate-50 px-2 py-2">
+              <p className="text-[11px] text-slate-500">
+                {dive.wordCount} words · ~{dive.readingMinutes} min · {languageName(dive.language.id)}
+              </p>
+              {dive.bullets.length > 0 ? (
+                <ul className="mt-2 list-disc space-y-1 pl-4">
+                  {dive.bullets.map((bullet) => (
+                    <li key={bullet.slice(0, 48)} className="text-[12px] leading-relaxed text-slate-700">
+                      {bullet}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {dive.quotes.length > 0 ? (
+                <div className="mt-2">
+                  <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+                    Quotes
+                  </div>
+                  {dive.quotes.map((quote) => (
+                    <blockquote
+                      key={quote.slice(0, 40)}
+                      className="mt-1 border-l-2 border-slate-300 pl-2 text-[12px] text-slate-600"
+                    >
+                      {quote}
+                    </blockquote>
+                  ))}
+                </div>
+              ) : null}
+              {dive.dates.length > 0 ? (
+                <p className="mt-2 text-[11px] text-slate-500">Dates in copy: {dive.dates.join(" · ")}</p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
         {kevHits.length > 0 ? (
           <div className="mt-4">
             <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
               KEV on this story
             </div>
             {kevHits.map((entry) => (
-              <button
-                key={entry.cveId}
-                type="button"
-                onClick={() => onCve(entry.cveId)}
-                className="mt-1 block w-full rounded-md border border-rose-100 bg-rose-50 px-2 py-1.5 text-left"
-              >
-                <span className="font-mono text-[11px] text-rose-800">{entry.cveId}</span>
-                <span className="block text-[12px] text-slate-800">
-                  {entry.vendor} {entry.product}
-                </span>
-                <span className="block text-[11px] text-slate-500">{entry.name}</span>
-              </button>
+              <Tip key={entry.cveId} text={`Open ${entry.cveId}`}>
+                <button
+                  type="button"
+                  onClick={() => onCve(entry.cveId)}
+                  className="mt-1 block w-full rounded-md border border-rose-100 bg-rose-50 px-2 py-1.5 text-left"
+                >
+                  <span className="font-mono text-[11px] text-rose-800">{entry.cveId}</span>
+                  <span className="block text-[12px] text-slate-800">
+                    {entry.vendor} {entry.product}
+                  </span>
+                  <span className="block text-[11px] text-slate-500">{entry.name}</span>
+                </button>
+              </Tip>
             ))}
           </div>
         ) : null}
@@ -316,20 +490,45 @@ export function ReaderPane({
             </div>
             <div className="mt-1 space-y-1">
               {related.map((row) => (
-                <button
-                  key={row.story.id}
-                  type="button"
-                  onClick={() => onOpenStory(row.story)}
-                  className="block w-full rounded px-1 py-1 text-left hover:bg-slate-50"
-                >
-                  <span className="text-[10px] text-slate-400">{row.why}</span>
-                  <span className="block text-[12px] leading-snug text-slate-800">
-                    {row.story.title}
-                  </span>
-                  <span className="text-[10px] text-slate-400">
-                    {row.story.sourceIds.length} sources
-                  </span>
-                </button>
+                <Tip key={row.story.id} text={`Open related: ${row.why}`}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenStory(row.story)}
+                    className="block w-full rounded px-1 py-1 text-left hover:bg-slate-50"
+                  >
+                    <span className="text-[10px] text-slate-400">{row.why}</span>
+                    <span className="block text-[12px] leading-snug text-slate-800">
+                      {row.story.title}
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {row.story.sourceIds.length} sources
+                    </span>
+                  </button>
+                </Tip>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {similar.length > 0 ? (
+          <div className="mt-4">
+            <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+              Similar articles
+            </div>
+            <div className="mt-1 space-y-1">
+              {similar.map((row) => (
+                <Tip key={row.story.id} text={`Similar because ${row.why}`}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenStory(row.story)}
+                    className="block w-full rounded px-1 py-1 text-left hover:bg-slate-50"
+                  >
+                    <span className="text-[10px] text-slate-400">{row.why}</span>
+                    <span className="block text-[12px] leading-snug text-slate-800">
+                      {row.story.title}
+                    </span>
+                  </button>
+                </Tip>
               ))}
             </div>
           </div>
@@ -342,75 +541,113 @@ export function ReaderPane({
             </div>
             <div className="mt-1 space-y-1">
               {pageLinks.map((link) => (
-                <button
+                <Tip
                   key={link.href}
-                  type="button"
-                  onClick={() => {
-                    if (link.item) onOpenItem(link.item);
-                    else onFollow(link.href);
-                  }}
-                  className="block w-full truncate rounded px-1 py-1 text-left text-[12px] text-slate-700 hover:bg-slate-50"
-                >
-                  {link.label}
-                  <span className="block truncate text-[10px] text-slate-400">
-                    {link.item
-                      ? "already on the board"
+                  text={
+                    link.item
+                      ? "Already on the board — open it"
                       : link.source
-                        ? `via ${link.source.name}`
-                        : link.href.replace(/^https?:\/\//, "")}
-                  </span>
-                </button>
+                        ? `Follow via ${link.source.name}`
+                        : link.href
+                  }
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (link.item) onOpenItem(link.item);
+                      else onFollow(link.href);
+                    }}
+                    className="block w-full truncate rounded px-1 py-1 text-left text-[12px] text-slate-700 hover:bg-slate-50"
+                  >
+                    {link.label}
+                    <span className="block truncate text-[10px] text-slate-400">
+                      {link.item
+                        ? "already on the board"
+                        : link.source
+                          ? `via ${link.source.name}`
+                          : link.href.replace(/^https?:\/\//, "")}
+                    </span>
+                  </button>
+                </Tip>
               ))}
             </div>
           </div>
         ) : null}
 
-        {frame ? (
-          <iframe
-            title="source"
-            src={active.url}
-            className="mt-3 h-[420px] w-full rounded-md border border-slate-200"
-            sandbox="allow-scripts allow-same-origin allow-popups"
-          />
+        {relatedDocuments(pageLinks).length > 0 ? (
+          <div className="mt-4">
+            <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+              Documents
+            </div>
+            <div className="mt-1 space-y-1">
+              {relatedDocuments(pageLinks).map((doc) => (
+                <Tip key={doc.href} text={doc.href}>
+                  <a
+                    href={doc.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block truncate rounded px-1 py-1 text-[12px] text-slate-700 hover:bg-slate-50"
+                  >
+                    {doc.label}
+                    <span className="block text-[10px] text-slate-400">{doc.kind}</span>
+                  </a>
+                </Tip>
+              ))}
+            </div>
+          </div>
         ) : null}
       </div>
 
       <div className="border-t border-slate-100 px-3 py-2">
         <div className="flex flex-wrap gap-1">
-          <Button size="xs" variant="outline" onClick={() => setFrame((v) => !v)}>
-            {frame ? "Hide page" : "View page"}
-          </Button>
-          <Button size="xs" variant="outline" asChild>
-            <a href={active.url} target="_blank" rel="noreferrer">
-              <ExternalLink className="size-3" />
-              Original
-            </a>
-          </Button>
-          {activeSource?.url ? (
-            <Button size="xs" variant="outline" asChild>
-              <a href={activeSource.url} target="_blank" rel="noreferrer">
-                Home
+          <Tip text={`Open the full page: ${active.url}`}>
+            <Button size="xs" asChild>
+              <a href={active.url} target="_blank" rel="noreferrer">
+                <ExternalLink className="size-3" />
+                View page
               </a>
             </Button>
+          </Tip>
+          <Tip text={active.url}>
+            <Button size="xs" variant="outline" asChild>
+              <a href={active.url} target="_blank" rel="noreferrer">
+                Original
+              </a>
+            </Button>
+          </Tip>
+          {activeSource?.url ? (
+            <Tip text={activeSource.url}>
+              <Button size="xs" variant="outline" asChild>
+                <a href={activeSource.url} target="_blank" rel="noreferrer">
+                  Home
+                </a>
+              </Button>
+            </Tip>
           ) : null}
           {activeSource?.feedUrl ? (
-            <Button size="xs" variant="outline" asChild>
-              <a href={activeSource.feedUrl} target="_blank" rel="noreferrer">
-                <Rss className="size-3" />
-                RSS
-              </a>
-            </Button>
+            <Tip text={activeSource.feedUrl}>
+              <Button size="xs" variant="outline" asChild>
+                <a href={activeSource.feedUrl} target="_blank" rel="noreferrer">
+                  <Rss className="size-3" />
+                  RSS
+                </a>
+              </Button>
+            </Tip>
           ) : null}
           {activeSource ? (
-            <Button size="xs" variant="outline" onClick={() => onSource(activeSource.id)}>
-              This source
-            </Button>
+            <Tip text={`Scan only ${activeSource.name}`}>
+              <Button size="xs" variant="outline" onClick={() => onSource(activeSource.id)}>
+                This source
+              </Button>
+            </Tip>
           ) : null}
           {article?.site ? (
-            <Button size="xs" onClick={() => onFollow(`https://${article.site}`)}>
-              <Rss className="size-3" />
-              Follow {article.site}
-            </Button>
+            <Tip text={`Add ${article.site} as a layer`}>
+              <Button size="xs" onClick={() => onFollow(`https://${article.site}`)}>
+                <Rss className="size-3" />
+                Follow {article.site}
+              </Button>
+            </Tip>
           ) : null}
         </div>
       </div>
