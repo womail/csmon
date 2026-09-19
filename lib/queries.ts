@@ -1,3 +1,6 @@
+import "server-only";
+
+import { cacheStats } from "./cache";
 import { classifyItem } from "./classify";
 import { colorFor } from "./colors";
 import { getDb } from "./db";
@@ -364,6 +367,7 @@ export function getMonitorState(): MonitorState {
     items,
     hints: hintSources(items, sources),
     kev: listKev(),
+    cache: cacheStats(),
   };
 }
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchKevCatalog } from "@/lib/kev";
+import { fetchKevCatalog } from "@/lib/kev-fetch";
 import { getMonitorState, replaceKev } from "@/lib/queries";
 
 export const runtime = "nodejs";

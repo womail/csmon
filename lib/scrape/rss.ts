@@ -1,7 +1,7 @@
 import * as cheerio from "cheerio";
 import Parser from "rss-parser";
 import { classifyItem } from "../classify";
-import { fetchText, UA } from "../http";
+import { fetchRssXml, fetchText, UA } from "../http";
 import type { DiscoveredSource, ScrapeResult, ScrapedItem } from "../types";
 
 const parser = new Parser({
@@ -54,7 +54,8 @@ export async function discoverRss(pageUrl: string): Promise<string | null> {
   for (const path of candidates) {
     const url = new URL(path, `${base.protocol}//${base.host}`).toString();
     try {
-      const feed = await parser.parseURL(url);
+      const xml = await fetchRssXml(url, 8000);
+      const feed = await parser.parseString(xml);
       if (feed.items?.length) return url;
     } catch {
       /* next */
@@ -64,12 +65,14 @@ export async function discoverRss(pageUrl: string): Promise<string | null> {
 }
 
 export async function fetchRss(feedUrl: string): Promise<ScrapedItem[]> {
-  const feed = await parser.parseURL(feedUrl);
+  const xml = await fetchRssXml(feedUrl);
+  const feed = await parser.parseString(xml);
   return asItems(feed, feedUrl);
 }
 
 export async function scrapeRssUrl(url: string): Promise<ScrapeResult> {
-  const feed = await parser.parseURL(url);
+  const xml = await fetchRssXml(url);
+  const feed = await parser.parseString(xml);
   const host = hostOf(url);
   const items = asItems(feed, url);
   const source: DiscoveredSource = {

@@ -11,7 +11,7 @@ const TOPICS: { tag: string; re: RegExp }[] = [
   },
   {
     tag: "cyber",
-    re: /\b(hack|ransomware|malware|phishing|zero[- ]day|data breach|cyberattack|cve|outage)\b/i,
+    re: /\b(hack|ransomware|malware|phishing|zero[- ]day|data breach|cyberattack|cve-\d|advisory|exploit|vulnerability|cisa|kev|patch tuesday|threat actor|apt\d|botnet|wiper|lockbit|outage)\b/i,
   },
   {
     tag: "markets",

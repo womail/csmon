@@ -18,10 +18,18 @@ function hostOf(url: string) {
   }
 }
 
+function absUrl(href: string, base: string) {
+  try {
+    return new URL(href, base).toString();
+  } catch {
+    return href;
+  }
+}
+
 export async function readArticle(url: string): Promise<ArticleRead> {
   const html = await fetchText(url, 9000);
   const $ = cheerio.load(html);
-  $("script, style, noscript, iframe, svg, nav, footer, header, form, aside").remove();
+  $("script, style, noscript, iframe, svg, nav, footer, header, form").remove();
 
   const title =
     $('meta[property="og:title"]').attr("content")?.trim() ||
@@ -30,31 +38,42 @@ export async function readArticle(url: string): Promise<ArticleRead> {
   const description =
     $('meta[property="og:description"]').attr("content")?.trim() ||
     $('meta[name="description"]').attr("content")?.trim() ||
+    $('meta[name="twitter:description"]').attr("content")?.trim() ||
     null;
 
-  const paraSel = "article p, [itemprop='articleBody'] p, main p, .article-body p, .story-body p";
+  const paraSel =
+    "article p, [itemprop='articleBody'] p, main p, .article-body p, .story-body p, [data-testid='postText'] p, .post-content p";
   let paragraphs = $(paraSel)
     .map((_, el) => $(el).text().replace(/\s+/g, " ").trim())
     .get()
-    .filter((p) => p.length > 60);
-  if (paragraphs.length < 3) {
-    paragraphs = $("p")
-      .map((_, el) => $(el).text().replace(/\s+/g, " ").trim())
-      .get()
-      .filter((p) => p.length > 80)
-      .slice(0, 10);
+    .filter((p) => p.length > 40);
+  if (paragraphs.length < 4) {
+    paragraphs = [
+      ...paragraphs,
+      ...$("p, li, blockquote")
+        .map((_, el) => $(el).text().replace(/\s+/g, " ").trim())
+        .get()
+        .filter((p) => p.length > 50),
+    ];
   }
-  paragraphs = paragraphs.slice(0, 10);
+  const seen = new Set<string>();
+  paragraphs = paragraphs.filter((p) => {
+    const key = p.slice(0, 80);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 28);
 
-  const related = $("article a[href], main a[href]")
+  const related = $("article a[href], main a[href], .related a[href], aside a[href]")
     .map((_, el) => {
-      const href = $(el).attr("href") || "";
+      const href = absUrl($(el).attr("href") || "", url);
       const label = $(el).text().replace(/\s+/g, " ").trim();
       return { href, label };
     })
     .get()
-    .filter((l) => l.label.length > 18 && l.href.startsWith("http"))
-    .slice(0, 8);
+    .filter((l) => l.label.length > 16 && /^https?:/i.test(l.href))
+    .filter((l, i, all) => all.findIndex((x) => x.href === l.href) === i)
+    .slice(0, 12);
 
   return {
     url,

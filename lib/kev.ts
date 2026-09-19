@@ -17,7 +17,7 @@ export type KevEntry = {
   daysUntilDue: number;
 };
 
-type RawKev = {
+export type RawKev = {
   vulnerabilities?: {
     cveID: string;
     vendorProject: string;
@@ -32,7 +32,7 @@ type RawKev = {
   }[];
 };
 
-const KEV_URL =
+export const KEV_URL =
   "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json";
 
 function parseDay(iso: string) {
@@ -76,19 +76,6 @@ export function toKevEntry(raw: NonNullable<RawKev["vulnerabilities"]>[number]):
     url: `https://nvd.nist.gov/vuln/detail/${raw.cveID}`,
     ...scoreKev({ dueDate, dateAdded: parseDay(raw.dateAdded), ransomware }),
   };
-}
-
-export async function fetchKevCatalog(): Promise<KevEntry[]> {
-  const res = await fetch(KEV_URL, {
-    headers: {
-      "User-Agent": "csmon/0.1 (local current-situation monitor)",
-      Accept: "application/json",
-    },
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!res.ok) throw new Error(`KEV ${res.status}`);
-  const body = (await res.json()) as RawKev;
-  return (body.vulnerabilities ?? []).map(toKevEntry);
 }
 
 export function matchesStack(entry: KevEntry, stack: string) {

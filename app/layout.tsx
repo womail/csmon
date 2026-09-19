@@ -16,7 +16,7 @@ const plexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: "csmon",
-  description: "Scrape users for sources, filter layers, watch the board.",
+  description: "Desk-based current situation monitor: public RSS, CISA KEV, and in-place reading.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

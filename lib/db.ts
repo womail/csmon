@@ -1,3 +1,4 @@
+import "server-only";
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
@@ -66,6 +67,13 @@ const MIGRATIONS: { name: string; sql: string }[] = [
     `,
   },
   {
+    name: "002_topics_locations",
+    sql: `
+      ALTER TABLE items ADD COLUMN topics TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE items ADD COLUMN locations TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
+  {
     name: "003_kev",
     sql: `
       CREATE TABLE IF NOT EXISTS kev (
@@ -83,6 +91,19 @@ const MIGRATIONS: { name: string; sql: string }[] = [
       );
       CREATE INDEX IF NOT EXISTS idx_kev_due ON kev(due_date);
       CREATE INDEX IF NOT EXISTS idx_kev_ransomware ON kev(ransomware);
+    `,
+  },
+  {
+    name: "004_fetch_cache",
+    sql: `
+      CREATE TABLE IF NOT EXISTS fetch_cache (
+        cache_key TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        body TEXT NOT NULL,
+        fetched_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_fetch_cache_expires ON fetch_cache(expires_at);
     `,
   },
 ];
@@ -104,7 +125,21 @@ function applyMigrations(db: DatabaseSync) {
   );
   for (const migration of MIGRATIONS) {
     if (applied.has(migration.name)) continue;
-    db.exec(migration.sql);
+    if (migration.name === "002_topics_locations") {
+      const cols = new Set(
+        (db.prepare("PRAGMA table_info(items)").all() as { name: string }[]).map(
+          (row) => row.name,
+        ),
+      );
+      if (!cols.has("topics")) {
+        db.exec(`ALTER TABLE items ADD COLUMN topics TEXT NOT NULL DEFAULT '[]'`);
+      }
+      if (!cols.has("locations")) {
+        db.exec(`ALTER TABLE items ADD COLUMN locations TEXT NOT NULL DEFAULT '[]'`);
+      }
+    } else {
+      db.exec(migration.sql);
+    }
     db.prepare("INSERT INTO _migrations (name, applied_at) VALUES (?, ?)").run(
       migration.name,
       Date.now(),

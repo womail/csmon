@@ -20,14 +20,18 @@ const REASONS: { id: OriginReason | "all"; label: string }[] = [
   { id: "link", label: "link" },
 ];
 
-const SUGGESTIONS = [
-  "nytimes.com",
-  "bbc.com",
-  "reuters.com",
-  "theguardian.com",
-  "npr.org",
-  "wired.com",
-];
+const SUGGESTIONS: Record<"rss" | "bsky" | "auto", string[]> = {
+  rss: [
+    "https://krebsonsecurity.com/feed/",
+    "https://www.cisa.gov/cybersecurity-advisories/all.xml",
+    "https://www.bleepingcomputer.com/feed/",
+    "https://feeds.bbci.co.uk/news/world/rss.xml",
+  ],
+  bsky: ["nytimes.com", "reuters.com", "theguardian.com", "bbc.com"],
+  auto: ["nytimes.com", "bbc.com", "reuters.com", "krebsonsecurity.com/feed/"],
+};
+
+type ScrapeMode = "rss" | "bsky" | "auto";
 
 export function ScrapeDialog({
   open,
@@ -43,9 +47,10 @@ export function ScrapeDialog({
   busy: boolean;
   error: string | null;
   discovered: DiscoveredSource[];
-  onScrape: (input: string) => Promise<void>;
+  onScrape: (input: string, mode?: ScrapeMode) => Promise<void>;
   onAdd: (keys: string[]) => Promise<void>;
 }) {
+  const [mode, setMode] = useState<ScrapeMode>("rss");
   const [input, setInput] = useState("");
   const [reason, setReason] = useState<OriginReason | "all">("all");
   const [query, setQuery] = useState("");
@@ -85,31 +90,57 @@ export function ScrapeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[88vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
         <DialogHeader className="border-b border-slate-100 px-4 py-3">
-          <DialogTitle className="text-[15px]">Scrape user for sources</DialogTitle>
+          <DialogTitle className="text-[15px]">Add sources</DialogTitle>
           <p className="text-[12px] text-slate-500">
-            Public Bluesky profiles, RSS feeds, or websites. csmon pulls follows,
-            mentions, and linked sites, then you filter what becomes a layer.
+            Paste a public RSS/Atom URL, a site that publishes a feed, or a Bluesky
+            handle. You pick which discoveries become layers.
           </p>
         </DialogHeader>
+        <div className="flex gap-1 px-4 pt-3">
+          {(
+            [
+              { id: "rss" as const, label: "RSS feed" },
+              { id: "bsky" as const, label: "Bluesky" },
+              { id: "auto" as const, label: "Auto" },
+            ] as const
+          ).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setMode(item.id)}
+              className={`rounded-full px-2 py-0.5 text-[11px] ${
+                mode === item.id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
         <form
-          className="flex gap-2 px-4 pt-3"
+          className="flex gap-2 px-4 pt-2"
           onSubmit={async (event) => {
             event.preventDefault();
-            await onScrape(input);
+            await onScrape(input, mode);
           }}
         >
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="@handle, bsky.app/profile/…, or RSS URL"
+            placeholder={
+              mode === "rss"
+                ? "https://krebsonsecurity.com/feed/ or example.com"
+                : mode === "bsky"
+                  ? "@handle or bsky.app/profile/…"
+                  : "@handle, site, or RSS URL"
+            }
             className="h-8 text-[13px]"
           />
           <Button type="submit" size="sm" disabled={busy || !input.trim()}>
-            {busy ? "Scraping…" : "Scrape"}
+            {busy ? "Scraping…" : mode === "rss" ? "Add RSS" : "Scrape"}
           </Button>
         </form>
         <div className="flex flex-wrap gap-1 px-4 pt-2">
-          {SUGGESTIONS.map((handle) => (
+          {SUGGESTIONS[mode].map((handle) => (
             <button
               key={handle}
               type="button"

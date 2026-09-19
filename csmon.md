@@ -1,23 +1,42 @@
 # csmon
 
-Current Situation Monitor. Harvest public sources, collapse them into a brief, and read in place. Patch mode ranks CISA Known Exploited Vulnerabilities so a software owner can see **what to patch** and **why it is urgent**.
+Current Situation Monitor. Harvest public sources, collapse them into desks, and read in place. Cyber desks rank CISA Known Exploited Vulnerabilities and mine vendor / CVE / ransomware signals so a software owner can see **what to patch** and **why it is urgent**.
+
+Navigation is desks, not a firehose. Filters live in the URL so a view can be bookmarked (`?desk=patch&risk=p0&stack=linux&ransomware=1&layer=12`).
 
 ## How to consume
 
-Default is **Brief**, not a firehose.
+Default is **Brief**.
 
-| Mode | Use when |
+| Desk | Use when |
 | --- | --- |
-| Brief | Clustered stories, 2+ sources first, topic/place chips. Lowest cognitive load. |
-| Scan | Every item, dense cards. When you need the raw desk. |
-| Pulse | Volume, topic mix, places. Pattern hunting. |
+| Brief | Clustered stories, 2+ sources first, topic/place/vendor chips. Lowest cognitive load. |
+| Scan | Every item, dense cards. Raw desk. Click a source name to isolate that layer. |
+| Pulse | Volume, topic mix, places, vendors. Pattern hunting. |
+| Advisories | Cyber-classified items plus security RSS (CISA, Krebs, BleepingComputer, NCSC). |
 | Patch | CISA KEV. Exploited CVEs, due dates, ransomware flag, filter to your stack. |
+| Sources | Layers as objects: origin, item count, latest headline. Click a layer to scan it. |
 
-Click a story to **read in place** (extracted text + source list + optional page view). Esc closes. You should not need to leave the board.
+Click a story to **read in place**. The pane is a dossier, not a shrink of the card: every contributing source’s full title and summary, then page extract, then related board stories and KEV hits. Topics, places, vendors, CVEs, and source names are all filters. Related stories and page links open forward; back / Esc walks the trail.
 
-Filter with topic chips, location chips, search, time range, and **2+ sources** (only stories more than one desk covered).
+Filter with topic chips, location chips, vendor chips, ransomware, a **layer**, search, time range, and **2+ sources**. Search also matches mined CVE IDs.
 
 **Follow next** on the right is auto-explore: hosts that keep showing up in coverage, one click to add as a layer.
+
+## How the graph is linked
+
+Sources are not a dump of unused handles. A source is a layer you chose (or auto-explored) with an origin (`self` / `follow` / `intel` / …). It only earns a place in a story when it actually published an item.
+
+```
+Source (layer, origin, freshness)
+  └─ Item (title, summary, url, topics, places)
+       mined → CVE, vendor, ransomware
+  Story = items clustered by URL, shared CVE, or title overlap
+  Story ─related─ Story (shared CVE / vendor / similar copy / same place+topic)
+  Story ─KEV─ catalog row when a CVE is on both
+```
+
+Read-in-place walks that graph. Isolated sources with zero items are pool only — they do not corroborate anything until they fetch.
 
 ## Patch / risk (software owners)
 
@@ -29,19 +48,44 @@ CISA KEV is the exploited-in-the-wild catalog. That is the patch list; CVSS-only
 | This window (P1) | Ransomware use, or added in 90 days |
 | KEV backlog (P2) | Older exploited entries — still patch if you run the product |
 
-Type your stack (`microsoft, openssl, chrome, apache`) to hide vulns that do not match vendor/product.
+Type your stack (`microsoft, openssl, chrome, apache`) to hide vulns that do not match vendor/product. Vendor chips and the ransomware toggle further slice both KEV and advisory copy.
 
-NVD link opens in the reader pane. **KEV** button refreshes the catalog. **Load security RSS** adds CISA advisories, Bellingcat, CFR.
+NVD link opens in the reader pane. **KEV** button refreshes the catalog (cached 1h). **RSS** adds a public feed or discovers one from a site. **Options** stores default desk, range, stack, compact layout, and auto-load of security RSS / KEV.
+
+**Load world RSS** now also includes DW, France 24, and Sky News. Relief adds GDACS and OCHA. **Load security RSS** includes CISA, CISA ICS, Krebs, BleepingComputer, The Record, NCSC UK, Schneier, Bellingcat, CFR, The Hacker News, Dark Reading, MSRC, CERT-EU.
 
 This is not an asset inventory. It tells you what is being exploited and how soon CISA expects a fix; you still map that to the software you actually run.
+
+Public APIs and RSS only. No recon scanners, maps, or unauthorized probing.
+
+## What we take from Osiris (osirisai.live)
+
+Osiris is a map/HUD that proxies many public feeds. Useful patterns for csmon: desks/layers, TTL-cached public CVE/KEV/news, keyword risk as a count not a model.
+
+We reuse the **upstream public sources** (CISA, USGS-style RSS, vendor advisories), not Osiris’s own API and not RECON: no DNS/WHOIS/cert sweep, port scan, CCTV, flight maps, or `/api/osint/sweep`.
+
+## Options
+
+Browser-local (`localStorage` `csmon.options`): start desk, time range, stack, compact cards, auto-load security RSS, auto-load KEV. Shared links still override via the query string.
+
+## Caching
+
+Outbound fetches go through SQLite `fetch_cache` so refresh does not hammer the same RSS/KEV/HTML.
+
+| kind | TTL |
+| --- | --- |
+| rss | 15 minutes |
+| json | 30 minutes |
+| kev | 1 hour |
+| html | 6 hours |
+
+Expired rows are deleted on read. The Sources desk shows live entry count and bytes.
 
 ## Flow
 
 1. Load world/security RSS, scrape a Bluesky/RSS desk, or load KEV.
-2. Filter topics, places, stack.
-3. Open a story or CVE in the reader. Follow related sources from there.
-
-Public APIs and RSS only.
+2. Pick a desk. Filter topics, places, vendors, stack, or a layer.
+3. Open a story. Compare desks in the dossier, jump related coverage, walk back.
 
 ## Stack
 
@@ -134,8 +178,21 @@ CISA Known Exploited Vulnerabilities snapshot (`003_kev`).
 | notes | TEXT | |
 | fetched_at | INTEGER NOT NULL | |
 
+### fetch_cache
+
+TTL body cache for outbound RSS, JSON, KEV, and HTML (`004_fetch_cache`).
+
+| column | type | notes |
+| --- | --- | --- |
+| cache_key | TEXT PK | e.g. `rss:https://…`, `kev:catalog` |
+| kind | TEXT NOT NULL | `rss` \| `json` \| `kev` \| `html` |
+| body | TEXT NOT NULL | raw response |
+| fetched_at | INTEGER NOT NULL | unix ms |
+| expires_at | INTEGER NOT NULL | unix ms |
+
 ## Migrations
 
 - `001_init` — users, sources, origins, items
-- `002_topics_locations` — `items.topics`, `items.locations`
+- `002_topics_locations` — `items.topics`, `items.locations` (skipped if columns already exist)
 - `003_kev` — `kev` catalog table
+- `004_fetch_cache` — `fetch_cache` TTL table

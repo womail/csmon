@@ -3,8 +3,11 @@ import type { ScrapedItem, Source } from "../types";
 import { fetchBskySource, scrapeBskyUser } from "./bsky";
 import { fetchRss, hydrateLinkSources, scrapeRssUrl, scrapeWeb } from "./rss";
 
-export async function scrapeInput(input: string) {
-  const target = parseTarget(input);
+export async function scrapeInput(
+  input: string,
+  prefer: "auto" | "rss" | "bsky" = "auto",
+) {
+  const target = parseTarget(input, { prefer });
   if (target.kind === "bsky") {
     const result = await scrapeBskyUser(target.handle);
     result.sources = await hydrateLinkSources(result.sources);

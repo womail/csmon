@@ -7,12 +7,15 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { input?: string };
+    const body = (await request.json()) as {
+      input?: string;
+      mode?: "auto" | "rss" | "bsky";
+    };
     const input = body.input?.trim();
     if (!input) {
       return NextResponse.json({ error: "Paste a handle or URL." }, { status: 400 });
     }
-    const result = await scrapeInput(input);
+    const result = await scrapeInput(input, body.mode ?? "auto");
     const persisted = upsertScrape(result);
     return NextResponse.json({
       discovered: result.sources,

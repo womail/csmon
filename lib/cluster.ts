@@ -1,3 +1,4 @@
+import { mineItem } from "./mine";
 import type { Item, Source } from "./types";
 
 const STOP = new Set([
@@ -20,7 +21,7 @@ export type Story = {
   sourceIds: number[];
 };
 
-function tokens(title: string) {
+export function clusterTokens(title: string) {
   return new Set(
     title
       .toLowerCase()
@@ -36,6 +37,16 @@ function jaccard(a: Set<string>, b: Set<string>) {
   for (const x of a) if (b.has(x)) inter += 1;
   const union = a.size + b.size - inter;
   return union ? inter / union : 0;
+}
+
+function itemKey(item: Item) {
+  try {
+    const parsed = new URL(item.url);
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return item.url;
+  }
 }
 
 export function itemAsStory(item: Item): Story {
@@ -54,21 +65,34 @@ export function itemAsStory(item: Item): Story {
 }
 
 export function clusterItems(items: Item[]): Story[] {
-  const groups: { tokens: Set<string>; items: Item[] }[] = [];
+  const groups: {
+    tokens: Set<string>;
+    cves: Set<string>;
+    urls: Set<string>;
+    items: Item[];
+  }[] = [];
 
   for (const item of items) {
-    const toks = tokens(item.title);
+    const toks = clusterTokens(item.title);
+    const cves = new Set(mineItem(item).cves);
+    const url = itemKey(item);
     let placed = false;
     for (const group of groups) {
       const overlap = [...toks].filter((t) => group.tokens.has(t)).length;
-      if (overlap >= 3 || jaccard(toks, group.tokens) >= 0.42) {
+      const sameCve = [...cves].some((cve) => group.cves.has(cve));
+      const sameUrl = group.urls.has(url);
+      if (sameUrl || sameCve || jaccard(toks, group.tokens) >= 0.42 || (overlap >= 4 && jaccard(toks, group.tokens) >= 0.28)) {
         group.items.push(item);
         for (const t of toks) group.tokens.add(t);
+        for (const cve of cves) group.cves.add(cve);
+        group.urls.add(url);
         placed = true;
         break;
       }
     }
-    if (!placed) groups.push({ tokens: toks, items: [item] });
+    if (!placed) {
+      groups.push({ tokens: toks, cves, urls: new Set([url]), items: [item] });
+    }
   }
 
   return groups
@@ -76,15 +100,19 @@ export function clusterItems(items: Item[]): Story[] {
       const sorted = [...group.items].sort(
         (a, b) => (b.publishedAt ?? b.fetchedAt) - (a.publishedAt ?? a.fetchedAt),
       );
-      const head = sorted[0];
+      const head =
+        sorted.find((item) => (item.summary ?? "").length > 80) ?? sorted[0];
       const topics = [...new Set(sorted.flatMap((i) => i.topics))];
       const locations = [...new Set(sorted.flatMap((i) => i.locations))];
+      const summaries = [
+        ...new Set(sorted.map((item) => item.summary).filter(Boolean) as string[]),
+      ];
       return {
-        id: `story-${head.id}`,
+        id: `story-${sorted.map((item) => item.id).sort((a, b) => a - b).join("-")}`,
         title: head.title,
-        summary: head.summary,
+        summary: summaries[0] ?? head.summary,
         url: head.url,
-        latestAt: head.publishedAt ?? head.fetchedAt,
+        latestAt: sorted[0].publishedAt ?? sorted[0].fetchedAt,
         topics,
         locations,
         tags: [...new Set(sorted.flatMap((i) => i.tags))],
@@ -97,6 +125,10 @@ export function clusterItems(items: Item[]): Story[] {
       if (sourceDelta) return sourceDelta;
       return b.latestAt - a.latestAt;
     });
+}
+
+export function storyContaining(item: Item, stories: Story[]) {
+  return stories.find((story) => story.items.some((entry) => entry.id === item.id));
 }
 
 export function situationLine(stories: Story[], sources: Source[]) {

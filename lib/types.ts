@@ -99,13 +99,20 @@ export type SourceHint = {
 
 import type { KevEntry } from "./kev";
 
+export type CacheStats = {
+  entries: number;
+  bytes: number;
+};
+
 export type MonitorState = {
   users: SeedUser[];
   sources: Source[];
   items: Item[];
   hints: SourceHint[];
   kev: KevEntry[];
+  cache: CacheStats;
 };
 
 export type TimeRange = "1h" | "6h" | "24h" | "7d" | "all";
-export type ConsumeMode = "brief" | "scan" | "pulse" | "patch";
+export type Desk = "brief" | "scan" | "pulse" | "advisories" | "patch" | "sources";
+export type ConsumeMode = Desk;

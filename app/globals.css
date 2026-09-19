@@ -130,33 +130,86 @@
 }
 
 .board {
-  column-width: 240px;
+  column-width: 256px;
+  column-gap: 10px;
+}
+
+.board-compact {
+  column-width: 200px;
   column-gap: 8px;
 }
 
 .board > * {
   break-inside: avoid;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .card-tile {
   display: block;
-  border-radius: 8px;
+  border-radius: 9px;
   border: 1px solid #e2e5eb;
   background: #fff;
-  padding: 8px 10px;
-  box-shadow: 0 1px 1px rgb(15 23 42 / 0.04);
+  padding: 10px 12px;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
 }
 
 .card-tile:hover {
-  border-color: #cfd5df;
+  border-color: #c5ccd8;
+  box-shadow: 0 2px 6px rgb(15 23 42 / 0.06);
 }
 
 .tag {
   border-radius: 3px;
-  padding: 1px 5px;
-  font-size: 9px;
+  padding: 2px 6px;
+  font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.04em;
+  line-height: 1.4;
   text-transform: uppercase;
+}
+
+.source-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 10.5px;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.source-chip:hover {
+  color: #334155;
+  text-decoration: underline;
+}
+
+.source-chip-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 999px;
+}
+
+.origin-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 3px;
+  padding: 2px 6px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: 1.4;
+}
+
+.card-cue {
+  font-size: 10px;
+  line-height: 1.3;
+  color: #94a3b8;
 }
