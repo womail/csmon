@@ -8,6 +8,29 @@ function withHttps(raw: string) {
   return `https://${raw}`;
 }
 
+export function redditRssUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(withHttps(url));
+  } catch {
+    return null;
+  }
+  const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+  if (host !== "reddit.com" && host !== "old.reddit.com" && host !== "new.reddit.com") {
+    return null;
+  }
+  const path = parsed.pathname.replace(/\/+$/, "") || "/";
+  if (/\.rss$/i.test(path)) {
+    return `https://www.reddit.com${path}${parsed.search}`;
+  }
+  const sub = path.match(/^\/r\/([^/]+)(?:\/(new|hot|top|rising))?$/i);
+  if (sub) {
+    const sort = sub[2] ?? "new";
+    return `https://www.reddit.com/r/${sub[1]}/${sort}/.rss`;
+  }
+  return null;
+}
+
 export function parseTarget(
   input: string,
   opts?: { prefer?: "auto" | "rss" | "bsky" },
@@ -24,6 +47,8 @@ export function parseTarget(
     } catch {
       throw new Error("Paste an RSS/Atom URL or a site that publishes a feed.");
     }
+    const reddit = redditRssUrl(parsed.toString());
+    if (reddit) return { kind: "rss", url: reddit };
     const path = parsed.pathname.toLowerCase();
     if (
       parsed.searchParams.has("feed") ||
@@ -70,6 +95,9 @@ export function parseTarget(
   } catch {
     throw new Error("Could not parse that as a handle or URL.");
   }
+
+  const reddit = redditRssUrl(parsed.toString());
+  if (reddit) return { kind: "rss", url: reddit };
 
   const path = parsed.pathname.toLowerCase();
   if (

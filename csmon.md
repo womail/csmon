@@ -31,7 +31,7 @@ Default is **Home**.
 
 Click a story to **read in place**. The pane is a dossier, not a shrink of the card: every contributing source’s full title and summary, a map of related places, then page extract, deep dive, similar articles, related board stories, documents, people, and KEV hits. Topics, places, vendors, people, CVEs, and source names are all filters — they stay on the current desk. **View page** opens the original article in a new tab (news sites block embeds). Related stories and page links open forward; back / Esc walks the trail.
 
-Hover any source, desk, or outbound link for a tooltip (destination URL or what the filter will do).
+Hover a source, filter chip, or outbound link for a tooltip (destination URL or what the filter will do). Desk labels already show their hint, so the rail does not duplicate it. Tooltips appear after a short hover and hide as soon as the pointer leaves.
 
 Filter with topic chips (including **AI**), **country** chips, city chips, vendor chips (**Microsoft**, **Linux**, **Oracle**, **macOS**, **Mac**), ransomware, a **layer**, search, time range, and **2+ sources**. Search also matches mined CVE IDs. **Filters** in the header saves the current URL view under a name.
 
@@ -99,6 +99,10 @@ NVD link opens in the reader pane. **KEV** button refreshes the catalog (cached 
 This is not an asset inventory. It tells you what is being exploited and how soon CISA expects a fix; you still map that to the software you actually run.
 
 Public APIs and RSS only. No recon scanners or unauthorized probing. Maps use Natural Earth country polygons, Esri World Street Map (light) or Dark Gray Canvas (dark) on Flights, geocoded places, USGS GeoJSON, weather warning feeds, and OpenSky ADS-B (cached ~20s, 100 km around home). Aircraft drill-in uses HexDb metadata plus public globe links. This is not Osiris RECON and not a targeting tool.
+
+**Reddit.** Unauthenticated `.json` is shut down (403). Public RSS (`/r/{sub}/.rss`) still works at about **one request per minute per IP**. Paste a subreddit URL or `.rss` link in RSS; csmon maps `/r/worldnews` to the RSS URL and caches 15 minutes, so one layer is fine. A pack of subs would 429. Account `user=`/`feed=` tokens are credentials — not used. Official API needs OAuth.
+
+**X / Twitter.** No public RSS. No free API for new apps (pay-per-use credits). Nitter and other scrape proxies are out of scope. Bluesky remains the public social layer.
 
 Public feed lists were expanded from [situation-monitor](https://github.com/hipcityreg/situation-monitor) config (tech, markets, think-tank/defense RSS). We did not take Finnhub/FRED keys, CORS proxies, or military-site overlays.
 

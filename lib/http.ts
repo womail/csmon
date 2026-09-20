@@ -59,6 +59,18 @@ export async function fetchRssXml(url: string, timeoutMs = 12000): Promise<strin
     redirect: "follow",
   });
   if (!res.ok) {
+    const host = (() => {
+      try {
+        return new URL(url).hostname.replace(/^www\./, "");
+      } catch {
+        return "";
+      }
+    })();
+    if (res.status === 429 && host.endsWith("reddit.com")) {
+      throw new Error(
+        "Reddit public RSS allows about one request per minute per IP. Wait, or add only one subreddit.",
+      );
+    }
     throw new Error(`${res.status} ${url}`);
   }
   const text = await res.text();

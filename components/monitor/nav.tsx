@@ -71,12 +71,12 @@ export function DeskRail({
         const active = desk === item.id;
         const count = counts[item.id];
         return (
-          <Tip key={item.id} text={`${item.label}: ${item.hint}`}>
-            <div
-              className={`mx-2 mb-0.5 flex items-start gap-1 rounded-md ${
-                active ? "bg-foreground text-background" : "text-slate-600"
-              }`}
-            >
+          <div
+            key={item.id}
+            className={`mx-2 mb-0.5 flex items-start gap-1 rounded-md ${
+              active ? "bg-foreground text-background" : "text-slate-600"
+            }`}
+          >
               <button
                 type="button"
                 onClick={() => {
@@ -111,8 +111,7 @@ export function DeskRail({
                   ×
                 </button>
               ) : null}
-            </div>
-          </Tip>
+          </div>
         );
       })}
       {onCreateDesk ? (
