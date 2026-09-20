@@ -14,6 +14,7 @@ const ALIASES: [RegExp, string][] = [
   [/^sky sports|^skysports/i, "Sky Sport"],
   [/^associated press|\bap news\b/i, "AP"],
   [/^reuters/i, "Reuters"],
+  [/^reddit/i, "Reddit"],
 ];
 
 export function shortSourceName(name: string) {

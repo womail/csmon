@@ -13,12 +13,25 @@ function hostOf(url: string) {
   return new URL(url).hostname.replace(/^www\./, "");
 }
 
+function isRedditUrl(url: string) {
+  try {
+    const host = hostOf(url).toLowerCase();
+    return host === "reddit.com" || host.endsWith(".reddit.com") || host === "redd.it";
+  } catch {
+    return false;
+  }
+}
+
 function asItems(feed: Parser.Output<Parser.Item>, fallbackUrl: string): ScrapedItem[] {
   return (feed.items ?? []).slice(0, 40).map((item, index) => {
     const title = (item.title || item.contentSnippet || "Untitled").replace(/\s+/g, " ").slice(0, 220);
     const summary = (item.contentSnippet || item.content || "").replace(/<[^>]+>/g, "").slice(0, 280) || null;
     const url = item.link || fallbackUrl;
     const classified = classifyItem(title, summary);
+    if (isRedditUrl(url) || isRedditUrl(fallbackUrl)) {
+      classified.topics = ["reddit", ...classified.topics.filter((topic) => topic !== "reddit")].slice(0, 6);
+      classified.tags = ["reddit", ...classified.tags.filter((tag) => tag !== "reddit")].slice(0, 5);
+    }
     return {
       externalId: item.guid || item.link || `${fallbackUrl}#${index}`,
       title,

@@ -33,7 +33,7 @@ export const DESKS: { id: Desk; label: string; hint: string }[] = [
 
 const RANGES = new Set<TimeRange>(["1h", "6h", "24h", "7d", "all"]);
 const RISKS = new Set(["all", "p0", "p1", "p2"]);
-const ORIGINS = new Set<OriginReason>(["self", "follow", "mention", "link", "intel", "explore"]);
+const ORIGINS = new Set<OriginReason>(["self", "follow", "mention", "link", "intel", "explore", "reddit"]);
 
 function one(value: string | string[] | undefined) {
   if (Array.isArray(value)) return value[0] ?? "";

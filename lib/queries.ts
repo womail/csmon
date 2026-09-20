@@ -6,6 +6,12 @@ import { colorFor } from "./colors";
 import { getDb } from "./db";
 import { hintSources } from "./explore";
 import { type IntelFeed } from "./intel-feeds";
+import {
+  REDDIT_SOURCE_KEY,
+  combinedRedditRssUrl,
+  redditListingUrl,
+  uniqueSubreddits,
+} from "./reddit";
 import { scoreKev, type KevEntry } from "./kev";
 import type {
   DiscoveredSource,
@@ -510,6 +516,89 @@ export function registerIntelFeeds(feeds: IntelFeed[], enable: boolean) {
     ids.push(id);
   }
   return ids;
+}
+
+function redditSeedUserId() {
+  const db = getDb();
+  const existing = db
+    .prepare("SELECT id FROM seed_users WHERE handle = ? AND platform = ?")
+    .get("reddit-pack", "rss") as { id: number } | undefined;
+  if (existing) return existing.id;
+  const now = Date.now();
+  const inserted = db
+    .prepare(
+      `INSERT INTO seed_users
+       (handle, platform, did, display_name, avatar_url, description, profile_url, last_scraped_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      "reddit-pack",
+      "rss",
+      null,
+      "Reddit public RSS",
+      null,
+      "Combined subreddit RSS",
+      "https://www.reddit.com/",
+      now,
+      now,
+    );
+  return Number(inserted.lastInsertRowid);
+}
+
+export function registerRedditFeed(subs: string[], enable: boolean) {
+  const names = uniqueSubreddits(subs);
+  const db = getDb();
+  const now = Date.now();
+  const seedId = redditSeedUserId();
+  const key = REDDIT_SOURCE_KEY;
+  const feedUrl = names.length ? combinedRedditRssUrl(names) : null;
+  const url = redditListingUrl(names);
+  const label = names.length
+    ? `Reddit r/${names.slice(0, 3).join("+")}${names.length > 3 ? ` +${names.length - 3}` : ""}`
+    : "Reddit";
+  const description = names.length
+    ? names.map((name) => `r/${name}`).join(", ")
+    : "No subreddits selected";
+  const actuallyEnable = enable && names.length > 0;
+  const current = db.prepare("SELECT id FROM sources WHERE key = ?").get(key) as
+    | { id: number }
+    | undefined;
+  let id: number;
+  if (current) {
+    id = current.id;
+    db.prepare(
+      `UPDATE sources SET name = ?, handle = ?, url = ?, feed_url = ?, description = ?, enabled = ? WHERE id = ?`,
+    ).run(label, "reddit", url, feedUrl, description, actuallyEnable ? 1 : 0, id);
+  } else {
+    const inserted = db
+      .prepare(
+        `INSERT INTO sources
+         (key, name, handle, url, feed_url, platform, kind, description, avatar_url, color, enabled, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        key,
+        label,
+        "reddit",
+        url,
+        feedUrl,
+        "rss",
+        "feed",
+        description,
+        null,
+        colorFor(key),
+        actuallyEnable ? 1 : 0,
+        now,
+      );
+    id = Number(inserted.lastInsertRowid);
+  }
+  db.prepare(
+    `INSERT INTO source_origins (source_id, seed_user_id, reason, weight)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(source_id, seed_user_id, reason)
+     DO UPDATE SET weight = MAX(weight, excluded.weight)`,
+  ).run(id, seedId, "reddit", 50);
+  return [id];
 }
 
 export function registerExploredSource(input: {

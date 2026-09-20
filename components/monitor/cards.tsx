@@ -58,6 +58,7 @@ const ORIGIN_LABEL: Record<OriginReason, string> = {
   link: "Linked from coverage",
   intel: "Security intel",
   explore: "Auto-explored",
+  reddit: "Reddit",
 };
 
 const KIND_LABEL: Record<Source["kind"], string> = {

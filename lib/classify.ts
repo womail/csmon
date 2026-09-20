@@ -183,9 +183,11 @@ export function textHasTopic(text: string, topic: string) {
   return new RegExp(`\\b${escaped}\\b`, "i").test(text);
 }
 
+const EXTRA_TOPICS = ["reddit"];
+
 export function isKnownTopic(name: string) {
   const needle = name.trim().toLowerCase();
-  return TOPICS.some((entry) => entry.tag === needle);
+  return TOPICS.some((entry) => entry.tag === needle) || EXTRA_TOPICS.includes(needle);
 }
 
 export function itemHasTopic(

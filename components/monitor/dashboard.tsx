@@ -2,7 +2,7 @@
 
 import { CloudLightning, Landmark, Siren, Waves } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
-import { SourceChip } from "@/components/monitor/cards";
+import { SourceChip, StoryCard } from "@/components/monitor/cards";
 import { SituationMap, placeMarkers } from "@/components/monitor/map";
 import { Tip } from "@/components/monitor/tip";
 import type { MapMarker } from "@/lib/geo";
@@ -11,7 +11,7 @@ import { tagStyle } from "@/lib/colors";
 import { SITUATION_LANES, type SituationLane } from "@/lib/lanes";
 import type { PersonRow } from "@/lib/people";
 import type { QuakeEvent } from "@/lib/quakes";
-import type { Item } from "@/lib/types";
+import type { Item, Source } from "@/lib/types";
 import type { WeatherEvent } from "@/lib/weather";
 
 const LANE_ICON = {
@@ -39,6 +39,12 @@ export function HomeDashboard({
   onPlace,
   onSource,
   onPerson,
+  onVendor,
+  onHide,
+  onRead,
+  sources,
+  compact,
+  readKeys,
 }: {
   stories: Story[];
   items: Item[];
@@ -57,6 +63,12 @@ export function HomeDashboard({
   onPlace: (place: string) => void;
   onSource: (sourceId: number) => void;
   onPerson: (name: string) => void;
+  onVendor?: (vendor: string) => void;
+  onHide?: (story: Story) => void;
+  onRead?: (story: Story) => void;
+  sources: Map<number, Source>;
+  compact?: boolean;
+  readKeys?: string[];
 }) {
   const filtered = Boolean(topic || layer || person || place);
   const lanes = SITUATION_LANES.map((lane) => {
@@ -70,7 +82,7 @@ export function HomeDashboard({
   });
 
   return (
-    <div className="space-y-3 p-3">
+    <div className="space-y-1.5 p-2">
       <div>
         <div className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
           Home dashboard
@@ -156,31 +168,28 @@ export function HomeDashboard({
       />
 
       {filtered ? (
-        <section className="card-tile">
+        <section>
           <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
             Filtered stories
             {topic ? ` · ${topic}` : ""}
             {person ? ` · ${person}` : ""}
             {place ? ` · ${place}` : ""}
           </div>
-          <div className="mt-2 space-y-1.5">
-            {stories.slice(0, 16).map((story) => (
-              <Tip key={story.id} text="Read this story in place">
-                <button
-                  type="button"
-                  onClick={() => onOpenStory(story)}
-                  className="block w-full rounded px-1 py-1 text-left hover:bg-slate-50"
-                >
-                  <span className="block text-[12.5px] leading-snug font-medium text-slate-800">
-                    {story.title}
-                  </span>
-                  <span className="text-[10px] text-slate-400">
-                    {story.sourceIds.length} sources
-                    {story.locations[0] ? ` · ${story.locations[0]}` : ""}
-                    {story.topics[0] ? ` · ${story.topics[0]}` : ""} · <Ago ts={story.latestAt} />
-                  </span>
-                </button>
-              </Tip>
+          <div className={`board mt-1.5 ${compact ? "board-compact" : ""}`}>
+            {stories.map((story) => (
+              <StoryCard
+                key={story.id}
+                story={story}
+                sources={sources}
+                onOpen={() => onOpenStory(story)}
+                onTopic={onTopic}
+                onPlace={onPlace}
+                onVendor={onVendor}
+                onSource={onSource}
+                onHide={onHide ? () => onHide(story) : undefined}
+                onRead={onRead ? () => onRead(story) : undefined}
+                read={readKeys?.includes(`story:${story.id}`)}
+              />
             ))}
             {stories.length === 0 ? (
               <p className="text-[12px] text-slate-400">Nothing in this filter. Click the chip again to clear.</p>
@@ -189,7 +198,7 @@ export function HomeDashboard({
         </section>
       ) : (
         <>
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
             {lanes.map((lane) => {
               const Icon = LANE_ICON[lane.id];
               return (
@@ -212,7 +221,7 @@ export function HomeDashboard({
               );
             })}
           </div>
-          <div className="grid gap-3 lg:grid-cols-2">
+          <div className="grid gap-1.5 lg:grid-cols-2">
             {lanes.map((lane) => (
               <section key={lane.id} className="card-tile">
                 <div className="flex items-center justify-between">

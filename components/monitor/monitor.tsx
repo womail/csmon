@@ -21,6 +21,7 @@ import { SituationMap, placeMarkers } from "@/components/monitor/map";
 import { DeskRail, DeskTabs } from "@/components/monitor/nav";
 import { OptionsButton } from "@/components/monitor/options-panel";
 import { ReaderPane } from "@/components/monitor/reader";
+import { RedditButton } from "@/components/monitor/reddit-panel";
 import { SavedFilters } from "@/components/monitor/saved-filters";
 import { ScrapeDialog } from "@/components/monitor/scrape-dialog";
 import { ThemeToggle } from "@/components/monitor/theme-toggle";
@@ -40,6 +41,7 @@ import { matchesLane, type SituationLane } from "@/lib/lanes";
 import { kevForStory, itemsForCve, relatedStories, similarStories } from "@/lib/link";
 import { isAdvisoryItem, itemHasVendor, matchVendorName, mineItem, vendorFamily } from "@/lib/mine";
 import { loadOptions, saveOptions } from "@/lib/options";
+import { loadSubreddits, DEFAULT_SUBREDDITS } from "@/lib/reddit";
 import { applyPalette } from "@/lib/theme";
 import { shortSourceName } from "@/lib/source-label";
 import { itemHasPerson, peopleFromItems } from "@/lib/people";
@@ -73,6 +75,7 @@ import {
 const STACK_CHIPS = [
   { label: "AI", kind: "topic" as const, value: "ai" },
   { label: "Sports", kind: "topic" as const, value: "sports" },
+  { label: "Reddit", kind: "topic" as const, value: "reddit" },
   { label: "Microsoft", kind: "vendor" as const, value: "Microsoft" },
   { label: "Linux", kind: "vendor" as const, value: "Linux" },
   { label: "Oracle", kind: "vendor" as const, value: "Oracle" },
@@ -169,6 +172,7 @@ export function Monitor({
   const [followOpen, setFollowOpen] = useState(true);
   const [triage, setTriage] = useState<TriageState>({ hidden: [], read: [] });
   const [triageUndo, setTriageUndo] = useState<TriageUndo[]>([]);
+  const [subreddits, setSubreddits] = useState<string[]>(DEFAULT_SUBREDDITS);
 
   function setState(next: MonitorState) {
     setStateRaw({
@@ -189,6 +193,7 @@ export function Monitor({
     setHomePlace(opts.homePlace || "Dublin");
     setTriage(loadTriage());
     setTriageUndo(loadTriageUndo());
+    setSubreddits(loadSubreddits());
     setFollowOpen(window.localStorage.getItem("csmon.follow-open") !== "0");
     if (!seed.stack) {
       setStack(opts.stack || window.localStorage.getItem("csmon.stack") || "");
@@ -494,6 +499,26 @@ export function Monitor({
       setState(await json<MonitorState>("/api/refresh", { method: "POST" }));
     } finally {
       setRefreshing(false);
+    }
+  }
+
+  async function loadReddit(subs = subreddits) {
+    setBusy(true);
+    setError(null);
+    try {
+      setState(
+        await json<MonitorState>("/api/reddit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subs, enable: true }),
+        }),
+      );
+      setSubreddits(subs);
+      setDesk("home");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Reddit feed failed");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -979,6 +1004,11 @@ export function Monitor({
             </Tip>
             <SavedFilters current={currentFilters} onApply={applyFilters} />
             <ThemeToggle />
+            <RedditButton
+              busy={busy}
+              onListChange={setSubreddits}
+              onLoad={(subs) => loadReddit(subs)}
+            />
             <OptionsButton
               onApply={(options) => {
                 setCompact(options.compact);
@@ -1138,7 +1168,7 @@ export function Monitor({
                 >
                   ransomware
                 </button>
-                {(["intel", "explore", "self", "follow"] as const).map((id) => (
+                {(["intel", "reddit", "explore", "self", "follow"] as const).map((id) => (
                   <button
                     key={id}
                     type="button"
@@ -1303,6 +1333,39 @@ export function Monitor({
                     Sports RSS
                   </Button>
                 </Tip>
+                <div className="flex w-full basis-full flex-wrap items-center gap-1 border-t border-slate-200/80 pt-1.5">
+                  <span className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+                    Subreddits
+                  </span>
+                  {subreddits.map((name) => {
+                    const style = tagStyle("reddit");
+                    return (
+                      <span
+                        key={name}
+                        className="tag"
+                        style={{ background: style.bg, color: style.fg }}
+                      >
+                        r/{name}
+                      </span>
+                    );
+                  })}
+                  <RedditButton
+                    busy={busy}
+                    label="Manage"
+                    onListChange={setSubreddits}
+                    onLoad={(subs) => loadReddit(subs)}
+                  />
+                  <Tip text="Load the combined public Reddit RSS">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() => void loadReddit()}
+                      disabled={busy || !subreddits.length}
+                    >
+                      Load Reddit
+                    </Button>
+                  </Tip>
+                </div>
               </>
             )}
           </div>
@@ -1344,6 +1407,43 @@ export function Monitor({
                     Load KEV
                   </Button>
                 </div>
+                <div className="mt-4 border-t border-slate-200/80 pt-3">
+                  <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+                    Subreddits
+                  </div>
+                  <p className="mt-1 text-[12px] text-slate-500">
+                    One combined public RSS. Reddit allows about one request per minute.
+                  </p>
+                  <div className="mt-2 flex flex-wrap justify-center gap-1">
+                    {subreddits.map((name) => {
+                      const style = tagStyle("reddit");
+                      return (
+                        <span
+                          key={name}
+                          className="tag"
+                          style={{ background: style.bg, color: style.fg }}
+                        >
+                          r/{name}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-2 flex flex-wrap justify-center gap-2">
+                    <RedditButton
+                      busy={busy}
+                      onListChange={setSubreddits}
+                      onLoad={(subs) => loadReddit(subs)}
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void loadReddit()}
+                      disabled={busy || !subreddits.length}
+                    >
+                      Load Reddit
+                    </Button>
+                  </div>
+                </div>
                 {error ? <p className="mt-3 text-[12px] text-red-600">{error}</p> : null}
               </div>
             ) : desk === "patch" ? (
@@ -1380,6 +1480,12 @@ export function Monitor({
                 onPlace={focusPlace}
                 onSource={focusSource}
                 onPerson={togglePerson}
+                onVendor={toggleVendor}
+                sources={byId}
+                compact={compact}
+                onHide={hideStory}
+                onRead={readStory}
+                readKeys={triage.read}
               />
             ) : desk === "flights" ? (
               <FlightDesk

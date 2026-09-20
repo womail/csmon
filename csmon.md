@@ -33,7 +33,7 @@ Click a story to **read in place**. The pane is a dossier, not a shrink of the c
 
 Hover a source, filter chip, or outbound link for a tooltip (destination URL or what the filter will do). Desk labels already show their hint, so the rail does not duplicate it. Tooltips appear after a short hover and hide as soon as the pointer leaves.
 
-Filter with topic chips (including **AI**), **country** chips, city chips, vendor chips (**Microsoft**, **Linux**, **Oracle**, **macOS**, **Mac**), ransomware, a **layer**, search, time range, and **2+ sources**. Search also matches mined CVE IDs. **Filters** in the header saves the current URL view under a name.
+Filter with topic chips (including **AI**, **Sports**, **Reddit**), **country** chips, city chips, vendor chips (**Microsoft**, **Linux**, **Oracle**, **macOS**, **Mac**), ransomware, a **layer**, origin (**intel**, **reddit**, **explore**), search, time range, and **2+ sources**. Search also matches mined CVE IDs. **Filters** in the header saves the current URL view under a name.
 
 Cards have **Hide** (drop from the board) and **Read** (keep, mark as seen). **Undo** in the header walks the last hide/read. Triage lives in `csmon.triage` / `csmon.triage-undo`.
 
@@ -41,7 +41,7 @@ Cards have **Hide** (drop from the board) and **Read** (keep, mark as seen). **U
 
 ## Home / hazards
 
-Home is the current-situation board. Lanes stay filled even on older items by matching copy, not only stored topic tags.
+Home is the current-situation board. Lanes stay filled even on older items by matching copy, not only stored topic tags. A topic, source, person, or place filter replaces the lanes with the same story cards as Brief (tags, summary, source chips, Hide / Read), packed on the masonry board.
 
 | Lane | What it catches |
 | --- | --- |
@@ -96,11 +96,13 @@ NVD link opens in the reader pane. **KEV** button refreshes the catalog (cached 
 
 **Load world RSS** includes DW, France 24, and Sky News. Relief adds GDACS and OCHA. **Load security RSS** includes CISA, CISA ICS, Krebs, BleepingComputer, The Record, NCSC UK, Schneier, Bellingcat, CFR, CSIS, Brookings, Defense One, War on the Rocks, Breaking Defense, The War Zone, The Diplomat, Al-Monitor, DoD news, The Hacker News, Dark Reading, MSRC, CERT-EU. **Load tech RSS** includes Hacker News, Ars Technica, The Verge, MIT Tech Review, arXiv cs.AI, OpenAI news. **Load markets RSS** includes CNBC, MarketWatch, BBC Business, White House, Federal Reserve, SEC. **Load sports RSS** includes BBC Sport, BBC Football, Guardian Sport, ESPN, NYT Sports, and Sky Sports. **Load hazards** includes USGS (significant + M4.5+), NWS CAP alerts, NHC Atlantic, Met Éireann, Met Office UK, GDACS, Crisis Group.
 
+**Subreddits** are their own category (header, empty board, and Sources), not another World/Tech pack. The manager stores names in `csmon.subreddits` (default `worldnews`, `news`, `europe`) and loads them as **one** combined public RSS: `https://www.reddit.com/r/{a}+{b}/hot/.rss?limit=100`. Stable source key `rss:reddit:combined`. Origin reason `reddit`; items are tagged topic `reddit`. Cap 20 subs. Wait a minute between loads.
+
 This is not an asset inventory. It tells you what is being exploited and how soon CISA expects a fix; you still map that to the software you actually run.
 
 Public APIs and RSS only. No recon scanners or unauthorized probing. Maps use Natural Earth country polygons, Esri World Street Map (light) or Dark Gray Canvas (dark) on Flights, geocoded places, USGS GeoJSON, weather warning feeds, and OpenSky ADS-B (cached ~20s, 100 km around home). Aircraft drill-in uses HexDb metadata plus public globe links. This is not Osiris RECON and not a targeting tool.
 
-**Reddit.** Unauthenticated `.json` is shut down (403). Public RSS (`/r/{sub}/.rss`) still works at about **one request per minute per IP**. Paste a subreddit URL or `.rss` link in RSS; csmon maps `/r/worldnews` to the RSS URL and caches 15 minutes, so one layer is fine. A pack of subs would 429. Account `user=`/`feed=` tokens are credentials — not used. Official API needs OAuth.
+**Reddit.** Unauthenticated `.json` is shut down (403). Public RSS (`/r/{sub}/.rss`) still works at about **one request per minute per IP**. The Subreddits manager combines the list into a single `/r/a+b/hot/.rss?limit=100` request. Paste a subreddit URL or `.rss` link in RSS still works for one-off layers. Account `user=`/`feed=` tokens are credentials — not used. Official API needs OAuth.
 
 **X / Twitter.** No public RSS. No free API for new apps (pay-per-use credits). Nitter and other scrape proxies are out of scope. Bluesky remains the public social layer.
 
@@ -116,7 +118,7 @@ We reuse the **upstream public sources** (CISA, USGS-style RSS, vendor advisorie
 
 Browser-local (`localStorage` `csmon.options`): start desk, time range, stack, compact cards, home language, auto-translate, **home location**, **palette** (`light` / `dark`, follows the OS until you toggle), auto-load security RSS, auto-load hazards, auto-load KEV. Shared links still override via the query string.
 
-Saved custom filters live in `csmon.saved-filters` (name + full `BoardFilters` snapshot). User desks live in `csmon.user-desks`. Applying either writes the URL the same way chips do. Hide/read triage is `csmon.triage`; Follow next collapse is `csmon.follow-open`.
+Saved custom filters live in `csmon.saved-filters` (name + full `BoardFilters` snapshot). User desks live in `csmon.user-desks`. Subreddit list lives in `csmon.subreddits`. Applying filters writes the URL the same way chips do. Hide/read triage is `csmon.triage`; Follow next collapse is `csmon.follow-open`.
 
 ## Caching
 
@@ -135,7 +137,7 @@ Expired rows are deleted on read. The Sources desk shows live entry count and by
 
 ## Flow
 
-1. Open Home. Load world/hazard/security RSS, scrape a Bluesky/RSS desk, or load KEV.
+1. Open Home. Load world/hazard/security RSS, manage subreddits, scrape a Bluesky/RSS desk, or load KEV.
 2. Pick a desk. Filter topics, places, vendors, stack, or a layer. Save the view if you will reuse it.
 3. Open a story. Compare desks in the dossier, translate if needed, jump similar coverage, walk back.
 
@@ -195,7 +197,7 @@ Expired rows are deleted on read. The Sources desk shows live entry count and by
 | id | INTEGER PK | |
 | source_id | INTEGER NOT NULL | FK sources |
 | seed_user_id | INTEGER NOT NULL | FK seed_users |
-| reason | TEXT NOT NULL | `self` \| `follow` \| `mention` \| `link` \| `intel` \| `explore` |
+| reason | TEXT NOT NULL | `self` \| `follow` \| `mention` \| `link` \| `intel` \| `explore` \| `reddit` |
 | weight | INTEGER NOT NULL | |
 | UNIQUE(source_id, seed_user_id, reason) | | |
 
@@ -212,7 +214,7 @@ Expired rows are deleted on read. The Sources desk shows live entry count and by
 | author | TEXT | |
 | published_at | INTEGER | unix ms |
 | tags | TEXT NOT NULL | JSON |
-| topics | TEXT NOT NULL | JSON, `002` — includes `weather`, `quake`, `war`, `unrest` |
+| topics | TEXT NOT NULL | JSON, `002` — includes `weather`, `quake`, `war`, `unrest`, `sports`, `reddit` |
 | locations | TEXT NOT NULL | JSON, `002` |
 | fetched_at | INTEGER NOT NULL | |
 | UNIQUE(source_id, external_id) | | |
