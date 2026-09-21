@@ -10,6 +10,7 @@ import {
   Layers,
   List,
   Newspaper,
+  NotebookPen,
   Plane,
   Plus,
   Shield,
@@ -28,6 +29,7 @@ const ICONS: Record<string, typeof Newspaper> = {
   weather: CloudLightning,
   people: Users,
   documents: FileText,
+  reports: NotebookPen,
   flights: Plane,
   advisories: FileWarning,
   patch: Shield,
@@ -85,21 +87,22 @@ export function DeskRail({
                   if (item.id === "home") onHome?.();
                   onChange(item.id);
                 }}
+                title={item.hint}
                 className={`flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5 text-left ${
                   active ? "" : "hover:bg-slate-50"
                 }`}
               >
                 <Icon className="mt-0.5 size-3.5 shrink-0" />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-baseline justify-between gap-1">
-                    <span className="text-[12px] font-medium">{item.label}</span>
+                <span className="min-w-0 flex-1 overflow-hidden">
+                  <span className="flex min-w-0 items-baseline justify-between gap-1">
+                    <span className="truncate text-[12px] font-medium">{item.label}</span>
                     {count != null ? (
-                      <span className={`text-[10px] ${active ? "opacity-70" : "text-slate-400"}`}>
+                      <span className={`shrink-0 text-[10px] ${active ? "opacity-70" : "text-slate-400"}`}>
                         {count}
                       </span>
                     ) : null}
                   </span>
-                  <span className={`block text-[10px] ${active ? "opacity-70" : "text-slate-400"}`}>
+                  <span className={`block truncate text-[10px] ${active ? "opacity-70" : "text-slate-400"}`}>
                     {item.hint}
                   </span>
                 </span>
@@ -183,7 +186,7 @@ export function DeskTabs({
           <button
             type="button"
             onClick={() => onChange(item.id)}
-            className={`shrink-0 rounded-md px-1.5 py-0.5 text-[11px] ${
+            className={`max-w-[7.5rem] shrink-0 truncate rounded-md px-1.5 py-0.5 text-[11px] ${
               desk === item.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
             }`}
           >

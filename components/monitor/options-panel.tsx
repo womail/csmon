@@ -21,6 +21,7 @@ import {
 } from "@/lib/options";
 import type { TimeRange } from "@/lib/types";
 import { Tip } from "@/components/monitor/tip";
+import { UpdateChecker } from "@/components/monitor/update-checker";
 
 const RANGES: TimeRange[] = ["1h", "6h", "24h", "7d", "all"];
 
@@ -184,6 +185,7 @@ export function OptionsButton({
               />
               Auto-load weather, quake, war, and unrest RSS when empty
             </label>
+            <UpdateChecker />
             <div className="flex justify-end gap-2 pt-1">
               <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
                 Cancel

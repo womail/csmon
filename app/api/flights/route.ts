@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { bboxAround, kmBetween } from "@/lib/geo";
+import { asCoords, fail, gate, jsonOk } from "@/lib/guard";
 import { fetchLiveJson } from "@/lib/http";
 import type { Flight } from "@/lib/flights";
 
@@ -57,14 +58,15 @@ function sampleSpread(flights: Flight[], limit: number) {
 }
 
 export async function GET(req: NextRequest) {
-  const lat = Number(req.nextUrl.searchParams.get("lat"));
-  const lng = Number(req.nextUrl.searchParams.get("lng"));
-  const km = Math.min(400, Math.max(25, Number(req.nextUrl.searchParams.get("km") || 100)));
-  const local = Number.isFinite(lat) && Number.isFinite(lng);
+  const blocked = gate(req, "flights", 30);
+  if (blocked) return blocked;
+  const point = asCoords(req.nextUrl.searchParams.get("lat"), req.nextUrl.searchParams.get("lng"));
+  const km = Math.min(400, Math.max(25, Number(req.nextUrl.searchParams.get("km") || 100) || 100));
+  const local = point != null;
   try {
     const url = local
       ? (() => {
-          const box = bboxAround(lat, lng, km + 20);
+          const box = bboxAround(point.lat, point.lng, km + 20);
           return `${OPENSKY}?lamin=${box.lamin.toFixed(3)}&lomin=${box.lomin.toFixed(3)}&lamax=${box.lamax.toFixed(3)}&lomax=${box.lomax.toFixed(3)}`;
         })()
       : OPENSKY;
@@ -72,20 +74,19 @@ export async function GET(req: NextRequest) {
     let flights = parseStates(data.states);
     if (local) {
       flights = flights
-        .map((flight) => ({ flight, km: kmBetween(lat, lng, flight.lat, flight.lng) }))
+        .map((flight) => ({ flight, km: kmBetween(point.lat, point.lng, flight.lat, flight.lng) }))
         .filter((row) => row.km <= km)
         .sort((a, b) => a.km - b.km)
         .map((row) => row.flight);
     } else {
       flights = sampleSpread(flights, 500);
     }
-    return NextResponse.json({
+    return jsonOk({
       flights,
       source: "opensky",
       radiusKm: local ? km : null,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "ADS-B failed";
-    return NextResponse.json({ error: message, flights: [] }, { status: 400 });
+    return fail(error, "ADS-B failed");
   }
 }

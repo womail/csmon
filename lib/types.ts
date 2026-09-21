@@ -122,6 +122,7 @@ export const BUILTIN_DESKS = [
   "weather",
   "people",
   "documents",
+  "reports",
   "flights",
   "advisories",
   "patch",

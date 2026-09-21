@@ -32,11 +32,25 @@ export function clusterTokens(title: string) {
   );
 }
 
+function overlapCount(a: Set<string>, b: Set<string>) {
+  if (a.size === 0 || b.size === 0) return 0;
+  const smaller = a.size <= b.size ? a : b;
+  const larger = smaller === a ? b : a;
+  let n = 0;
+  for (const token of smaller) if (larger.has(token)) n += 1;
+  return n;
+}
+
 function jaccard(a: Set<string>, b: Set<string>) {
-  let inter = 0;
-  for (const x of a) if (b.has(x)) inter += 1;
+  const inter = overlapCount(a, b);
   const union = a.size + b.size - inter;
   return union ? inter / union : 0;
+}
+
+function indexPush(index: Map<string, number[]>, key: string, group: number) {
+  const list = index.get(key);
+  if (list) list.push(group);
+  else index.set(key, [group]);
 }
 
 function itemKey(item: Item) {
@@ -71,27 +85,82 @@ export function clusterItems(items: Item[]): Story[] {
     urls: Set<string>;
     items: Item[];
   }[] = [];
+  const tokenIndex = new Map<string, number[]>();
+  const cveIndex = new Map<string, number[]>();
+  const urlIndex = new Map<string, number>();
 
   for (const item of items) {
     const toks = clusterTokens(item.title);
-    const cves = new Set(mineItem(item).cves);
+    const cves = mineItem(item).cves;
     const url = itemKey(item);
-    let placed = false;
-    for (const group of groups) {
-      const overlap = [...toks].filter((t) => group.tokens.has(t)).length;
-      const sameCve = [...cves].some((cve) => group.cves.has(cve));
-      const sameUrl = group.urls.has(url);
-      if (sameUrl || sameCve || jaccard(toks, group.tokens) >= 0.42 || (overlap >= 4 && jaccard(toks, group.tokens) >= 0.28)) {
-        group.items.push(item);
-        for (const t of toks) group.tokens.add(t);
-        for (const cve of cves) group.cves.add(cve);
-        group.urls.add(url);
-        placed = true;
+    const candidates = new Set<number>();
+    const urlHit = urlIndex.get(url);
+    if (urlHit !== undefined) candidates.add(urlHit);
+    for (const cve of cves) {
+      const hits = cveIndex.get(cve);
+      if (hits) for (const index of hits) candidates.add(index);
+    }
+    for (const token of toks) {
+      const hits = tokenIndex.get(token);
+      if (hits) for (const index of hits) candidates.add(index);
+    }
+
+    let placed = -1;
+    for (const index of candidates) {
+      const group = groups[index];
+      if (!group) continue;
+      if (group.urls.has(url)) {
+        placed = index;
+        break;
+      }
+      let sameCve = false;
+      for (const cve of cves) {
+        if (group.cves.has(cve)) {
+          sameCve = true;
+          break;
+        }
+      }
+      if (sameCve) {
+        placed = index;
+        break;
+      }
+      const overlap = overlapCount(toks, group.tokens);
+      if (overlap === 0) continue;
+      const score = jaccard(toks, group.tokens);
+      if (score >= 0.42 || (overlap >= 4 && score >= 0.28)) {
+        placed = index;
         break;
       }
     }
-    if (!placed) {
-      groups.push({ tokens: toks, cves, urls: new Set([url]), items: [item] });
+
+    if (placed >= 0) {
+      const group = groups[placed]!;
+      group.items.push(item);
+      group.urls.add(url);
+      urlIndex.set(url, placed);
+      for (const token of toks) {
+        if (!group.tokens.has(token)) {
+          group.tokens.add(token);
+          indexPush(tokenIndex, token, placed);
+        }
+      }
+      for (const cve of cves) {
+        if (!group.cves.has(cve)) {
+          group.cves.add(cve);
+          indexPush(cveIndex, cve, placed);
+        }
+      }
+    } else {
+      const index = groups.length;
+      groups.push({
+        tokens: toks,
+        cves: new Set(cves),
+        urls: new Set([url]),
+        items: [item],
+      });
+      urlIndex.set(url, index);
+      for (const token of toks) indexPush(tokenIndex, token, index);
+      for (const cve of cves) indexPush(cveIndex, cve, index);
     }
   }
 
@@ -125,6 +194,37 @@ export function clusterItems(items: Item[]): Story[] {
       if (sourceDelta) return sourceDelta;
       return b.latestAt - a.latestAt;
     });
+}
+
+export function storiesFromPool(pool: Story[], allowedIds: Set<number>, cross: boolean, hidden: string[]) {
+  const out: Story[] = [];
+  for (const story of pool) {
+    let kept = story.items;
+    let intact = true;
+    for (const item of story.items) {
+      if (!allowedIds.has(item.id)) {
+        intact = false;
+        break;
+      }
+    }
+    if (!intact) {
+      kept = story.items.filter((item) => allowedIds.has(item.id));
+      if (!kept.length) continue;
+    }
+    const next = intact
+      ? story
+      : {
+          ...story,
+          items: kept,
+          sourceIds: [...new Set(kept.map((item) => item.sourceId))],
+          topics: [...new Set(kept.flatMap((item) => item.topics))],
+          locations: [...new Set(kept.flatMap((item) => item.locations))],
+        };
+    if (cross && next.sourceIds.length < 2) continue;
+    if (hidden.includes(`story:${story.id}`)) continue;
+    out.push(next);
+  }
+  return out;
 }
 
 export function storyContaining(item: Item, stories: Story[]) {

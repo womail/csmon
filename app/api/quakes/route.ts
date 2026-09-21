@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { fail, gate, jsonOk } from "@/lib/guard";
 import { fetchJson } from "@/lib/http";
 import type { QuakeEvent } from "@/lib/quakes";
 
@@ -16,7 +16,9 @@ type UsgsFeed = {
   }[];
 };
 
-export async function GET() {
+export async function GET(request: Request) {
+  const blocked = gate(request, "quakes", 30);
+  if (blocked) return blocked;
   try {
     const data = await fetchJson<UsgsFeed>(USGS, 12000);
     const quakes: QuakeEvent[] = (data.features ?? [])
@@ -37,9 +39,8 @@ export async function GET() {
       .filter((row): row is QuakeEvent => row != null)
       .sort((a, b) => b.mag - a.mag)
       .slice(0, 40);
-    return NextResponse.json({ quakes });
+    return jsonOk({ quakes });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "USGS failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return fail(error, "USGS failed");
   }
 }

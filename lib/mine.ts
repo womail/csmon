@@ -47,6 +47,8 @@ export const VENDOR_NAMES = [
   "Slack",
   "Okta",
   "CrowdStrike",
+  "Ubuntu",
+  "CachyOS",
   "Palo Alto Networks",
 ] as const;
 
@@ -67,8 +69,14 @@ export function mineText(text: string): MinedSignals {
   return { cves, vendors, ransomware: RANSOM_RE.test(text) };
 }
 
+const mineCache = new WeakMap<object, MinedSignals>();
+
 export function mineItem(item: Pick<Item, "title" | "summary">): MinedSignals {
-  return mineText(`${item.title} ${item.summary ?? ""}`);
+  const cached = mineCache.get(item);
+  if (cached) return cached;
+  const mined = mineText(`${item.title} ${item.summary ?? ""}`);
+  mineCache.set(item, mined);
+  return mined;
 }
 
 export function vendorFamily(name: string) {

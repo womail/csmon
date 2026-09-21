@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { asIcao24, fail, gate, jsonOk } from "@/lib/guard";
 import { fetchJson, fetchLiveJson } from "@/lib/http";
 import type { AircraftProfile, Flight } from "@/lib/flights";
 
@@ -20,8 +20,10 @@ type OpenSky = {
 };
 
 export async function GET(request: Request) {
-  const icao24 = new URL(request.url).searchParams.get("icao24")?.trim().toLowerCase();
-  if (!icao24) return NextResponse.json({ error: "Missing icao24" }, { status: 400 });
+  const blocked = gate(request, "aircraft", 30);
+  if (blocked) return blocked;
+  const icao24 = asIcao24(new URL(request.url).searchParams.get("icao24"));
+  if (!icao24) return jsonOk({ error: "Missing icao24" }, 400);
   try {
     const [profile, live] = await Promise.all([
       fetchJson<HexDb>(`https://hexdb.net/api/v1/aircraft/${icao24}`, 8000).catch(() => null),
@@ -52,9 +54,8 @@ export async function GET(request: Request) {
       owner: profile?.RegisteredOwners ?? null,
       icaoType: profile?.IcaoTypeCode ?? null,
     };
-    return NextResponse.json({ flight, profile: meta });
+    return jsonOk({ flight, profile: meta });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Aircraft lookup failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return fail(error, "Aircraft lookup failed");
   }
 }

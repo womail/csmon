@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { fail, gate, jsonOk, readJson } from "@/lib/guard";
 import { getMonitorState, upsertScrape } from "@/lib/queries";
 import { scrapeInput } from "@/lib/scrape";
 
@@ -6,25 +6,23 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const blocked = gate(request, "scrape", 8);
+  if (blocked) return blocked;
   try {
-    const body = (await request.json()) as {
-      input?: string;
-      mode?: "auto" | "rss" | "bsky";
-    };
-    const input = body.input?.trim();
-    if (!input) {
-      return NextResponse.json({ error: "Paste a handle or URL." }, { status: 400 });
-    }
-    const result = await scrapeInput(input, body.mode ?? "auto");
+    const body = await readJson<{ input?: string; mode?: "auto" | "rss" | "bsky" }>(request);
+    const input = body.input?.trim() ?? "";
+    if (!input) return jsonOk({ error: "Paste a handle or URL." }, 400);
+    if (input.length > 2048) return jsonOk({ error: "Paste a handle or URL." }, 400);
+    const mode = body.mode === "rss" || body.mode === "bsky" ? body.mode : "auto";
+    const result = await scrapeInput(input, mode);
     const persisted = upsertScrape(result);
-    return NextResponse.json({
+    return jsonOk({
       discovered: result.sources,
       user: result.user,
       sources: persisted.sources,
       state: getMonitorState(),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Scrape failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return fail(error, "Scrape failed");
   }
 }

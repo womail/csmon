@@ -6,6 +6,7 @@ import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { BoardFilters } from "@/lib/board-state";
+import { summarizeQuery } from "@/lib/query-builder";
 import { boardQueryString } from "@/lib/board-state";
 import {
   deleteSavedFilter,
@@ -114,5 +115,7 @@ function summarize(filters: BoardFilters) {
   if (filters.ransomware) bits.push("ransomware");
   if (filters.range !== "24h") bits.push(filters.range);
   if (filters.rising) bits.push("rising");
+  const query = summarizeQuery(filters.qb);
+  if (query) bits.push(query);
   return bits.join(" · ");
 }

@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
 import { itemAsStory } from "@/lib/cluster";
 import { buildDeepDive } from "@/lib/dive";
+import { fail, gate, jsonOk } from "@/lib/guard";
+import { parsePublicHttpUrl } from "@/lib/public-url";
 import { readArticle } from "@/lib/read";
 import type { Item } from "@/lib/types";
 
@@ -8,9 +9,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const blocked = gate(request, "dive", 20);
+  if (blocked) return blocked;
   const url = new URL(request.url).searchParams.get("url");
-  if (!url) return NextResponse.json({ error: "Missing url" }, { status: 400 });
+  if (!url) return jsonOk({ error: "Missing url" }, 400);
   try {
+    parsePublicHttpUrl(url);
     const article = await readArticle(url);
     const item: Item = {
       id: 0,
@@ -26,12 +30,11 @@ export async function GET(request: Request) {
       locations: [],
       fetchedAt: Date.now(),
     };
-    return NextResponse.json({
+    return jsonOk({
       article,
       dive: buildDeepDive(itemAsStory(item), article),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Deep dive failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return fail(error, "Deep dive failed");
   }
 }

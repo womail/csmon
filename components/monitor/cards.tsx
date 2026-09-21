@@ -4,6 +4,7 @@ import { Ago } from "@/components/monitor/ago";
 import { Tip } from "@/components/monitor/tip";
 import { tagStyle } from "@/lib/colors";
 import type { Story } from "@/lib/cluster";
+import { personName } from "@/lib/people";
 import { mineItem } from "@/lib/mine";
 import { shortSourceName } from "@/lib/source-label";
 import type { Item, OriginReason, Source } from "@/lib/types";
@@ -27,7 +28,7 @@ export function SourceChip({
 }) {
   const label = shortSourceName(name);
   return (
-    <Tip text={`Scan only ${name}${extra ? ` · ${extra}` : ""}`}>
+    <Tip text={`Scan only ${name}${extra ? ` · ${extra}` : ""}`} className="max-w-full min-w-0">
       <button
         type="button"
         className={
@@ -245,8 +246,7 @@ export function ItemCard({
   onRead?: () => void;
   read?: boolean;
 }) {
-  const author =
-    item.author && item.author !== source?.name ? item.author : undefined;
+  const author = personName(item, source) ?? undefined;
   const vendors = mineItem(item).vendors.slice(0, 4);
 
   return (
@@ -320,7 +320,7 @@ export function ItemCard({
           </p>
         ) : null}
       </div>
-      <div className="mt-2">
+      <div className="mt-2 min-w-0 overflow-hidden">
         <SourceChip
           name={source?.name ?? "source"}
           color={source?.color ?? "#94a3b8"}

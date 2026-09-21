@@ -1,62 +1,25 @@
 import "server-only";
 
-import { cacheGet, cacheSet, TTL } from "./cache";
+import { cacheGet, cacheSet, TTL, type CacheKind } from "./cache";
+import { APP_UA } from "./version";
+import { fetchOutbound, readLimited } from "./safe-url";
 
-export const UA = "csmon/0.1 (local current-situation monitor)";
+export const UA = APP_UA;
 
-export async function fetchJson<T>(url: string, timeoutMs = 12000): Promise<T> {
-  const cached = cacheGet(`json:${url}`);
-  if (cached) return JSON.parse(cached) as T;
-  const res = await fetch(url, {
-    headers: { "User-Agent": UA, Accept: "application/json" },
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!res.ok) {
-    throw new Error(`${res.status} ${url}`);
-  }
-  const text = await res.text();
-  cacheSet(`json:${url}`, "json", text, TTL.json);
-  return JSON.parse(text) as T;
-}
-
-export async function fetchLiveJson<T>(url: string, timeoutMs = 12000): Promise<T> {
-  const cached = cacheGet(`live:${url}`);
-  if (cached) return JSON.parse(cached) as T;
-  const res = await fetch(url, {
-    headers: { "User-Agent": UA, Accept: "application/json" },
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!res.ok) {
-    throw new Error(`${res.status} ${url}`);
-  }
-  const text = await res.text();
-  cacheSet(`live:${url}`, "live", text, TTL.live);
-  return JSON.parse(text) as T;
-}
-
-export async function fetchText(url: string, timeoutMs = 10000): Promise<string> {
-  const cached = cacheGet(`html:${url}`);
+async function cachedGet(
+  cacheKey: string,
+  kind: CacheKind,
+  url: string,
+  accept: string,
+  timeoutMs: number,
+  maxBytes: number,
+): Promise<string> {
+  const cached = cacheGet(cacheKey);
   if (cached) return cached;
-  const res = await fetch(url, {
-    headers: { "User-Agent": UA, Accept: "text/html,application/xml,text/xml,*/*" },
-    signal: AbortSignal.timeout(timeoutMs),
-    redirect: "follow",
-  });
-  if (!res.ok) {
-    throw new Error(`${res.status} ${url}`);
-  }
-  const text = await res.text();
-  cacheSet(`html:${url}`, "html", text, TTL.html);
-  return text;
-}
-
-export async function fetchRssXml(url: string, timeoutMs = 12000): Promise<string> {
-  const cached = cacheGet(`rss:${url}`);
-  if (cached) return cached;
-  const res = await fetch(url, {
-    headers: { "User-Agent": UA, Accept: "application/rss+xml,application/atom+xml,application/xml,text/xml,*/*" },
-    signal: AbortSignal.timeout(timeoutMs),
-    redirect: "follow",
+  const res = await fetchOutbound(url, {
+    headers: { "User-Agent": UA, Accept: accept },
+    timeoutMs,
+    maxBytes,
   });
   if (!res.ok) {
     const host = (() => {
@@ -71,11 +34,43 @@ export async function fetchRssXml(url: string, timeoutMs = 12000): Promise<strin
         "Reddit public RSS allows about one request per minute per IP. Wait a minute, then load again.",
       );
     }
-    throw new Error(`${res.status} ${url}`);
+    throw new Error(`Upstream ${res.status}`);
   }
-  const text = await res.text();
-  cacheSet(`rss:${url}`, "rss", text, TTL.rss);
+  const text = await readLimited(res, maxBytes);
+  cacheSet(cacheKey, kind, text, TTL[kind]);
   return text;
+}
+
+export async function fetchJson<T>(url: string, timeoutMs = 12000): Promise<T> {
+  const text = await cachedGet(`json:${url}`, "json", url, "application/json", timeoutMs, 4_000_000);
+  return JSON.parse(text) as T;
+}
+
+export async function fetchLiveJson<T>(url: string, timeoutMs = 12000): Promise<T> {
+  const text = await cachedGet(`live:${url}`, "live", url, "application/json", timeoutMs, 2_000_000);
+  return JSON.parse(text) as T;
+}
+
+export async function fetchText(url: string, timeoutMs = 10000): Promise<string> {
+  return cachedGet(
+    `html:${url}`,
+    "html",
+    url,
+    "text/html,application/xml,text/xml,*/*",
+    timeoutMs,
+    2_000_000,
+  );
+}
+
+export async function fetchRssXml(url: string, timeoutMs = 12000): Promise<string> {
+  return cachedGet(
+    `rss:${url}`,
+    "rss",
+    url,
+    "application/rss+xml,application/atom+xml,application/xml,text/xml,*/*",
+    timeoutMs,
+    2_000_000,
+  );
 }
 
 export async function mapPool<T, R>(

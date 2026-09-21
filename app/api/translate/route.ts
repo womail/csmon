@@ -1,6 +1,8 @@
-import { NextResponse } from "next/server";
 import { cacheGet, cacheSet, TTL } from "@/lib/cache";
+import { fail, gate, jsonOk, readJson } from "@/lib/guard";
 import { normalizeLang } from "@/lib/lang";
+import { fetchOutbound, readLimited } from "@/lib/safe-url";
+import { UA } from "@/lib/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,12 +35,13 @@ async function translateChunk(text: string, from: string, to: string) {
   const cached = cacheGet(key);
   if (cached) return cached;
   const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}`;
-  const res = await fetch(url, {
-    headers: { Accept: "application/json", "User-Agent": "csmon/0.1" },
-    signal: AbortSignal.timeout(12000),
+  const res = await fetchOutbound(url, {
+    headers: { Accept: "application/json", "User-Agent": UA },
+    timeoutMs: 12000,
+    maxBytes: 200_000,
   });
-  if (!res.ok) throw new Error(`Translate failed ${res.status}`);
-  const data = (await res.json()) as MemoryResponse;
+  if (!res.ok) throw new Error("Translate failed");
+  const data = JSON.parse(await readLimited(res, 200_000)) as MemoryResponse;
   const translated = data.responseData?.translatedText?.trim();
   if (!translated || (data.responseStatus && data.responseStatus >= 400)) {
     throw new Error("Translate returned no text");
@@ -48,17 +51,18 @@ async function translateChunk(text: string, from: string, to: string) {
 }
 
 export async function POST(request: Request) {
+  const blocked = gate(request, "translate", 10);
+  if (blocked) return blocked;
   try {
-    const body = (await request.json()) as {
-      texts?: string[];
-      from?: string;
-      to?: string;
-    };
+    const body = await readJson<{ texts?: string[]; from?: string; to?: string }>(request, 64_000);
     const to = normalizeLang(body.to);
     const from = normalizeLang(body.from) || "en";
-    const texts = (body.texts ?? []).map((text) => String(text ?? "")).filter(Boolean).slice(0, 12);
-    if (!to) return NextResponse.json({ error: "Missing target language" }, { status: 400 });
-    if (from === to) return NextResponse.json({ texts, from, to });
+    const texts = (body.texts ?? [])
+      .map((text) => String(text ?? "").slice(0, 4000))
+      .filter(Boolean)
+      .slice(0, 12);
+    if (!to) return jsonOk({ error: "Missing target language" }, 400);
+    if (from === to) return jsonOk({ texts, from, to });
     const translated: string[] = [];
     for (const text of texts) {
       const parts = [];
@@ -67,9 +71,8 @@ export async function POST(request: Request) {
       }
       translated.push(parts.join(" "));
     }
-    return NextResponse.json({ texts: translated, from, to });
+    return jsonOk({ texts: translated, from, to });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Translate failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return fail(error, "Translate failed");
   }
 }

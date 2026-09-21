@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { QueryBuilder } from "@/components/monitor/query-builder";
 import {
   DESKS,
   normalizeBoardFilters,
@@ -17,8 +18,9 @@ import {
 } from "@/lib/board-state";
 import { knownTopicTags } from "@/lib/classify";
 import { knownPlaceNames } from "@/lib/places";
+import { emptyQuery } from "@/lib/query-builder";
 import { isBuiltinDesk, type BuiltinDesk, type OriginReason, type Platform, type TimeRange } from "@/lib/types";
-import { summarizeDesk, type UserDesk } from "@/lib/user-desks";
+import { autoDeskLabel, resolveDeskLabel, summarizeDesk, type UserDesk } from "@/lib/user-desks";
 
 const VIEW_DESKS: BuiltinDesk[] = ["home", "brief", "scan", "sources"];
 const RANGES: TimeRange[] = ["1h", "6h", "24h", "7d", "all"];
@@ -70,7 +72,7 @@ export function FilterTuner({
 
   function saveDesk() {
     const filters = prepared();
-    const name = label.trim() || summarizeDesk(filters);
+    const name = resolveDeskLabel(label, filters);
     if (editing) onUpdate(editing.id, name, filters, view);
     else onCreate(name, filters, view);
     onOpenChange(false);
@@ -96,10 +98,13 @@ export function FilterTuner({
               className="mt-1 h-8 text-[12px]"
               value={label}
               onChange={(event) => setLabel(event.target.value)}
-              placeholder={summarizeDesk(draft)}
+              placeholder={autoDeskLabel(draft)}
             />
           </label>
-          <p className="text-[11px] text-slate-500">Saves as: {summarizeDesk(prepared())}</p>
+          <p className="text-[11px] text-slate-500">
+            Saves as <span className="font-medium text-slate-700">{resolveDeskLabel(label, prepared())}</span>
+            {summarizeDesk(prepared()) ? ` · ${summarizeDesk(prepared())}` : ""}
+          </p>
           <div className="flex flex-wrap justify-end gap-2">
             <Button size="sm" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
@@ -150,6 +155,18 @@ function FilterFields({
           placeholder="Words in title, summary, source, CVE"
         />
       </label>
+      <div className="sm:col-span-2">
+        <div className="text-[11px] font-medium text-slate-600">Query</div>
+        <p className="mt-0.5 text-[11px] text-slate-500">
+          Equals, not equal, contains. Combine rows with AND or OR.
+        </p>
+        <div className="mt-1.5">
+          <QueryBuilder
+            value={value.qb ?? emptyQuery()}
+            onChange={(qb) => patch({ qb })}
+          />
+        </div>
+      </div>
       <label className="block text-[11px] font-medium text-slate-600">
         Topic
         <Input

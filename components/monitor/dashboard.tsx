@@ -36,6 +36,7 @@ export function HomeDashboard({
   place,
   platform,
   rising,
+  queryActive,
   onOpenStory,
   onLane,
   onTopic,
@@ -65,6 +66,7 @@ export function HomeDashboard({
   place: string | null;
   platform?: string | null;
   rising?: boolean;
+  queryActive?: boolean;
   onOpenStory: (story: Story) => void;
   onLane: (lane: SituationLane) => void;
   onTopic: (topic: string) => void;
@@ -81,7 +83,7 @@ export function HomeDashboard({
   trendHint?: string;
   onTrend?: (row: TrendRow) => void;
 }) {
-  const filtered = Boolean(topic || layer || person || place || platform || rising);
+  const filtered = Boolean(topic || layer || person || place || platform || rising || queryActive);
   const lanes = SITUATION_LANES.map((lane) => {
     const laneStories = stories.filter(
       (story) =>
@@ -218,6 +220,7 @@ export function HomeDashboard({
             {place ? ` · ${place}` : ""}
             {platform ? ` · ${platform}` : ""}
             {rising ? " · rising" : ""}
+            {queryActive ? " · query" : ""}
           </div>
           <div className={`board mt-1.5 ${compact ? "board-compact" : ""}`}>
             {stories.map((story) => (

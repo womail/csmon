@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import { useDeferredValue, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Layers, Plus, RefreshCw, Search, Shield, ChevronDown, ChevronRight, Undo2, SlidersHorizontal } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
 import {
@@ -13,25 +14,31 @@ import {
 } from "@/components/monitor/cards";
 import { PulseCard, TopicMix, TrendList } from "@/components/monitor/charts";
 import { FilterTuner } from "@/components/monitor/filter-tuner";
+import { QueryBuilderButton } from "@/components/monitor/query-builder";
 import { EntityDesk, HomeDashboard } from "@/components/monitor/dashboard";
-import { AircraftPane, FlightDesk } from "@/components/monitor/flights";
 import { PlacePane } from "@/components/monitor/place-pane";
 import { SourcePane } from "@/components/monitor/source-pane";
 import { SituationMap, placeMarkers } from "@/components/monitor/map";
 import { DeskRail, DeskTabs } from "@/components/monitor/nav";
 import { OptionsButton } from "@/components/monitor/options-panel";
-import { ReaderPane } from "@/components/monitor/reader";
 import { RedditButton } from "@/components/monitor/reddit-panel";
 import { SavedFilters } from "@/components/monitor/saved-filters";
-import { ScrapeDialog } from "@/components/monitor/scrape-dialog";
 import { ThemeToggle } from "@/components/monitor/theme-toggle";
 import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { apiFetch } from "@/lib/api-client";
 import type { BoardFilters } from "@/lib/board-state";
 import { defaultBoardFilters, normalizeBoardFilters, syncBoardUrl } from "@/lib/board-state";
 import { isKnownTopic, itemHasTopic } from "@/lib/classify";
-import { clusterItems, itemAsStory, situationLine, storyContaining, type Story } from "@/lib/cluster";
+import {
+  clusterItems,
+  itemAsStory,
+  situationLine,
+  storiesFromPool,
+  storyContaining,
+  type Story,
+} from "@/lib/cluster";
 import { tagStyle } from "@/lib/colors";
 import { documentsFromItems, isDocumentItem } from "@/lib/documents";
 import type { AircraftProfile, Flight } from "@/lib/flights";
@@ -46,6 +53,13 @@ import { applyPalette } from "@/lib/theme";
 import { shortSourceName } from "@/lib/source-label";
 import { itemHasPerson, peopleFromItems } from "@/lib/people";
 import { isCountry, isKnownPlace, itemHasPlace, PINNED_PLACES, resolvePlace } from "@/lib/places";
+import {
+  emptyQuery,
+  hasQuery,
+  itemMatchesQuery,
+  summarizeQuery,
+  type QueryTree,
+} from "@/lib/query-builder";
 import type { QuakeEvent } from "@/lib/quakes";
 import { rangeStart } from "@/lib/time";
 import {
@@ -70,6 +84,16 @@ import {
 import type { Desk, DiscoveredSource, Item, MonitorState, OriginReason, Platform, TimeRange } from "@/lib/types";
 import { isBuiltinDesk } from "@/lib/types";
 import type { IntelPack } from "@/lib/intel-feeds";
+import {
+  clampReaderWidth,
+  loadActiveReportId,
+  loadReaderWidth,
+  loadReports,
+  READER_WIDTH_DEFAULT,
+  saveActiveReportId,
+  saveReaderWidth,
+  type Report,
+} from "@/lib/reports";
 import type { WeatherEvent } from "@/lib/weather";
 import {
   createUserDesk,
@@ -79,6 +103,25 @@ import {
   updateUserDesk,
   type UserDesk,
 } from "@/lib/user-desks";
+
+const ReaderPane = dynamic(
+  () => import("@/components/monitor/reader").then((mod) => ({ default: mod.ReaderPane })),
+  { ssr: false },
+);
+const ReportsDesk = dynamic(() =>
+  import("@/components/monitor/reports").then((mod) => ({ default: mod.ReportsDesk })),
+);
+const FlightDesk = dynamic(() =>
+  import("@/components/monitor/flights").then((mod) => ({ default: mod.FlightDesk })),
+);
+const AircraftPane = dynamic(() =>
+  import("@/components/monitor/flights").then((mod) => ({ default: mod.AircraftPane })),
+);
+const ScrapeDialog = dynamic(() =>
+  import("@/components/monitor/scrape-dialog").then((mod) => ({ default: mod.ScrapeDialog })),
+);
+
+const BOARD_PAGE = 80;
 
 const STACK_CHIPS = [
   { label: "AI", kind: "topic" as const, value: "ai" },
@@ -103,7 +146,7 @@ const RISK_COLOR: Record<PatchRisk, string> = {
 };
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const res = await apiFetch(url, init);
   const data = (await res.json()) as T & { error?: string };
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
@@ -144,6 +187,8 @@ export function Monitor({
     cache: initial.cache ?? { entries: 0, bytes: 0 },
   });
   const [query, setQuery] = useState(seed.q);
+  const deferredQuery = useDeferredValue(query);
+  const [boardCap, setBoardCap] = useState(BOARD_PAGE);
   const [topic, setTopic] = useState<string | null>(seed.topic);
   const [place, setPlace] = useState<string | null>(seed.place);
   const [range, setRange] = useState<TimeRange>(seed.range);
@@ -166,6 +211,7 @@ export function Monitor({
   const [platform, setPlatform] = useState<Platform | null>(seed.platform);
   const [person, setPerson] = useState<string | null>(seed.person);
   const [rising, setRising] = useState(seed.rising);
+  const [qb, setQb] = useState<QueryTree>(seed.qb ?? emptyQuery());
   const [compact, setCompact] = useState(false);
   const [homeLanguage, setHomeLanguage] = useState("en");
   const [autoTranslate, setAutoTranslate] = useState(false);
@@ -184,6 +230,9 @@ export function Monitor({
   const [triage, setTriage] = useState<TriageState>({ hidden: [], read: [] });
   const [triageUndo, setTriageUndo] = useState<TriageUndo[]>([]);
   const [subreddits, setSubreddits] = useState<string[]>(DEFAULT_SUBREDDITS);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [openReportId, setOpenReportId] = useState<string | null>(null);
+  const [readerWidth, setReaderWidth] = useState(READER_WIDTH_DEFAULT);
 
   function setState(next: MonitorState) {
     setStateRaw({
@@ -205,6 +254,9 @@ export function Monitor({
     setTriage(loadTriage());
     setTriageUndo(loadTriageUndo());
     setSubreddits(loadSubreddits());
+    setReports(loadReports());
+    setOpenReportId(loadActiveReportId());
+    setReaderWidth(loadReaderWidth());
     setFollowOpen(window.localStorage.getItem("csmon.follow-open") !== "0");
     if (!seed.stack) {
       setStack(opts.stack || window.localStorage.getItem("csmon.stack") || "");
@@ -239,9 +291,9 @@ export function Monitor({
           if (!cancelled) setState(next);
         }
         const [quakeRes, flightRes, weatherRes] = await Promise.all([
-          fetch("/api/quakes"),
-          fetch(`/api/flights${near ? `?${near}` : ""}`),
-          fetch(`/api/weather${near ? `?${near}` : ""}`),
+          apiFetch("/api/quakes"),
+          apiFetch(`/api/flights${near ? `?${near}` : ""}`),
+          apiFetch(`/api/weather${near ? `?${near}` : ""}`),
         ]);
         if (quakeRes.ok) {
           const data = (await quakeRes.json()) as { quakes?: QuakeEvent[] };
@@ -284,8 +336,9 @@ export function Monitor({
       platform,
       person,
       rising,
+      qb,
     });
-  }, [cross, desk, layer, origin, person, place, platform, query, range, ransomware, rising, riskFilter, stack, topic, vendor]);
+  }, [cross, desk, layer, origin, person, place, platform, qb, query, range, ransomware, rising, riskFilter, stack, topic, vendor]);
 
   const enabled = state.sources.filter((s) => s.enabled);
   const byId = useMemo(
@@ -308,8 +361,13 @@ export function Monitor({
   const activeCustom = findUserDesk(desk, customDesks);
   const viewDesk: Desk = activeCustom?.view ?? (isBuiltinDesk(desk) ? desk : "brief");
 
+  useEffect(() => {
+    setBoardCap(BOARD_PAGE);
+  }, [deferredQuery, layer, origin, person, place, platform, qb, range, rising, topic, vendor, viewDesk]);
+
   const baseItems = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
+    const needMine = ransomware || Boolean(q);
     return rangedItems.filter((item) => {
       const source = byId.get(item.sourceId);
       if (layer && item.sourceId !== layer) return false;
@@ -330,20 +388,23 @@ export function Monitor({
       if (place && !itemHasPlace(item, place)) return false;
       if (person && !itemHasPerson(item, person, source)) return false;
       if (triage.hidden.includes(itemKey(item.id))) return false;
-      const mined = mineItem(item);
-      if (ransomware && !mined.ransomware) return false;
       if (vendor && !itemHasVendor(item, vendor)) return false;
-      if (
-        q &&
-        !`${item.title} ${item.summary ?? ""} ${source?.name ?? ""} ${item.locations.join(" ")} ${mined.cves.join(" ")}`
-          .toLowerCase()
-          .includes(q)
-      ) {
-        return false;
+      if (needMine) {
+        const mined = mineItem(item);
+        if (ransomware && !mined.ransomware) return false;
+        if (
+          q &&
+          !`${item.title} ${item.summary ?? ""} ${source?.name ?? ""} ${item.locations.join(" ")} ${mined.cves.join(" ")}`
+            .toLowerCase()
+            .includes(q)
+        ) {
+          return false;
+        }
       }
+      if (!itemMatchesQuery(item, qb, source)) return false;
       return true;
     });
-  }, [byId, layer, origin, person, place, platform, query, rangedItems, ransomware, topic, triage.hidden, vendor, viewDesk]);
+  }, [byId, deferredQuery, layer, origin, person, place, platform, qb, rangedItems, ransomware, topic, triage.hidden, vendor, viewDesk]);
 
   const trends = useMemo(() => buildTrends(baseItems, range, byId), [baseItems, byId, range]);
   const hotKeys = useMemo(() => risingKeySet(trends), [trends]);
@@ -355,11 +416,9 @@ export function Monitor({
   }, [baseItems, byId, hotKeys, rising]);
 
   const stories = useMemo(() => {
-    const clustered = clusterItems(items);
-    return (cross ? clustered.filter((s) => s.sourceIds.length > 1) : clustered).filter(
-      (story) => !triage.hidden.includes(`story:${story.id}`),
-    );
-  }, [cross, items, triage.hidden]);
+    const allowed = new Set(items.map((item) => item.id));
+    return storiesFromPool(poolStories, allowed, cross, triage.hidden);
+  }, [cross, items, poolStories, triage.hidden]);
 
   const topics = useMemo(() => {
     const counts = new Map<string, number>();
@@ -589,6 +648,7 @@ export function Monitor({
     setPlatform(filters.platform);
     setPerson(filters.person);
     setRising(filters.rising);
+    setQb(filters.qb ?? emptyQuery());
   }
 
   function goHome() {
@@ -612,7 +672,7 @@ export function Monitor({
     try {
       const city = homeCity(homePlace);
       const qs = city ? `?lat=${city.lat}&lng=${city.lng}&km=100` : "";
-      const res = await fetch(`/api/flights${qs}`);
+      const res = await apiFetch(`/api/flights${qs}`);
       const data = (await res.json()) as { flights?: Flight[]; error?: string };
       if (!res.ok) throw new Error(data.error || "ADS-B failed");
       setFlights(data.flights ?? []);
@@ -629,7 +689,7 @@ export function Monitor({
       const qs = city
         ? `?lat=${city.lat}&lng=${city.lng}&place=${encodeURIComponent(city.name)}`
         : "";
-      const res = await fetch(`/api/weather${qs}`);
+      const res = await apiFetch(`/api/weather${qs}`);
       if (!res.ok) return;
       const data = (await res.json()) as { events?: WeatherEvent[] };
       setWeatherEvents(data.events ?? []);
@@ -647,8 +707,8 @@ export function Monitor({
     void (async () => {
       try {
         const [flightRes, weatherRes] = await Promise.all([
-          fetch(`/api/flights${qs ? `?${qs}` : ""}`),
-          fetch(`/api/weather${qs ? `?${qs}` : ""}`),
+          apiFetch(`/api/flights${qs ? `?${qs}` : ""}`),
+          apiFetch(`/api/weather${qs ? `?${qs}` : ""}`),
         ]);
         if (flightRes.ok) {
           const data = (await flightRes.json()) as { flights?: Flight[] };
@@ -670,7 +730,7 @@ export function Monitor({
     setAircraft(null);
     closeReader();
     try {
-      const res = await fetch(`/api/aircraft?icao24=${encodeURIComponent(flight.icao24)}`);
+      const res = await apiFetch(`/api/aircraft?icao24=${encodeURIComponent(flight.icao24)}`);
       const data = (await res.json()) as { profile?: AircraftProfile; flight?: Flight };
       if (data.flight) setSelectedFlight(data.flight);
       setAircraft(data.profile ?? null);
@@ -851,7 +911,8 @@ export function Monitor({
     viewDesk !== "patch" &&
     viewDesk !== "sources" &&
     viewDesk !== "home" &&
-    viewDesk !== "flights";
+    viewDesk !== "flights" &&
+    viewDesk !== "reports";
 
   const currentFilters: BoardFilters = {
     desk,
@@ -869,6 +930,7 @@ export function Monitor({
     platform,
     person,
     rising,
+    qb,
   };
 
   const catalogTopics = useMemo(() => {
@@ -980,6 +1042,35 @@ export function Monitor({
     if (next === "flights") void loadFlights();
   }
 
+  function openCompiledReport(id: string) {
+    setOpenReportId(id);
+    saveActiveReportId(id);
+    setDesk("reports");
+    closeReader();
+  }
+
+  function startReaderResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    handle.dataset.active = "1";
+    const origin = event.clientX;
+    const start = readerWidth;
+    let current = start;
+    function move(ev: PointerEvent) {
+      current = clampReaderWidth(start + (origin - ev.clientX), window.innerWidth);
+      setReaderWidth(current);
+    }
+    function up() {
+      handle.dataset.active = "0";
+      saveReaderWidth(current);
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+    }
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+  }
+
   return (
     <div className="flex min-h-screen bg-slate-50">
       <DeskRail
@@ -998,6 +1089,7 @@ export function Monitor({
           advisories: advisoryCount,
           patch: p0,
           sources: enabled.length,
+          reports: reports.filter((row) => row.status === "open").length,
         }}
         customDesks={customDesks}
         onCreateDesk={() => {
@@ -1026,11 +1118,12 @@ export function Monitor({
           setPerson(null);
           setRising(false);
           setRiskFilter("p0");
+          setQb(emptyQuery());
         }}
       />
       <div className="flex min-w-0 flex-1 flex-col bg-slate-50">
         <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
-          <div className="flex items-center gap-3 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-3 px-3 py-2">
             <Tip text="Home dashboard — click a topic or source to filter in place">
               <button type="button" onClick={goHome} className="flex items-center gap-2">
                 <div className="grid size-7 place-items-center rounded-md bg-orange-500 text-[11px] font-bold text-white">
@@ -1084,6 +1177,7 @@ export function Monitor({
               </Button>
             </Tip>
             <SavedFilters current={currentFilters} onApply={applyFilters} />
+            <QueryBuilderButton value={qb} onChange={setQb} />
             <Tip text="Tune topic, place, RSS, and range, then apply or save as a desk">
               <Button
                 size="xs"
@@ -1173,6 +1267,18 @@ export function Monitor({
               >
                 rising ×
               </button>
+            ) : null}
+            {hasQuery(qb) ? (
+              <Tip text={summarizeQuery(qb)}>
+                <button
+                  type="button"
+                  onClick={() => setQb(emptyQuery())}
+                  className="tag"
+                  style={{ background: "#1d4ed8", color: "#fff" }}
+                >
+                  query ×
+                </button>
+              </Tip>
             ) : null}
             {place ? (
               <button
@@ -1547,11 +1653,9 @@ export function Monitor({
         </header>
 
         <div
-          className={`grid flex-1 ${
-            openStory ? "lg:grid-cols-[1fr_460px]" : "lg:grid-cols-[1fr_260px]"
-          }`}
+          className={`flex min-h-0 flex-1 flex-col ${openStory ? "lg:flex-row" : "lg:grid lg:grid-cols-[1fr_260px]"}`}
         >
-          <main className="min-w-0">
+          <main className="min-w-0 flex-1">
             {emptyBoard ? (
               <div className="mx-auto max-w-lg px-6 py-20 text-center">
                 <div className="text-lg font-semibold">Start from a desk, not a firehose</div>
@@ -1651,6 +1755,7 @@ export function Monitor({
                 place={place}
                 platform={platform}
                 rising={rising}
+                queryActive={hasQuery(qb)}
                 onOpenStory={openReader}
                 onLane={openLane}
                 onTopic={toggleTopic}
@@ -1703,6 +1808,16 @@ export function Monitor({
                 }))}
                 onOpen={() => undefined}
               />
+            ) : viewDesk === "reports" ? (
+              <ReportsDesk
+                reports={reports}
+                selectedId={openReportId}
+                onSelect={(id) => {
+                  setOpenReportId(id);
+                  saveActiveReportId(id);
+                }}
+                onChange={setReports}
+              />
             ) : viewDesk === "sources" ? (
               <div className={`board p-2 ${compact ? "board-compact" : ""}`}>
                 <CacheCard entries={state.cache.entries} bytes={state.cache.bytes} />
@@ -1720,6 +1835,7 @@ export function Monitor({
                 ))}
               </div>
             ) : (
+              <>
               <div className={`board p-2 ${compact ? "board-compact" : ""}`}>
                 {viewDesk === "weather" && weatherEvents.length > 0 ? (
                   <section className="card-tile sm:col-span-2">
@@ -1785,7 +1901,7 @@ export function Monitor({
                   </>
                 ) : null}
                 {viewDesk === "scan"
-                  ? items.map((item) => (
+                  ? items.slice(0, boardCap).map((item) => (
                       <ItemCard
                         key={item.id}
                         item={item}
@@ -1816,7 +1932,7 @@ export function Monitor({
                           read={triage.read.includes(`story:${story.id}`)}
                         />
                       ))
-                    : stories.map((story) => (
+                    : stories.slice(0, boardCap).map((story) => (
                         <StoryCard
                           key={story.id}
                           story={story}
@@ -1832,32 +1948,68 @@ export function Monitor({
                         />
                       ))}
               </div>
+              {viewDesk !== "pulse" &&
+              (viewDesk === "scan" ? items.length : stories.length) > boardCap ? (
+                <div className="px-2 pb-3">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setBoardCap((current) => current + BOARD_PAGE)}
+                  >
+                    Show more ({boardCap} of {viewDesk === "scan" ? items.length : stories.length})
+                  </Button>
+                </div>
+              ) : null}
+              </>
             )}
           </main>
 
           {openStory ? (
-            <ReaderPane
-              story={openStory}
-              sources={byId}
-              related={relatedStories(openStory, poolStories)}
-              similar={similarStories(openStory, poolStories)}
-              kevHits={kevForStory(openStory, state.kev)}
-              boardItems={rangedItems}
-              homeLanguage={homeLanguage}
-              autoTranslate={autoTranslate}
-              canBack={trail.length > 0}
-              onBack={backReader}
-              onClose={closeReader}
-              onFollow={followHint}
-              onTopic={toggleTopic}
-              onPlace={focusPlace}
-              onVendor={toggleVendor}
-              onCve={focusCve}
-              onSource={focusSource}
-              onOpenStory={openReader}
-              onOpenItem={openItem}
-              onPerson={togglePerson}
-            />
+            <div
+              className="flex min-h-[70vh] w-full shrink-0 flex-col border-t border-slate-200 bg-white lg:h-auto lg:min-h-0 lg:w-auto lg:flex-row lg:border-t-0"
+              style={{ ["--reader-width" as string]: `${readerWidth}px` }}
+            >
+              <button
+                type="button"
+                className="reader-resizer hidden lg:block"
+                aria-label="Resize read in place"
+                title="Drag to widen the reader"
+                onPointerDown={startReaderResize}
+                onDoubleClick={() => {
+                  const wide = clampReaderWidth(Math.min(1100, window.innerWidth * 0.62), window.innerWidth);
+                  const next = readerWidth > wide - 40 ? READER_WIDTH_DEFAULT : wide;
+                  setReaderWidth(next);
+                  saveReaderWidth(next);
+                }}
+              />
+              <div className="min-h-0 min-w-0 flex-1 lg:w-[var(--reader-width)] lg:flex-none">
+                <ReaderPane
+                  story={openStory}
+                  sources={byId}
+                  related={relatedStories(openStory, poolStories)}
+                  similar={similarStories(openStory, poolStories)}
+                  kevHits={kevForStory(openStory, state.kev)}
+                  boardItems={rangedItems}
+                  homeLanguage={homeLanguage}
+                  autoTranslate={autoTranslate}
+                  canBack={trail.length > 0}
+                  onBack={backReader}
+                  onClose={closeReader}
+                  onFollow={followHint}
+                  onTopic={toggleTopic}
+                  onPlace={focusPlace}
+                  onVendor={toggleVendor}
+                  onCve={focusCve}
+                  onSource={focusSource}
+                  onOpenStory={openReader}
+                  onOpenItem={openItem}
+                  onPerson={togglePerson}
+                  reports={reports}
+                  onReportsChange={setReports}
+                  onOpenReport={openCompiledReport}
+                />
+              </div>
+            </div>
           ) : viewDesk === "flights" && selectedFlight ? (
             <AircraftPane
               flight={selectedFlight}

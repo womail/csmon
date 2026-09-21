@@ -1,3 +1,5 @@
+import { parsePublicHttpUrl } from "./public-url";
+
 export type Target =
   | { kind: "bsky"; handle: string }
   | { kind: "rss"; url: string }
@@ -47,6 +49,7 @@ export function parseTarget(
     } catch {
       throw new Error("Paste an RSS/Atom URL or a site that publishes a feed.");
     }
+    parsePublicHttpUrl(parsed.toString());
     const reddit = redditRssUrl(parsed.toString());
     if (reddit) return { kind: "rss", url: reddit };
     const path = parsed.pathname.toLowerCase();
@@ -96,6 +99,7 @@ export function parseTarget(
     throw new Error("Could not parse that as a handle or URL.");
   }
 
+  parsePublicHttpUrl(parsed.toString());
   const reddit = redditRssUrl(parsed.toString());
   if (reddit) return { kind: "rss", url: reddit };
 

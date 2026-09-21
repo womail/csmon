@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
 import { probeHint } from "@/lib/explore";
+import { fail, gate, jsonOk, readJson } from "@/lib/guard";
+import { parsePublicHttpUrl } from "@/lib/public-url";
 import { getMonitorState, registerExploredSource } from "@/lib/queries";
 import { refreshSources } from "@/lib/scrape/refresh";
 
@@ -7,20 +8,20 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const blocked = gate(request, "explore", 8);
+  if (blocked) return blocked;
   try {
-    const body = (await request.json()) as {
-      host: string;
-      url: string;
-      sample?: string;
-    };
-    if (!body.host || !body.url) {
-      return NextResponse.json({ error: "Missing host" }, { status: 400 });
-    }
+    const body = await readJson<{ host?: string; url?: string; sample?: string }>(request);
+    if (!body.host || !body.url) return jsonOk({ error: "Missing host" }, 400);
+    const parsed = parsePublicHttpUrl(body.url);
+    const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+    const claimed = String(body.host).replace(/^www\./i, "").toLowerCase().slice(0, 253);
+    if (claimed !== host) return jsonOk({ error: "Host does not match URL." }, 400);
     const probed = await probeHint({
-      host: body.host,
-      url: body.url,
+      host,
+      url: parsed.toString(),
       count: 1,
-      sample: body.sample ?? "",
+      sample: String(body.sample ?? "").slice(0, 280),
       feedUrl: null,
     });
     const id = registerExploredSource({
@@ -30,9 +31,8 @@ export async function POST(request: Request) {
       host: probed.host,
     });
     await refreshSources([id]);
-    return NextResponse.json(getMonitorState());
+    return jsonOk(getMonitorState());
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Explore failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return fail(error, "Explore failed");
   }
 }

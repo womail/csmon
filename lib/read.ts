@@ -1,16 +1,15 @@
 import * as cheerio from "cheerio";
+import { isNoiseCopy, type ArticleRead } from "./article";
 import { fetchText } from "./http";
 
-export type ArticleRead = {
-  url: string;
-  site: string;
-  title: string;
-  description: string | null;
-  paragraphs: string[];
-  quotes: string[];
-  language: string | null;
-  related: { href: string; label: string }[];
-};
+export type { ArticleRead } from "./article";
+
+function keepParagraph(text: string, minLength = 40) {
+  const value = text.replace(/\s+/g, " ").trim();
+  if (value.length < minLength) return false;
+  if (isNoiseCopy(value)) return false;
+  return true;
+}
 
 function hostOf(url: string) {
   try {
@@ -44,18 +43,18 @@ export async function readArticle(url: string): Promise<ArticleRead> {
     null;
 
   const paraSel =
-    "article p, [itemprop='articleBody'] p, main p, .article-body p, .story-body p, [data-testid='postText'] p, .post-content p";
+    "article p, article li, [itemprop='articleBody'] p, [itemprop='articleBody'] li, main p, main li, .article-body p, .article-body li, .story-body p, [data-testid='postText'] p, .post-content p";
   let paragraphs = $(paraSel)
     .map((_, el) => $(el).text().replace(/\s+/g, " ").trim())
     .get()
-    .filter((p) => p.length > 40);
+    .filter((p) => keepParagraph(p, 32));
   if (paragraphs.length < 4) {
     paragraphs = [
       ...paragraphs,
       ...$("p, li, blockquote")
         .map((_, el) => $(el).text().replace(/\s+/g, " ").trim())
         .get()
-        .filter((p) => p.length > 50),
+        .filter((p) => keepParagraph(p, 50)),
     ];
   }
   const seen = new Set<string>();
@@ -69,7 +68,7 @@ export async function readArticle(url: string): Promise<ArticleRead> {
   const quotes = $("blockquote, q")
     .map((_, el) => $(el).text().replace(/\s+/g, " ").trim())
     .get()
-    .filter((quote) => quote.length > 40)
+    .filter((quote) => keepParagraph(quote, 40))
     .filter((quote, i, all) => all.findIndex((other) => other.slice(0, 48) === quote.slice(0, 48)) === i)
     .slice(0, 8);
 
@@ -86,7 +85,11 @@ export async function readArticle(url: string): Promise<ArticleRead> {
       return { href, label };
     })
     .get()
-    .filter((l) => l.label.length > 16 && /^https?:/i.test(l.href))
+    .filter(
+      (l) =>
+        /^https?:/i.test(l.href) &&
+        (l.label.length > 16 || /\/sk\/|cve-|advisory|hotfix|security.?update/i.test(l.href)),
+    )
     .filter((l, i, all) => all.findIndex((x) => x.href === l.href) === i)
     .slice(0, 12);
 

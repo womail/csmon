@@ -37,7 +37,7 @@ export function personName(item: Item, source?: Source | null) {
   if (SKIP.has(raw.toLowerCase())) return null;
   if (raw.length < 3 || raw.length > 40) return null;
   if (/[–—|]/.test(raw) || /^www\.|https?:/i.test(raw)) return null;
-  if (/\b(rss|breaking news|earthquakes|press releases|top stories)\b/i.test(raw)) return null;
+  if (/\b(rss|breaking news|earthquakes|press releases|top stories|publications of type|security advisories)\b/i.test(raw)) return null;
   if (/^posts from /i.test(raw)) return null;
   if (
     /\b(bbc|espn|reuters|al jazeera|france\s*24|guardian|nyt|sky sports|skysports|gdacs|usgs)\b/i.test(

@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { fetchJson, fetchRssXml } from "@/lib/http";
 import { coordsForPlace } from "@/lib/geo";
+import { asCoords, gate, jsonOk } from "@/lib/guard";
 import { weatherSummary, type LocalWeather, type WeatherEvent } from "@/lib/weather";
 
 export const runtime = "nodejs";
@@ -114,9 +115,12 @@ async function rssWarnings(
 }
 
 export async function GET(req: NextRequest) {
-  const lat = Number(req.nextUrl.searchParams.get("lat"));
-  const lng = Number(req.nextUrl.searchParams.get("lng"));
-  const place = req.nextUrl.searchParams.get("place") || "Home";
+  const blocked = gate(req, "weather", 30);
+  if (blocked) return blocked;
+  const point = asCoords(req.nextUrl.searchParams.get("lat"), req.nextUrl.searchParams.get("lng"));
+  const lat = point?.lat ?? Number.NaN;
+  const lng = point?.lng ?? Number.NaN;
+  const place = (req.nextUrl.searchParams.get("place") || "Home").slice(0, 80);
   const events: WeatherEvent[] = [];
   let local: LocalWeather | null = null;
   const hasPoint = Number.isFinite(lat) && Number.isFinite(lng);
@@ -195,5 +199,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ events, local });
+  return jsonOk({ events, local });
 }

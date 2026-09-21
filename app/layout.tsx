@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
+import { headers } from "next/headers";
+import { THEME_BOOTSTRAP } from "@/lib/theme-bootstrap";
 import "./globals.css";
 
 const plex = IBM_Plex_Sans({
@@ -19,7 +21,8 @@ export const metadata: Metadata = {
   description: "Desk-based current situation monitor: public RSS, CISA KEV, and in-place reading.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html
       lang="en"
@@ -28,8 +31,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <head>
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var p=null;var raw=localStorage.getItem("csmon.options");if(raw)p=JSON.parse(raw).palette;var dark=p==="dark"||(p!=="light"&&matchMedia("(prefers-color-scheme: dark)").matches);if(dark){document.documentElement.classList.add("dark");document.documentElement.style.colorScheme="dark";}}catch(e){}})();`,
+            __html: THEME_BOOTSTRAP,
           }}
         />
       </head>

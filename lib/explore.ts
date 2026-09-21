@@ -1,4 +1,3 @@
-import { discoverRss } from "./scrape/rss";
 import type { Item, Source } from "./types";
 
 export type SourceHint = {
@@ -52,6 +51,7 @@ export function hintSources(items: Item[], sources: Source[]): SourceHint[] {
 }
 
 export async function probeHint(hint: SourceHint): Promise<SourceHint> {
+  const { discoverRss } = await import("./scrape/rss");
   const feedUrl = await discoverRss(hint.url).catch(() => null);
   return { ...hint, feedUrl };
 }

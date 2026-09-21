@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { fail, gate, jsonOk, readJson } from "@/lib/guard";
 import { getMonitorState, registerRedditFeed } from "@/lib/queries";
 import { uniqueSubreddits } from "@/lib/reddit";
 import { refreshSources } from "@/lib/scrape/refresh";
@@ -7,21 +7,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const blocked = gate(request, "reddit", 10);
+  if (blocked) return blocked;
   try {
-    const body = (await request.json().catch(() => ({}))) as {
-      subs?: unknown;
-      enable?: boolean;
-    };
+    const body = await readJson<{ subs?: unknown; enable?: boolean }>(request);
     const subs = uniqueSubreddits(Array.isArray(body.subs) ? body.subs.map((value) => String(value)) : []);
     const enable = body.enable !== false;
-    if (enable && !subs.length) {
-      return NextResponse.json({ error: "Add at least one subreddit." }, { status: 400 });
-    }
+    if (enable && !subs.length) return jsonOk({ error: "Add at least one subreddit." }, 400);
     const ids = registerRedditFeed(subs, enable);
     if (enable) await refreshSources(ids);
-    return NextResponse.json(getMonitorState());
+    return jsonOk(getMonitorState());
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Reddit feed failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return fail(error, "Reddit feed failed");
   }
 }

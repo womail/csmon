@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { asIdList, fail, gate, jsonOk, readJson } from "@/lib/guard";
 import { deleteSource, getMonitorState, setSourceEnabled } from "@/lib/queries";
 import { refreshSources } from "@/lib/scrape/refresh";
 
@@ -6,29 +6,28 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function PATCH(request: Request) {
+  const blocked = gate(request, "sources", 20);
+  if (blocked) return blocked;
   try {
-    const body = (await request.json()) as {
-      enable?: number[];
-      disable?: number[];
-    };
-    if (body.disable?.length) setSourceEnabled(body.disable, false);
-    if (body.enable?.length) {
-      setSourceEnabled(body.enable, true);
-      await refreshSources(body.enable);
+    const body = await readJson<{ enable?: unknown; disable?: unknown }>(request);
+    const disable = asIdList(body.disable);
+    const enable = asIdList(body.enable);
+    if (disable.length) setSourceEnabled(disable, false);
+    if (enable.length) {
+      setSourceEnabled(enable, true);
+      await refreshSources(enable);
     }
-    return NextResponse.json(getMonitorState());
+    return jsonOk(getMonitorState());
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Update failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return fail(error, "Update failed");
   }
 }
 
 export async function DELETE(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const id = Number(searchParams.get("id"));
-  if (!id) {
-    return NextResponse.json({ error: "Missing id" }, { status: 400 });
-  }
+  const blocked = gate(request, "sources", 20);
+  if (blocked) return blocked;
+  const id = Number(new URL(request.url).searchParams.get("id"));
+  if (!Number.isInteger(id) || id <= 0) return jsonOk({ error: "Missing id" }, 400);
   deleteSource(id);
-  return NextResponse.json(getMonitorState());
+  return jsonOk(getMonitorState());
 }

@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ExternalLink, Languages, Rss, ScanSearch, X } from "lucide-react";
+import { SendToReportButton } from "@/components/monitor/send-to-report";
 import { Ago } from "@/components/monitor/ago";
 import { SituationMap, placeMarkers } from "@/components/monitor/map";
 import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
 import { tagStyle } from "@/lib/colors";
+import { apiFetch } from "@/lib/api-client";
 import type { Story } from "@/lib/cluster";
 import { buildDeepDive } from "@/lib/dive";
 import type { KevEntry } from "@/lib/kev";
@@ -15,7 +17,8 @@ import { relatedDocuments } from "@/lib/documents";
 import { matchItemByUrl, matchSourceByHost, storySignals } from "@/lib/link";
 import { shortSourceName } from "@/lib/source-label";
 import { personName } from "@/lib/people";
-import type { ArticleRead } from "@/lib/read";
+import { isNoiseCopy, type ArticleRead } from "@/lib/article";
+import type { Report } from "@/lib/reports";
 import type { Item, Source } from "@/lib/types";
 
 export function ReaderPane({
@@ -39,6 +42,9 @@ export function ReaderPane({
   onOpenStory,
   onOpenItem,
   onPerson,
+  reports = [],
+  onReportsChange,
+  onOpenReport,
 }: {
   story: Story;
   sources: Map<number, Source>;
@@ -60,6 +66,9 @@ export function ReaderPane({
   onOpenStory: (story: Story) => void;
   onOpenItem: (item: Item) => void;
   onPerson?: (name: string) => void;
+  reports?: Report[];
+  onReportsChange?: (rows: Report[]) => void;
+  onOpenReport?: (id: string) => void;
 }) {
   const [activeId, setActiveId] = useState(story.items[0].id);
   const [article, setArticle] = useState<ArticleRead | null>(null);
@@ -85,7 +94,7 @@ export function ReaderPane({
     setError(null);
     setArticle(null);
     setTranslated(null);
-    fetch(`/api/read?url=${encodeURIComponent(active.url)}`)
+    apiFetch(`/api/read?url=${encodeURIComponent(active.url)}`)
       .then(async (res) => {
         const data = (await res.json()) as ArticleRead & { error?: string };
         if (!res.ok) throw new Error(data.error || "Read failed");
@@ -108,6 +117,7 @@ export function ReaderPane({
     function add(text: string | null | undefined) {
       const value = (text ?? "").replace(/\s+/g, " ").trim();
       if (value.length < 40) return;
+      if (isNoiseCopy(value)) return;
       const key = value.slice(0, 72).toLowerCase();
       if (seen.has(key)) return;
       seen.add(key);
@@ -134,7 +144,7 @@ export function ReaderPane({
     setTranslating(true);
     setTranslateError(null);
     try {
-      const res = await fetch("/api/translate", {
+      const res = await apiFetch("/api/translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -197,6 +207,16 @@ export function ReaderPane({
           </div>
           <div className="text-[14px] leading-snug font-semibold text-slate-900">{shownTitle}</div>
         </div>
+        {onReportsChange ? (
+          <SendToReportButton
+            story={story}
+            sources={sources}
+            reports={reports}
+            article={article}
+            onChange={onReportsChange}
+            onOpenReport={onOpenReport}
+          />
+        ) : null}
         <Tip text="Close reader">
           <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-50">
             <X className="size-4" />

@@ -3,7 +3,8 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 
-const DB_PATH = path.join(process.cwd(), "data", "csmon.sqlite");
+const DATA_DIR = process.env.CSMON_DATA_DIR?.trim() || path.join(process.cwd(), "data");
+const DB_PATH = path.join(DATA_DIR, "csmon.sqlite");
 
 const MIGRATIONS: { name: string; sql: string }[] = [
   {
@@ -147,17 +148,38 @@ function applyMigrations(db: DatabaseSync) {
   }
 }
 
-export function getDb() {
-  if (globalForDb.csmonDb) {
-    applyMigrations(globalForDb.csmonDb);
-    return globalForDb.csmonDb;
-  }
+let migrated = false;
 
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-  const db = new DatabaseSync(DB_PATH);
-  db.exec("PRAGMA journal_mode = WAL");
-  db.exec("PRAGMA foreign_keys = ON");
-  applyMigrations(db);
-  globalForDb.csmonDb = db;
-  return db;
+export function getDb() {
+  if (!globalForDb.csmonDb) {
+    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+    const db = new DatabaseSync(DB_PATH);
+    db.exec("PRAGMA journal_mode = WAL");
+    db.exec("PRAGMA synchronous = NORMAL");
+    db.exec("PRAGMA foreign_keys = ON");
+    db.exec("PRAGMA busy_timeout = 4000");
+    globalForDb.csmonDb = db;
+  }
+  if (!migrated) {
+    applyMigrations(globalForDb.csmonDb);
+    migrated = true;
+  }
+  return globalForDb.csmonDb;
+}
+
+export function withTransaction<T>(fn: () => T): T {
+  const db = getDb();
+  db.exec("BEGIN");
+  try {
+    const value = fn();
+    db.exec("COMMIT");
+    return value;
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // already rolled back
+    }
+    throw error;
+  }
 }

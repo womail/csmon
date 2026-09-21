@@ -1,12 +1,10 @@
 import { mapPool } from "../http";
-import { getSource, insertItems, listEnabledSources, markFetched } from "../queries";
+import { insertItems, listEnabledSources, listSourcesByIds, markFetched } from "../queries";
 
 import { fetchSourceItems } from "./index";
 
 export async function refreshSources(ids?: number[]) {
-  const sources = ids?.length
-    ? ids.map((id) => getSource(id)).filter((s) => s !== null)
-    : listEnabledSources();
+  const sources = ids?.length ? listSourcesByIds(ids) : listEnabledSources();
 
   await mapPool(sources, 4, async (source) => {
     try {

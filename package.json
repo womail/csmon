@@ -1,12 +1,16 @@
 {
   "name": "csmon",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "generate-sbom": "node scripts/generate-sbom.mjs",
+    "update": "bash scripts/update.sh",
+    "update:docker": "bash scripts/update.sh docker",
+    "update:check": "bash scripts/update.sh check"
   },
   "dependencies": {
     "cheerio": "^1.2.0",
@@ -35,5 +39,5 @@
     "tailwindcss": "^4",
     "typescript": "^5"
   },
-  "packageManager": "pnpm@11.8.0"
+  "packageManager": "pnpm@12.5.1"
 }

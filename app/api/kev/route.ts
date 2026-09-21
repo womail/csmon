@@ -1,17 +1,18 @@
-import { NextResponse } from "next/server";
+import { fail, gate, jsonOk } from "@/lib/guard";
 import { fetchKevCatalog } from "@/lib/kev-fetch";
 import { getMonitorState, replaceKev } from "@/lib/queries";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST() {
+export async function POST(request: Request) {
+  const blocked = gate(request, "kev", 8);
+  if (blocked) return blocked;
   try {
     const entries = await fetchKevCatalog();
     replaceKev(entries);
-    return NextResponse.json(getMonitorState());
+    return jsonOk(getMonitorState());
   } catch (error) {
-    const message = error instanceof Error ? error.message : "KEV fetch failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return fail(error, "KEV fetch failed");
   }
 }

@@ -1,18 +1,19 @@
-import { NextResponse } from "next/server";
+import { fail, gate, jsonOk } from "@/lib/guard";
+import { parsePublicHttpUrl } from "@/lib/public-url";
 import { readArticle } from "@/lib/read";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const blocked = gate(request, "read", 20);
+  if (blocked) return blocked;
   const url = new URL(request.url).searchParams.get("url");
-  if (!url) {
-    return NextResponse.json({ error: "Missing url" }, { status: 400 });
-  }
+  if (!url) return jsonOk({ error: "Missing url" }, 400);
   try {
-    return NextResponse.json(await readArticle(url));
+    parsePublicHttpUrl(url);
+    return jsonOk(await readArticle(url));
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not read article";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return fail(error, "Could not read article");
   }
 }

@@ -1,6 +1,14 @@
 import { isKnownTopic } from "./classify";
 import type { PatchRisk } from "./kev";
 import { isKnownPlace, resolvePlace } from "./places";
+import {
+  activeQueryRules,
+  emptyQuery,
+  encodeQueryTree,
+  hasQuery,
+  parseQueryTree,
+  type QueryTree,
+} from "./query-builder";
 import { isDeskId, type Desk, type OriginReason, type Platform, type TimeRange } from "./types";
 
 export type BoardFilters = {
@@ -19,6 +27,7 @@ export type BoardFilters = {
   platform: Platform | null;
   person: string | null;
   rising: boolean;
+  qb: QueryTree;
 };
 
 export const DESKS: { id: Desk; label: string; hint: string }[] = [
@@ -29,6 +38,7 @@ export const DESKS: { id: Desk; label: string; hint: string }[] = [
   { id: "weather", label: "Weather", hint: "Storms and warnings" },
   { id: "people", label: "People", hint: "Authors and voices" },
   { id: "documents", label: "Documents", hint: "Reports and PDFs" },
+  { id: "reports", label: "Reports", hint: "Briefings you compile" },
   { id: "flights", label: "Flights", hint: "Live ADS-B" },
   { id: "advisories", label: "Advisories", hint: "Cyber desk" },
   { id: "patch", label: "Patch", hint: "CISA KEV" },
@@ -62,6 +72,7 @@ export function defaultBoardFilters(stack = ""): BoardFilters {
     platform: null,
     person: null,
     rising: false,
+    qb: emptyQuery(),
   };
 }
 
@@ -79,6 +90,7 @@ export function normalizeBoardFilters(filters: BoardFilters): BoardFilters {
     topic: nextTopic,
     place: place ? resolvePlace(place) : null,
     platform: filters.platform && PLATFORMS.has(filters.platform) ? filters.platform : null,
+    qb: { rules: activeQueryRules(filters.qb).slice(0, 8) },
   };
 }
 
@@ -107,6 +119,7 @@ export function parseBoardFilters(
     platform: PLATFORMS.has(platformRaw) ? platformRaw : null,
     person: one(params.person) || null,
     rising: one(params.rising) === "1",
+    qb: parseQueryTree(one(params.qb)),
   });
 }
 
@@ -127,6 +140,7 @@ export function boardQueryString(filters: BoardFilters) {
   if (filters.platform) p.set("platform", filters.platform);
   if (filters.person) p.set("person", filters.person);
   if (filters.rising) p.set("rising", "1");
+  if (hasQuery(filters.qb)) p.set("qb", encodeQueryTree(filters.qb));
   const qs = p.toString();
   return qs ? `?${qs}` : "";
 }

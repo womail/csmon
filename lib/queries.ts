@@ -3,7 +3,7 @@ import "server-only";
 import { cacheStats } from "./cache";
 import { classifyItem } from "./classify";
 import { colorFor } from "./colors";
-import { getDb } from "./db";
+import { getDb, withTransaction } from "./db";
 import { hintSources } from "./explore";
 import { type IntelFeed } from "./intel-feeds";
 import {
@@ -107,10 +107,11 @@ function parseJsonArray(raw: string | undefined) {
 }
 
 function mapItem(row: ItemRow): Item {
-  const classified = classifyItem(row.title, row.summary);
   const topics = parseJsonArray(row.topics);
   const locations = parseJsonArray(row.locations);
-  let tags = parseJsonArray(row.tags);
+  const tags = parseJsonArray(row.tags);
+  const classified =
+    topics.length || locations.length || tags.length ? null : classifyItem(row.title, row.summary);
   return {
     id: row.id,
     sourceId: row.source_id,
@@ -120,9 +121,9 @@ function mapItem(row: ItemRow): Item {
     url: row.url,
     author: row.author,
     publishedAt: row.published_at,
-    tags: tags.length ? tags : classified.tags,
-    topics: topics.length ? topics : classified.topics,
-    locations: locations.length ? locations : classified.locations,
+    tags: tags.length ? tags : (classified?.tags ?? []),
+    topics: topics.length ? topics : (classified?.topics ?? []),
+    locations: locations.length ? locations : (classified?.locations ?? []),
     fetchedAt: row.fetched_at,
   };
 }
@@ -247,6 +248,7 @@ export function upsertScrape(result: ScrapeResult) {
 }
 
 export function insertItems(sourceId: number, items: ScrapedItem[]) {
+  if (!items.length) return;
   const db = getDb();
   const now = Date.now();
   const stmt = db.prepare(
@@ -264,22 +266,24 @@ export function insertItems(sourceId: number, items: ScrapedItem[]) {
        locations = excluded.locations,
        fetched_at = excluded.fetched_at`,
   );
-  for (const item of items) {
-    const classified = classifyItem(item.title, item.summary);
-    stmt.run(
-      sourceId,
-      item.externalId,
-      item.title,
-      item.summary,
-      item.url,
-      item.author,
-      item.publishedAt,
-      JSON.stringify(item.tags.length ? item.tags : classified.tags),
-      JSON.stringify(item.topics.length ? item.topics : classified.topics),
-      JSON.stringify(item.locations.length ? item.locations : classified.locations),
-      now,
-    );
-  }
+  withTransaction(() => {
+    for (const item of items) {
+      const classified = classifyItem(item.title, item.summary);
+      stmt.run(
+        sourceId,
+        item.externalId,
+        item.title,
+        item.summary,
+        item.url,
+        item.author,
+        item.publishedAt,
+        JSON.stringify(item.tags.length ? item.tags : classified.tags),
+        JSON.stringify(item.topics.length ? item.topics : classified.topics),
+        JSON.stringify(item.locations.length ? item.locations : classified.locations),
+        now,
+      );
+    }
+  });
 }
 
 export function setSourceEnabled(ids: number[], enabled: boolean) {
@@ -304,9 +308,9 @@ export function deleteSource(id: number) {
   db.prepare("DELETE FROM sources WHERE id = ?").run(id);
 }
 
-export function listSources(): Source[] {
+function attachOrigins(rows: SourceRow[]): Source[] {
+  if (!rows.length) return [];
   const db = getDb();
-  const rows = db.prepare("SELECT * FROM sources ORDER BY name").all() as SourceRow[];
   const origins = db
     .prepare(
       `SELECT o.source_id, o.reason, o.weight, u.handle AS seed_handle
@@ -334,12 +338,46 @@ export function listSources(): Source[] {
   return rows.map((row) => mapSource(row, bySource.get(row.id) ?? []));
 }
 
+export function listSources(): Source[] {
+  return attachOrigins(getDb().prepare("SELECT * FROM sources ORDER BY name").all() as SourceRow[]);
+}
+
 export function listEnabledSources() {
-  return listSources().filter((source) => source.enabled);
+  return attachOrigins(
+    getDb().prepare("SELECT * FROM sources WHERE enabled = 1 ORDER BY name").all() as SourceRow[],
+  );
+}
+
+export function listSourcesByIds(ids: number[]) {
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => "?").join(",");
+  return attachOrigins(
+    getDb()
+      .prepare(`SELECT * FROM sources WHERE id IN (${placeholders}) ORDER BY name`)
+      .all(...ids) as SourceRow[],
+  );
 }
 
 export function getSource(id: number) {
-  return listSources().find((source) => source.id === id) ?? null;
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM sources WHERE id = ?").get(id) as SourceRow | undefined;
+  if (!row) return null;
+  const origins = db
+    .prepare(
+      `SELECT o.reason, o.weight, u.handle AS seed_handle
+       FROM source_origins o
+       JOIN seed_users u ON u.id = o.seed_user_id
+       WHERE o.source_id = ?`,
+    )
+    .all(id) as { reason: OriginReason; weight: number; seed_handle: string }[];
+  return mapSource(
+    row,
+    origins.map((origin) => ({
+      reason: origin.reason,
+      weight: origin.weight,
+      seedHandle: origin.seed_handle,
+    })),
+  );
 }
 
 export function listUsers(): SeedUser[] {
@@ -376,30 +414,43 @@ export function getMonitorState(): MonitorState {
   };
 }
 
+export function emptyMonitorState(): MonitorState {
+  return {
+    users: [],
+    sources: [],
+    items: [],
+    hints: [],
+    kev: [],
+    cache: { entries: 0, bytes: 0 },
+  };
+}
+
 export function replaceKev(entries: KevEntry[]) {
   const db = getDb();
   const now = Date.now();
-  db.exec("DELETE FROM kev");
   const stmt = db.prepare(
     `INSERT INTO kev
      (cve_id, vendor, product, name, description, date_added, due_date, ransomware, required_action, notes, fetched_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
-  for (const entry of entries) {
-    stmt.run(
-      entry.cveId,
-      entry.vendor,
-      entry.product,
-      entry.name,
-      entry.description,
-      entry.dateAdded,
-      entry.dueDate,
-      entry.ransomware ? 1 : 0,
-      entry.requiredAction,
-      entry.notes,
-      now,
-    );
-  }
+  withTransaction(() => {
+    db.exec("DELETE FROM kev");
+    for (const entry of entries) {
+      stmt.run(
+        entry.cveId,
+        entry.vendor,
+        entry.product,
+        entry.name,
+        entry.description,
+        entry.dateAdded,
+        entry.dueDate,
+        entry.ransomware ? 1 : 0,
+        entry.requiredAction,
+        entry.notes,
+        now,
+      );
+    }
+  });
 }
 
 export function listKev(): KevEntry[] {

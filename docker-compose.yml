@@ -1,0 +1,26 @@
+services:
+  csmon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: csmon:local
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      CSMON_DATA_DIR: /app/data
+      CSMON_UPDATE_REPO: womail/csmon
+      # CSMON_TOKEN: change-me
+      # CSMON_SECURE_COOKIE: "1"
+    volumes:
+      - csmon-data:/app/data
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  csmon-data:

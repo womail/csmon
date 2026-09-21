@@ -6,7 +6,7 @@ Navigation is desks, not a firehose. Filters live in the URL so a view can be bo
 
 Maps are their own panes, never a background under copy. Every map has zoom controls and a pop-out. Country fills are Natural Earth 110m with atlas-style tints; Flights uses Esri World Street Map (political countries and cities) plus heading-aware top-down plane icons instead of dots.
 
-Click a **source** (Home top sources, a card chip, or Sources) to drill into that layer: a source dossier lists its items even if other chips would have hidden them. Source chips are tag-sized like topics: short names, thin padding, wrapping onto extra lines instead of one fat pill. CISA and similar feeds no longer go blank because a leftover topic filter was still on.
+Click a **source** (Home top sources, a card chip, or Sources) to drill into that layer: a source dossier lists its items even if other chips would have hidden them. Source chips are tag-sized like topics: short names, thin padding, wrapping inside the card instead of overflowing a Scan column. RSS feed titles are not treated as authors. CISA and similar feeds no longer go blank because a leftover topic filter was still on.
 
 Click a **map place** (a city/country dot, or a country fill) to open a place dossier: stories, topics, and sources that mention that location. **Ireland**, **UK**, and **US** stay pinned in the chip row even when the catalog is quiet. Ireland matches copy in the title and summary (`Irish`, `Dublin`, `Cork`, `Galway`, `Limerick`, `Belfast`, `Éire`), not only stored location tags. London and UK share a family so the London-area pin still shows British coverage even when older items were tagged only as UK. Shipping chokepoints (Hormuz, Malacca, Suez, Panama, Bab el-Mandeb, Gibraltar, Bosporus) are tagged the same way when they appear in copy.
 
@@ -23,19 +23,24 @@ Default is **Home**.
 | Weather | Storms, floods, heat, official warnings, and live Met Éireann / Met Office / NWS / Open-Meteo events. |
 | People | Authors and named voices. Click a person to filter the graph to them. |
 | Documents | Reports, PDFs, and advisory-shaped items. |
+| Reports | Briefings you compile from Read in place. Full page extract, edit, archive, delete, print to PDF. |
 | Flights | Live public ADS-B (OpenSky) within **100 km of home** (default Dublin). Pick home in Options or on the Flights desk. |
 | Advisories | Cyber-classified items plus security RSS (CISA, Krebs, BleepingComputer, NCSC). |
 | Patch | CISA KEV. Exploited CVEs, due dates, ransomware flag, filter to your stack. |
 | Sources | Layers as objects: origin, item count, latest headline. Click a layer to scan it. |
-| *Your desks* | **New desk** or **Tune** pins or edits filters on the rail (`c-…` in the URL). **edit** on a custom desk retunes place, RSS, topic, and which board it opens. |
+| *Your desks* | **New desk** or **Tune** pins or edits filters on the rail (`c-…` in the URL). The rail shows the **desk name** you typed (one line), not the query sentence. **edit** on a custom desk retunes place, RSS, topic, query, and which board it opens. |
 
-Click a story to **read in place**. The pane is a dossier, not a shrink of the card: every contributing source’s full title and summary, a map of related places, then page extract, deep dive, similar articles, related board stories, documents, people, and KEV hits. Topics, places, vendors, people, CVEs, and source names are all filters — they stay on the current desk. **View page** opens the original article in a new tab (news sites block embeds). Related stories and page links open forward; back / Esc walks the trail.
+Click a story to **read in place**. The pane is a dossier, not a shrink of the card: every contributing source’s full title and summary, a map of related places, then page extract, deep dive, similar articles, related board stories, documents, people, and KEV hits. On a wide screen, drag the left edge of the pane (or double-click it) to widen the reader; the width stays in `csmon.reader-width`. Topics, places, vendors, people, CVEs, and source names are all filters — they stay on the current desk. **View page** opens the original article in a new tab (news sites block embeds). Related stories and page links open forward; back / Esc walks the trail.
+
+**Report** on the reader sends the story into a briefing, including the same full page extract you see in Read in place (paragraphs, CVEs, vendor/advisory links), not only the RSS title and blurb. The first time you are prompted for a **report title**; after that you can keep adding stories to the same open report. The **Reports** desk lists open and archived briefings. Each report has a bright title, a hard separator between stories, edit title / reorder / remove, archive or delete, and **Print to PDF** (the browser print dialog). Reports live in `csmon.reports`. Older briefings that only stored the RSS summary pull the full copy when you open them.
 
 Hover a source, filter chip, or outbound link for a tooltip (destination URL or what the filter will do). Desk labels already show their hint, so the rail does not duplicate it. Tooltips appear after a short hover and hide as soon as the pointer leaves.
 
-Filter with topic chips (including **AI**, **Sports**, **Reddit**), pinned **place** chips (**Ireland**, **UK**, **US**), other country/city chips, vendor chips, **CVE** chips mined from copy, ransomware, a **layer**, origin (**intel**, **reddit**, **explore**), **RSS**, **rising** (topics/places/vendors/people that accelerated vs the previous half-window), search, time range, and **2+ sources**. A place like Ireland also matches words in the article text. Search also matches mined CVE IDs. **Tune** in the header edits those fields as a form. **Filters** saves the current URL view under a name.
+Filter with topic chips (including **AI**, **Sports**, **Reddit**), pinned **place** chips (**Ireland**, **UK**, **US**), other country/city chips, vendor chips, **CVE** chips mined from copy, ransomware, a **layer**, origin (**intel**, **reddit**, **explore**), **RSS**, **rising** (topics/places/vendors/people that accelerated vs the previous half-window), search, time range, **2+ sources**, and the **Query** builder (`equals` / `not equal` / `contains`, combined left-to-right with **AND** / **OR**). A place like Ireland also matches words in the article text. Search also matches mined CVE IDs. Query lives in the URL as `qb` (for example `?qb=title.contains.SharePoint|and.vendor.eq.Microsoft`). **Tune** in the header edits those fields as a form, including the same query rows. **Filters** saves the current URL view under a name.
 
 **Sources** lists every enabled layer. Click **RSS** to keep only RSS feeds, then click **Ireland** (or Tune a place) to hide layers with no matching copy. The same chips work on Brief and Scan.
+
+**Speed.** Brief and Scan paint the first 80 cards, then **Show more**. Clustering runs once per time range (token index, not every-pair), and the reader / flights / reports panes load only when you open them. SQLite uses WAL and writes items in a transaction.
 
 **Pulse / trends.** Compare this half of the time range to the half before it (`24h` is last 12h vs the 12h before; `all` is last day vs the day before). A row is **rising** if volume jumped ≥25% and at least +2 items, **new** if it was absent and now has 2+, **falling** if it dropped ≥25%. Sparklines show the shape. Home **Rising now** uses the same scores. The **rising** chip keeps only items that carry a rising or new topic, place, vendor, or person. Click a trend row to filter.
 
@@ -122,7 +127,7 @@ We reuse the **upstream public sources** (CISA, USGS-style RSS, vendor advisorie
 
 Browser-local (`localStorage` `csmon.options`): start desk, time range, stack, compact cards, home language, auto-translate, **home location**, **palette** (`light` / `dark`, follows the OS until you toggle), auto-load security RSS, auto-load hazards, auto-load KEV. Shared links still override via the query string.
 
-Saved custom filters live in `csmon.saved-filters` (name + full `BoardFilters` snapshot). User desks live in `csmon.user-desks` (label, `view` desk, filters including `platform`). Subreddit list lives in `csmon.subreddits`. Applying filters writes the URL the same way chips do (`?place=Ireland&platform=rss`). Hide/read triage is `csmon.triage`; Follow next collapse is `csmon.follow-open`.
+Saved custom filters live in `csmon.saved-filters` (name + full `BoardFilters` snapshot). User desks live in `csmon.user-desks` (label, `view` desk, filters including `platform`). Compiled briefings live in `csmon.reports` (title, open/archived, story snapshots with full page extract, CVEs, links, and places). Subreddit list lives in `csmon.subreddits`. Applying filters writes the URL the same way chips do (`?place=Ireland&platform=rss&qb=title.contains.Ireland`). Hide/read triage is `csmon.triage`; Follow next collapse is `csmon.follow-open`. Reader width is `csmon.reader-width`.
 
 ## Caching
 
@@ -147,8 +152,9 @@ Expired rows are deleted on read. The Sources desk shows live entry count and by
 
 ## Stack
 
-- Next.js 16 App Router
-- SQLite via Node `node:sqlite` (`data/csmon.sqlite`)
+- pnpm 12.5.1 (`packageManager` in `package.json`)
+- Next.js 16 App Router (standalone output for Docker)
+- SQLite via Node `node:sqlite` (`$CSMON_DATA_DIR/csmon.sqlite`, default `data/csmon.sqlite`)
 - Bluesky public AppView
 - RSS/Atom, HTML article extract (`cheerio`)
 - CISA KEV JSON catalog
@@ -157,6 +163,30 @@ Expired rows are deleted on read. The Sources desk shows live entry count and by
 - Natural Earth 110m country polygons (`public/geo/countries.geojson`) on Leaflet maps (pan / zoom on Flights)
 - OpenSky Network ADS-B (100 km around home, or a world grid sample) + HexDb aircraft metadata
 - MyMemory translation (public, no key)
+- CycloneDX / SPDX SBOMs (`pnpm generate-sbom` → `sbom/`)
+
+## Run
+
+Local: `pnpm install && pnpm dev` (or `pnpm build && pnpm start`). Docker: `build-docker.bat` on Windows, or `docker compose build && docker compose up -d` — see `DOCKER.md`. Compose publishes `127.0.0.1:3000` only.
+
+## Security
+
+Outbound fetches refuse private/loopback/link-local addresses, odd ports, and credentialed URLs; redirects are re-checked. Optional `CSMON_TOKEN` locks `/api/*` (health stays open). Security headers and a tight CSP ship from `next.config.ts`. Details: `SECURITY.md`.
+
+## Updates
+
+Options → **Application updates** calls `GET /api/update` (GitHub latest release vs `0.2.0`). Apply on the host: `bash scripts/update.sh` or `bash scripts/update.sh docker`. The API never writes to the tree.
+
+## Environment
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `CSMON_DATA_DIR` | `./data` | SQLite directory |
+| `CSMON_TOKEN` | unset | Shared secret for API + session cookie |
+| `CSMON_SECURE_COOKIE` | unset | `1` adds `Secure` on the session cookie |
+| `CSMON_UPDATE_REPO` | `womail/csmon` | GitHub repo for the update check |
+
+Copy `.env.example` to `.env.local`. No new database tables for this milestone.
 
 ## Schema
 
@@ -253,7 +283,7 @@ TTL body cache for outbound RSS, JSON, KEV, HTML, and translations (`004_fetch_c
 | fetched_at | INTEGER NOT NULL | unix ms |
 | expires_at | INTEGER NOT NULL | unix ms |
 
-No new tables for this milestone. Saved filters and language options stay in `localStorage`. USGS points are fetched live (JSON cache 30m) and not persisted as rows.
+No new tables for this milestone. Reports stay in `localStorage` (`csmon.reports`) with the full page extract (`body`, `cves`, `links`). Saved filters and language options also stay in `localStorage`. USGS points are fetched live (JSON cache 30m) and not persisted as rows. `CSMON_DATA_DIR` only moves the SQLite file.
 
 ## Migrations
 

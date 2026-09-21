@@ -2,6 +2,7 @@ import {
   defaultBoardFilters,
   type BoardFilters,
 } from "./board-state";
+import { encodeQueryTree, parseQueryTree, type QueryTree } from "./query-builder";
 import type { OriginReason, TimeRange } from "./types";
 import type { PatchRisk } from "./kev";
 
@@ -23,6 +24,7 @@ function asDesk(value: unknown, fallback: BoardFilters["desk"]): BoardFilters["d
     "weather",
     "people",
     "documents",
+    "reports",
     "flights",
     "advisories",
     "patch",
@@ -58,6 +60,11 @@ function hydrate(raw: Partial<SavedFilter>, fallback: BoardFilters): SavedFilter
           : null,
       person: filters.person ?? null,
       rising: Boolean(filters.rising),
+      qb: parseQueryTree(
+        typeof filters.qb === "string"
+          ? filters.qb
+          : encodeQueryTree(filters.qb as QueryTree | undefined),
+      ),
     },
   };
 }

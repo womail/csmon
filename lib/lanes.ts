@@ -17,7 +17,7 @@ export const SITUATION_LANES = [
     id: "war",
     label: "War",
     hint: "Combat, invasion, and front-line reporting",
-    re: /\b(war|warfare|invasion|airstrike|frontline|occupation|combat|missile|troop|shelling|battlefield|ceasefire)\b/i,
+    re: /\b(war|warfare|invasion|airstrike|frontline|unrest|occupation|combat|missile|troop|shelling|battlefield|ceasefire)\b/i,
   },
   {
     id: "unrest",
