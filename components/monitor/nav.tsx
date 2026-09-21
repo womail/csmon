@@ -43,6 +43,7 @@ export function DeskRail({
   customDesks,
   onCreateDesk,
   onDeleteDesk,
+  onEditDesk,
 }: {
   desk: Desk;
   onChange: (desk: Desk) => void;
@@ -52,6 +53,7 @@ export function DeskRail({
   customDesks?: UserDesk[];
   onCreateDesk?: () => void;
   onDeleteDesk?: (id: string) => void;
+  onEditDesk?: (id: string) => void;
 }) {
   const rows = [
     ...DESKS,
@@ -102,6 +104,17 @@ export function DeskRail({
                   </span>
                 </span>
               </button>
+              {!isBuiltinDesk(item.id) && onEditDesk ? (
+                <Tip text={`Tune filters for ${item.label}`}>
+                  <button
+                    type="button"
+                    className={`px-1 py-1 text-[10px] ${active ? "opacity-70" : "text-slate-400"}`}
+                    onClick={() => onEditDesk(item.id)}
+                  >
+                    edit
+                  </button>
+                </Tip>
+              ) : null}
               {!isBuiltinDesk(item.id) && onDeleteDesk ? (
                 <button
                   type="button"
@@ -115,7 +128,7 @@ export function DeskRail({
         );
       })}
       {onCreateDesk ? (
-        <Tip text="Save the current filters as a new desk in this browser">
+        <Tip text="Save the current filters as a new desk, or open Tune to edit place, RSS, and topic">
           <button
             type="button"
             onClick={onCreateDesk}

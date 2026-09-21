@@ -1,9 +1,25 @@
 import { textHasPlace } from "@/lib/classify";
 
+export const PINNED_PLACES = ["Ireland", "UK", "US"] as const;
+
 const PLACE_GROUPS: Record<string, string[]> = {
   London: ["London", "Westminster", "Downing Street"],
   UK: ["UK", "United Kingdom", "Britain", "British"],
-  Ireland: ["Ireland", "Irish", "Dublin", "Cork"],
+  Ireland: [
+    "Ireland",
+    "Irish",
+    "Dublin",
+    "Cork",
+    "Galway",
+    "Limerick",
+    "Waterford",
+    "Belfast",
+    "Shannon",
+    "Éire",
+    "Eire",
+    "Republic of Ireland",
+    "Northern Ireland",
+  ],
   Dublin: ["Dublin"],
   US: ["US", "USA", "United States", "United States of America", "Washington", "White House", "Pentagon"],
   Russia: ["Russia", "Russian", "Moscow", "Kremlin"],
@@ -103,6 +119,22 @@ export function resolvePlace(name: string) {
 
 export function isCountry(name: string) {
   return COUNTRIES.has(resolvePlace(name));
+}
+
+export function isKnownPlace(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  const canon = resolvePlace(trimmed);
+  if (COUNTRIES.has(canon) || PLACE_GROUPS[canon]) return true;
+  const key = trimmed.toLowerCase();
+  if (COUNTRY_ALIASES[key]) return true;
+  return Object.values(PLACE_GROUPS).some((aliases) =>
+    aliases.some((alias) => alias.toLowerCase() === key),
+  );
+}
+
+export function knownPlaceNames() {
+  return [...new Set([...PINNED_PLACES, ...Object.keys(PLACE_GROUPS), ...COUNTRIES])];
 }
 
 export function placeAliases(name: string) {

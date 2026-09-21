@@ -97,7 +97,7 @@ const PLACES: { name: string; re: RegExp }[] = [
   { name: "Sahel", re: /\b(sahel|mali|niger|burkina)\b/i },
   { name: "US", re: /\b(united states|\bu\.?s\.a?\b|washington|white house|pentagon)\b/i },
   { name: "London", re: /\b(london|westminster|downing street)\b/i },
-  { name: "Ireland", re: /\b(ireland|irish|dublin|cork|shannon|belfast)\b/i },
+  { name: "Ireland", re: /\b(ireland|irish|dublin|cork|galway|limerick|waterford|shannon|belfast|eire|éire|northern ireland)\b/i },
   { name: "Dublin", re: /\b(dublin|dublin airport|dublin bay)\b/i },
   { name: "UK", re: /\b(\buk\b|britain|british|united kingdom)\b/i },
   { name: "EU", re: /\b(\beu\b|brussels|european union)\b/i },
@@ -188,6 +188,10 @@ const EXTRA_TOPICS = ["reddit"];
 export function isKnownTopic(name: string) {
   const needle = name.trim().toLowerCase();
   return TOPICS.some((entry) => entry.tag === needle) || EXTRA_TOPICS.includes(needle);
+}
+
+export function knownTopicTags() {
+  return [...TOPICS.map((entry) => entry.tag), ...EXTRA_TOPICS];
 }
 
 export function itemHasTopic(

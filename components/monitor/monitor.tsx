@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Layers, Plus, RefreshCw, Search, Shield, ChevronDown, ChevronRight, Undo2 } from "lucide-react";
+import { Layers, Plus, RefreshCw, Search, Shield, ChevronDown, ChevronRight, Undo2, SlidersHorizontal } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
 import {
   CacheCard,
@@ -11,8 +11,8 @@ import {
   SourceLayerCard,
   StoryCard,
 } from "@/components/monitor/cards";
-import { PulseCard, TopicMix } from "@/components/monitor/charts";
-import { DeskEditor } from "@/components/monitor/desk-editor";
+import { PulseCard, TopicMix, TrendList } from "@/components/monitor/charts";
+import { FilterTuner } from "@/components/monitor/filter-tuner";
 import { EntityDesk, HomeDashboard } from "@/components/monitor/dashboard";
 import { AircraftPane, FlightDesk } from "@/components/monitor/flights";
 import { PlacePane } from "@/components/monitor/place-pane";
@@ -29,7 +29,7 @@ import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { BoardFilters } from "@/lib/board-state";
-import { defaultBoardFilters, syncBoardUrl } from "@/lib/board-state";
+import { defaultBoardFilters, normalizeBoardFilters, syncBoardUrl } from "@/lib/board-state";
 import { isKnownTopic, itemHasTopic } from "@/lib/classify";
 import { clusterItems, itemAsStory, situationLine, storyContaining, type Story } from "@/lib/cluster";
 import { tagStyle } from "@/lib/colors";
@@ -45,9 +45,15 @@ import { loadSubreddits, DEFAULT_SUBREDDITS } from "@/lib/reddit";
 import { applyPalette } from "@/lib/theme";
 import { shortSourceName } from "@/lib/source-label";
 import { itemHasPerson, peopleFromItems } from "@/lib/people";
-import { isCountry, itemHasPlace, resolvePlace } from "@/lib/places";
+import { isCountry, isKnownPlace, itemHasPlace, PINNED_PLACES, resolvePlace } from "@/lib/places";
 import type { QuakeEvent } from "@/lib/quakes";
 import { rangeStart } from "@/lib/time";
+import {
+  buildTrends,
+  itemMatchesRising,
+  minedCves,
+  risingKeySet,
+} from "@/lib/trends";
 import {
   hideKeys,
   itemKey,
@@ -61,7 +67,8 @@ import {
   type TriageState,
   type TriageUndo,
 } from "@/lib/triage";
-import type { Desk, DiscoveredSource, Item, MonitorState, OriginReason, TimeRange } from "@/lib/types";
+import type { Desk, DiscoveredSource, Item, MonitorState, OriginReason, Platform, TimeRange } from "@/lib/types";
+import { isBuiltinDesk } from "@/lib/types";
 import type { IntelPack } from "@/lib/intel-feeds";
 import type { WeatherEvent } from "@/lib/weather";
 import {
@@ -69,6 +76,7 @@ import {
   deleteUserDesk,
   findUserDesk,
   loadUserDesks,
+  updateUserDesk,
   type UserDesk,
 } from "@/lib/user-desks";
 
@@ -155,7 +163,9 @@ export function Monitor({
   const [ransomware, setRansomware] = useState(seed.ransomware);
   const [layer, setLayer] = useState<number | null>(seed.layer);
   const [origin, setOrigin] = useState<OriginReason | null>(seed.origin);
+  const [platform, setPlatform] = useState<Platform | null>(seed.platform);
   const [person, setPerson] = useState<string | null>(seed.person);
+  const [rising, setRising] = useState(seed.rising);
   const [compact, setCompact] = useState(false);
   const [homeLanguage, setHomeLanguage] = useState("en");
   const [autoTranslate, setAutoTranslate] = useState(false);
@@ -167,6 +177,7 @@ export function Monitor({
   const [openSourceId, setOpenSourceId] = useState<number | null>(null);
   const [customDesks, setCustomDesks] = useState<UserDesk[]>([]);
   const [deskEditorOpen, setDeskEditorOpen] = useState(false);
+  const [editingDesk, setEditingDesk] = useState<UserDesk | null>(null);
   const [homePlace, setHomePlace] = useState("Dublin");
   const [weatherEvents, setWeatherEvents] = useState<WeatherEvent[]>([]);
   const [followOpen, setFollowOpen] = useState(true);
@@ -270,9 +281,11 @@ export function Monitor({
       ransomware,
       layer,
       origin,
+      platform,
       person,
+      rising,
     });
-  }, [cross, desk, layer, origin, person, place, query, range, ransomware, riskFilter, stack, topic, vendor]);
+  }, [cross, desk, layer, origin, person, place, platform, query, range, ransomware, rising, riskFilter, stack, topic, vendor]);
 
   const enabled = state.sources.filter((s) => s.enabled);
   const byId = useMemo(
@@ -292,19 +305,28 @@ export function Monitor({
   }, [byId, range, state.items]);
 
   const poolStories = useMemo(() => clusterItems(rangedItems), [rangedItems]);
+  const activeCustom = findUserDesk(desk, customDesks);
+  const viewDesk: Desk = activeCustom?.view ?? (isBuiltinDesk(desk) ? desk : "brief");
 
-  const items = useMemo(() => {
+  const baseItems = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rangedItems.filter((item) => {
       const source = byId.get(item.sourceId);
       if (layer && item.sourceId !== layer) return false;
       if (origin && !source?.origins.some((entry) => entry.reason === origin)) return false;
-      if (desk === "advisories" && !isAdvisoryItem(item, source)) return false;
-      if (desk === "weather" && !matchesLane(item, "weather") && !itemHasTopic(item, "weather")) {
+      if (platform && source?.platform !== platform) return false;
+      if (viewDesk === "advisories" && !isAdvisoryItem(item, source)) return false;
+      if (viewDesk === "weather" && !matchesLane(item, "weather") && !itemHasTopic(item, "weather")) {
         return false;
       }
-      if (desk === "documents" && !isDocumentItem(item)) return false;
-      if (topic && !itemHasTopic(item, topic)) return false;
+      if (viewDesk === "documents" && !isDocumentItem(item)) return false;
+      if (topic) {
+        if (isKnownPlace(topic) && !isKnownTopic(topic)) {
+          if (!itemHasPlace(item, topic)) return false;
+        } else if (!itemHasTopic(item, topic)) {
+          return false;
+        }
+      }
       if (place && !itemHasPlace(item, place)) return false;
       if (person && !itemHasPerson(item, person, source)) return false;
       if (triage.hidden.includes(itemKey(item.id))) return false;
@@ -321,7 +343,16 @@ export function Monitor({
       }
       return true;
     });
-  }, [byId, desk, layer, origin, person, place, query, rangedItems, ransomware, topic, triage.hidden, vendor]);
+  }, [byId, layer, origin, person, place, platform, query, rangedItems, ransomware, topic, triage.hidden, vendor, viewDesk]);
+
+  const trends = useMemo(() => buildTrends(baseItems, range, byId), [baseItems, byId, range]);
+  const hotKeys = useMemo(() => risingKeySet(trends), [trends]);
+  const cveHits = useMemo(() => minedCves(baseItems).slice(0, 6), [baseItems]);
+
+  const items = useMemo(() => {
+    if (!rising) return baseItems;
+    return baseItems.filter((item) => itemMatchesRising(item, hotKeys, byId.get(item.sourceId)));
+  }, [baseItems, byId, hotKeys, rising]);
 
   const stories = useMemo(() => {
     const clustered = clusterItems(items);
@@ -348,7 +379,7 @@ export function Monitor({
 
   const vendors = useMemo(() => {
     const counts = new Map<string, number>();
-    if (desk === "patch") {
+    if (viewDesk === "patch") {
       for (const entry of state.kev) {
         counts.set(entry.vendor, (counts.get(entry.vendor) ?? 0) + 1);
       }
@@ -360,7 +391,7 @@ export function Monitor({
       }
     }
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  }, [desk, items, state.kev]);
+  }, [items, state.kev, viewDesk]);
 
   const kev = useMemo(() => {
     return state.kev
@@ -542,19 +573,22 @@ export function Monitor({
   }
 
   function applyFilters(next: BoardFilters) {
-    setDesk(next.desk);
-    setQuery(next.q);
-    setTopic(next.topic);
-    setPlace(next.place);
-    setRange(next.range);
-    setCross(next.cross);
-    setStack(next.stack);
-    setRiskFilter(next.risk);
-    setVendor(next.vendor);
-    setRansomware(next.ransomware);
-    setLayer(next.layer);
-    setOrigin(next.origin);
-    setPerson(next.person);
+    const filters = normalizeBoardFilters(next);
+    setDesk(filters.desk);
+    setQuery(filters.q);
+    setTopic(filters.topic);
+    setPlace(filters.place);
+    setRange(filters.range);
+    setCross(filters.cross);
+    setStack(filters.stack);
+    setRiskFilter(filters.risk);
+    setVendor(filters.vendor);
+    setRansomware(filters.ransomware);
+    setLayer(filters.layer);
+    setOrigin(filters.origin);
+    setPlatform(filters.platform);
+    setPerson(filters.person);
+    setRising(filters.rising);
   }
 
   function goHome() {
@@ -757,7 +791,7 @@ export function Monitor({
     setAircraft(null);
     closeReader();
     if (inWindow.length === 0 && sourceItems.length > 0) setRange("all");
-    if (desk === "home" || desk === "sources" || desk === "pulse") setDesk("scan");
+    if (viewDesk === "home" || viewDesk === "sources" || viewDesk === "pulse") setDesk("scan");
   }
 
   function focusCve(cve: string) {
@@ -767,6 +801,10 @@ export function Monitor({
   }
 
   function toggleTopic(name: string) {
+    if (isKnownPlace(name) && !isKnownTopic(name)) {
+      focusPlace(name);
+      return;
+    }
     setTopic((current) => (current === name ? null : name));
   }
 
@@ -789,7 +827,7 @@ export function Monitor({
     setAircraft(null);
     closeReader();
     if (inWindow.length === 0 && placeItems.length > 0) setRange("all");
-    if (desk === "home" || desk === "sources" || desk === "pulse") setDesk("scan");
+    if (viewDesk === "home" || viewDesk === "sources" || viewDesk === "pulse") setDesk("scan");
   }
 
   useEffect(() => {
@@ -810,10 +848,10 @@ export function Monitor({
   const emptyBoard =
     items.length === 0 &&
     enabled.length === 0 &&
-    desk !== "patch" &&
-    desk !== "sources" &&
-    desk !== "home" &&
-    desk !== "flights";
+    viewDesk !== "patch" &&
+    viewDesk !== "sources" &&
+    viewDesk !== "home" &&
+    viewDesk !== "flights";
 
   const currentFilters: BoardFilters = {
     desk,
@@ -828,7 +866,9 @@ export function Monitor({
     ransomware,
     layer,
     origin,
+    platform,
     person,
+    rising,
   };
 
   const catalogTopics = useMemo(() => {
@@ -854,6 +894,31 @@ export function Monitor({
       }));
   }, [byId, rangedItems]);
 
+  const visibleSources = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return enabled.filter((source) => {
+      if (platform && source.platform !== platform) return false;
+      if (origin && !source.origins.some((entry) => entry.reason === origin)) return false;
+      const hasItems = items.some((item) => item.sourceId === source.id);
+      const nameHit =
+        !q ||
+        source.name.toLowerCase().includes(q) ||
+        (source.handle ?? "").toLowerCase().includes(q) ||
+        (source.feedUrl ?? "").toLowerCase().includes(q);
+      if (q) return nameHit || hasItems;
+      if (topic || place || person || vendor) return hasItems;
+      return true;
+    });
+  }, [enabled, items, origin, person, place, platform, query, topic, vendor]);
+
+  const pinnedPlaceCounts = useMemo(
+    () =>
+      PINNED_PLACES.map(
+        (name) => [name, rangedItems.filter((item) => itemHasPlace(item, name)).length] as const,
+      ),
+    [rangedItems],
+  );
+
   const people = useMemo(() => peopleFromItems(items, byId), [byId, items]);
   const peopleCatalog = useMemo(() => peopleFromItems(rangedItems, byId), [byId, rangedItems]);
   const documents = useMemo(() => documentsFromItems(items), [items]);
@@ -876,7 +941,7 @@ export function Monitor({
         kind: "quake" as const,
         hint: `M${quake.mag.toFixed(1)} · ${quake.place}`,
       })),
-      ...(desk === "flights" || desk === "home"
+      ...(viewDesk === "flights" || viewDesk === "home"
         ? flights.map((flight) => ({
             id: flight.icao24,
             name: flight.callsign || flight.icao24,
@@ -901,6 +966,13 @@ export function Monitor({
     ];
   }, [desk, flights, items, quakes, weatherEvents]);
 
+  function openTrend(row: { id: string; kind: string }) {
+    if (row.kind === "topic") toggleTopic(row.id);
+    else if (row.kind === "place") focusPlace(row.id);
+    else if (row.kind === "vendor") toggleVendor(row.id);
+    else togglePerson(row.id);
+  }
+
   function changeDesk(next: Desk) {
     const custom = findUserDesk(next, customDesks);
     if (custom) applyFilters(custom.filters);
@@ -918,7 +990,7 @@ export function Monitor({
           home: rangedItems.length,
           brief: stories.length,
           scan: items.length,
-          pulse: items.length,
+          pulse: trends.rising.length + trends.fresh.length,
           weather: rangedItems.filter((item) => matchesLane(item, "weather") || itemHasTopic(item, "weather")).length,
           people: peopleCatalog.length,
           documents: documentsFromItems(rangedItems).length,
@@ -928,7 +1000,14 @@ export function Monitor({
           sources: enabled.length,
         }}
         customDesks={customDesks}
-        onCreateDesk={() => setDeskEditorOpen(true)}
+        onCreateDesk={() => {
+          setEditingDesk(null);
+          setDeskEditorOpen(true);
+        }}
+        onEditDesk={(id) => {
+          setEditingDesk(findUserDesk(id, customDesks));
+          setDeskEditorOpen(true);
+        }}
         onDeleteDesk={(id) => {
           const next = deleteUserDesk(id, customDesks);
           setCustomDesks(next);
@@ -943,7 +1022,9 @@ export function Monitor({
           setRansomware(false);
           setLayer(null);
           setOrigin(null);
+          setPlatform(null);
           setPerson(null);
+          setRising(false);
           setRiskFilter("p0");
         }}
       />
@@ -968,7 +1049,7 @@ export function Monitor({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={
-                  desk === "patch" ? "CVE, vendor, product" : "Filter stories, CVE, vendor  /"
+                  viewDesk === "patch" ? "CVE, vendor, product" : "Filter stories, CVE, vendor  /"
                 }
                 className="h-7 bg-slate-50 pl-7 text-[12px]"
               />
@@ -1003,6 +1084,19 @@ export function Monitor({
               </Button>
             </Tip>
             <SavedFilters current={currentFilters} onApply={applyFilters} />
+            <Tip text="Tune topic, place, RSS, and range, then apply or save as a desk">
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => {
+                  setEditingDesk(findUserDesk(desk, customDesks));
+                  setDeskEditorOpen(true);
+                }}
+              >
+                <SlidersHorizontal className="size-3" />
+                Tune
+              </Button>
+            </Tip>
             <ThemeToggle />
             <RedditButton
               busy={busy}
@@ -1028,21 +1122,21 @@ export function Monitor({
             </Tip>
           </div>
           <div className="flex items-center gap-2 overflow-x-auto px-3 pb-1 text-[11px] text-slate-500">
-            {desk === "patch"
+            {viewDesk === "patch"
               ? `${kev.length} in your stack · ${p0} patch now · ${ransomwareCount} ransomware`
-              : desk === "sources"
-                ? `${enabled.length} layers · cache ${state.cache.entries} bodies`
-                : desk === "home"
-                  ? topic
-                    ? `Filtered to ${topic}`
-                    : "Weather · quakes · war · unrest · click a topic to filter"
-                : desk === "flights"
+              : viewDesk === "sources"
+                ? `${visibleSources.length} ${platform ?? "layers"} · cache ${state.cache.entries} bodies`
+                : viewDesk === "home"
+                  ? topic || place || platform
+                    ? `Filtered to ${[platform, topic, place].filter(Boolean).join(" · ")}`
+                    : "Weather · quakes · war · unrest · click Ireland or a topic to filter"
+                : viewDesk === "flights"
                   ? homeCity(homePlace)
                     ? `${flights.length} airborne within 100 km of ${homeCity(homePlace)?.name}`
                     : `${flights.length} airborne tracks (world sample)`
-                  : desk === "people"
+                  : viewDesk === "people"
                     ? `${people.length} people on the board`
-                    : desk === "documents"
+                    : viewDesk === "documents"
                       ? `${documents.length} reports and advisories`
                   : brief}
           </div>
@@ -1058,6 +1152,26 @@ export function Monitor({
                 style={{ background: "#0f172a", color: "#fff" }}
               >
                 {shortSourceName(byId.get(layer)?.name ?? "layer")} ×
+              </button>
+            ) : null}
+            {platform ? (
+              <button
+                type="button"
+                onClick={() => setPlatform(null)}
+                className="tag"
+                style={{ background: "#0f172a", color: "#fff" }}
+              >
+                {platform} ×
+              </button>
+            ) : null}
+            {rising ? (
+              <button
+                type="button"
+                onClick={() => setRising(false)}
+                className="tag"
+                style={{ background: "#15803d", color: "#fff" }}
+              >
+                rising ×
               </button>
             ) : null}
             {place ? (
@@ -1103,7 +1217,7 @@ export function Monitor({
                 </button>
               </Tip>
             ) : null}
-            {desk === "patch" ? (
+            {viewDesk === "patch" ? (
               <>
                 {(["all", "p0", "p1", "p2"] as const).map((id) => (
                   <button
@@ -1140,7 +1254,7 @@ export function Monitor({
                   className="h-6 w-56 text-[11px]"
                 />
               </>
-            ) : desk !== "sources" ? (
+            ) : (
               <>
                 <span className="flex items-center gap-1 text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
                   <Layers className="size-3" />
@@ -1182,6 +1296,32 @@ export function Monitor({
                     {id}
                   </button>
                 ))}
+                <Tip text="Show items from RSS feeds only, then filter by place or topic">
+                  <button
+                    type="button"
+                    onClick={() => setPlatform((current) => (current === "rss" ? null : "rss"))}
+                    className="tag"
+                    style={{
+                      background: platform === "rss" ? "#0f172a" : "#f1f5f9",
+                      color: platform === "rss" ? "#fff" : "#475569",
+                    }}
+                  >
+                    RSS
+                  </button>
+                </Tip>
+                <Tip text={`Keep coverage that is rising or new (${trends.compared})`}>
+                  <button
+                    type="button"
+                    onClick={() => setRising((value) => !value)}
+                    className="tag"
+                    style={{
+                      background: rising ? "#15803d" : "#dcfce7",
+                      color: rising ? "#fff" : "#15803d",
+                    }}
+                  >
+                    rising {trends.rising.length + trends.fresh.length}
+                  </button>
+                </Tip>
                 {STACK_CHIPS.map((chip) => {
                   const active =
                     chip.kind === "topic" ? topic === chip.value : vendor === chip.value;
@@ -1204,7 +1344,26 @@ export function Monitor({
                     </Tip>
                   );
                 })}
-                {(desk === "home" ? catalogTopics : topics).slice(0, 10).map(([name, count]) => {
+                {pinnedPlaceCounts.map(([name, count]) => {
+                  const style = tagStyle("place");
+                  const active = place === name;
+                  return (
+                    <Tip key={`pin-${name}`} text={`Everything mentioning ${name} in title or summary`}>
+                      <button
+                        type="button"
+                        onClick={() => focusPlace(name)}
+                        className="tag"
+                        style={{
+                          background: active ? style.fg : style.bg,
+                          color: active ? "#fff" : style.fg,
+                        }}
+                      >
+                        {name} {count}
+                      </button>
+                    </Tip>
+                  );
+                })}
+                {(viewDesk === "home" ? catalogTopics : topics).slice(0, 10).map(([name, count]) => {
                   const style = tagStyle(name);
                   const active = topic === name;
                   return (
@@ -1224,7 +1383,7 @@ export function Monitor({
                   );
                 })}
                 {places
-                  .filter(([name]) => isCountry(name))
+                  .filter(([name]) => isCountry(name) && !PINNED_PLACES.includes(name as (typeof PINNED_PLACES)[number]))
                   .slice(0, 8)
                   .map(([name, count]) => {
                     const style = tagStyle("place");
@@ -1282,6 +1441,21 @@ export function Monitor({
                     </button>
                   );
                 })}
+                {cveHits.map(([cve, count]) => (
+                  <Tip key={cve} text={`Search the board for ${cve}`}>
+                    <button
+                      type="button"
+                      className="tag"
+                      style={{
+                        background: query.toLowerCase() === cve.toLowerCase() ? "#9f1239" : "#fff7ed",
+                        color: query.toLowerCase() === cve.toLowerCase() ? "#fff" : "#9a3412",
+                      }}
+                      onClick={() => setQuery((current) => (current === cve ? "" : cve))}
+                    >
+                      {cve} {count}
+                    </button>
+                  </Tip>
+                ))}
                 {peopleCatalog.slice(0, 5).map((row) => {
                   const active = person === row.name;
                   return (
@@ -1300,8 +1474,7 @@ export function Monitor({
                     </Tip>
                   );
                 })}
-              </>
-            ) : (
+                {viewDesk === "sources" ? (
               <>
                 <Tip text="BBC, Guardian, NYT, and other world desks">
                   <Button size="xs" variant="outline" onClick={() => loadIntel("core")} disabled={busy}>
@@ -1366,6 +1539,8 @@ export function Monitor({
                     </Button>
                   </Tip>
                 </div>
+              </>
+                ) : null}
               </>
             )}
           </div>
@@ -1446,7 +1621,7 @@ export function Monitor({
                 </div>
                 {error ? <p className="mt-3 text-[12px] text-red-600">{error}</p> : null}
               </div>
-            ) : desk === "patch" ? (
+            ) : viewDesk === "patch" ? (
               <div className={`board p-2 ${compact ? "board-compact" : ""}`}>
                 <RankedCard title="Vendors to watch" rows={stats.vendorRows} onSelect={toggleVendor} />
                 {kev.slice(0, 80).map((entry) => (
@@ -1461,7 +1636,7 @@ export function Monitor({
                   />
                 ))}
               </div>
-            ) : desk === "home" ? (
+            ) : viewDesk === "home" ? (
               <HomeDashboard
                 stories={stories}
                 items={items}
@@ -1474,6 +1649,8 @@ export function Monitor({
                 layer={layer}
                 person={person}
                 place={place}
+                platform={platform}
+                rising={rising}
                 onOpenStory={openReader}
                 onLane={openLane}
                 onTopic={toggleTopic}
@@ -1486,8 +1663,11 @@ export function Monitor({
                 onHide={hideStory}
                 onRead={readStory}
                 readKeys={triage.read}
+                trends={[...trends.rising, ...trends.fresh].slice(0, 8)}
+                trendHint={trends.compared}
+                onTrend={openTrend}
               />
-            ) : desk === "flights" ? (
+            ) : viewDesk === "flights" ? (
               <FlightDesk
                 flights={flights}
                 selected={selectedFlight}
@@ -1500,7 +1680,7 @@ export function Monitor({
                 radiusKm={100}
                 onHomeChange={changeHomePlace}
               />
-            ) : desk === "people" ? (
+            ) : viewDesk === "people" ? (
               <EntityDesk
                 title="People"
                 hint="Authors and named voices on the current board. Click to filter everything to that person."
@@ -1511,7 +1691,7 @@ export function Monitor({
                 }))}
                 onOpen={togglePerson}
               />
-            ) : desk === "documents" ? (
+            ) : viewDesk === "documents" ? (
               <EntityDesk
                 title="Documents"
                 hint="Reports, PDFs, and advisory-shaped items. Click to read in place."
@@ -1523,16 +1703,16 @@ export function Monitor({
                 }))}
                 onOpen={() => undefined}
               />
-            ) : desk === "sources" ? (
+            ) : viewDesk === "sources" ? (
               <div className={`board p-2 ${compact ? "board-compact" : ""}`}>
                 <CacheCard entries={state.cache.entries} bytes={state.cache.bytes} />
                 <HealthCard value={stats.health} fresh={stats.fresh} total={enabled.length} />
-                {enabled.map((source) => (
+                {visibleSources.map((source) => (
                   <SourceLayerCard
                     key={source.id}
                     source={source}
-                    itemCount={stats.sourceCounts.get(source.id) ?? 0}
-                    sample={rangedItems.find((item) => item.sourceId === source.id)?.title}
+                    itemCount={items.filter((item) => item.sourceId === source.id).length}
+                    sample={items.find((item) => item.sourceId === source.id)?.title}
                     active={layer === source.id}
                     onToggle={() => toggleLayer(source.id, true)}
                     onOpen={() => focusSource(source.id)}
@@ -1541,7 +1721,7 @@ export function Monitor({
               </div>
             ) : (
               <div className={`board p-2 ${compact ? "board-compact" : ""}`}>
-                {desk === "weather" && weatherEvents.length > 0 ? (
+                {viewDesk === "weather" && weatherEvents.length > 0 ? (
                   <section className="card-tile sm:col-span-2">
                     <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
                       Weather events
@@ -1565,10 +1745,22 @@ export function Monitor({
                     </div>
                   </section>
                 ) : null}
-                {desk !== "scan" ? (
+                {viewDesk !== "scan" ? (
                   <>
                     <HealthCard value={stats.health} fresh={stats.fresh} total={enabled.length} />
                     <PulseCard title="Volume" points={stats.volume} />
+                    {viewDesk === "pulse" ? (
+                      <>
+                        <TrendList
+                          title="Rising"
+                          hint={trends.compared}
+                          rows={trends.rising}
+                          onSelect={openTrend}
+                        />
+                        <TrendList title="New" rows={trends.fresh} onSelect={openTrend} />
+                        <TrendList title="Falling" rows={trends.falling} onSelect={openTrend} />
+                      </>
+                    ) : null}
                     {stats.topicRows.length > 0 ? (
                       <TopicMix rows={stats.topicRows} onSelect={toggleTopic} />
                     ) : null}
@@ -1592,7 +1784,7 @@ export function Monitor({
                     ) : null}
                   </>
                 ) : null}
-                {desk === "scan"
+                {viewDesk === "scan"
                   ? items.map((item) => (
                       <ItemCard
                         key={item.id}
@@ -1608,7 +1800,7 @@ export function Monitor({
                         read={triage.read.includes(itemKey(item.id))}
                       />
                     ))
-                  : desk === "pulse"
+                  : viewDesk === "pulse"
                     ? stories.slice(0, 12).map((story) => (
                         <StoryCard
                           key={story.id}
@@ -1666,7 +1858,7 @@ export function Monitor({
               onOpenItem={openItem}
               onPerson={togglePerson}
             />
-          ) : desk === "flights" && selectedFlight ? (
+          ) : viewDesk === "flights" && selectedFlight ? (
             <AircraftPane
               flight={selectedFlight}
               profile={aircraft}
@@ -1675,7 +1867,7 @@ export function Monitor({
                 setAircraft(null);
               }}
             />
-          ) : desk !== "flights" && place ? (
+          ) : viewDesk !== "flights" && place ? (
             <PlacePane
               place={place}
               items={[...state.items]
@@ -1692,7 +1884,7 @@ export function Monitor({
               onTopic={toggleTopic}
               onSource={focusSource}
             />
-          ) : desk !== "flights" && openSourceId && byId.get(openSourceId) ? (
+          ) : viewDesk !== "flights" && openSourceId && byId.get(openSourceId) ? (
             <SourcePane
               source={byId.get(openSourceId)!}
               items={[...state.items]
@@ -1795,14 +1987,27 @@ export function Monitor({
         </div>
       </div>
 
-      <DeskEditor
+      <FilterTuner
         open={deskEditorOpen}
-        onOpenChange={setDeskEditorOpen}
+        onOpenChange={(open) => {
+          setDeskEditorOpen(open);
+          if (!open) setEditingDesk(null);
+        }}
         current={currentFilters}
-        onCreate={(label) => {
-          const next = createUserDesk(label, currentFilters, customDesks);
+        editing={editingDesk}
+        onApply={(filters) =>
+          applyFilters(editingDesk ? { ...filters, desk: editingDesk.id } : filters)
+        }
+        onCreate={(label, filters, view) => {
+          const next = createUserDesk(label, filters, customDesks, view);
           setCustomDesks(next);
           if (next[0]) applyFilters(next[0].filters);
+        }}
+        onUpdate={(id, label, filters, view) => {
+          const next = updateUserDesk(id, { label, filters, view }, customDesks);
+          setCustomDesks(next);
+          const row = next.find((item) => item.id === id);
+          if (row) applyFilters(row.filters);
         }}
       />
       <ScrapeDialog

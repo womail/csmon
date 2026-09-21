@@ -105,6 +105,7 @@ export function SavedFilters({
 
 function summarize(filters: BoardFilters) {
   const bits: string[] = [filters.desk];
+  if (filters.platform) bits.push(filters.platform);
   if (filters.topic) bits.push(filters.topic);
   if (filters.place) bits.push(filters.place);
   if (filters.vendor) bits.push(filters.vendor);
@@ -112,5 +113,6 @@ function summarize(filters: BoardFilters) {
   if (filters.cross) bits.push("2+");
   if (filters.ransomware) bits.push("ransomware");
   if (filters.range !== "24h") bits.push(filters.range);
+  if (filters.rising) bits.push("rising");
   return bits.join(" · ");
 }

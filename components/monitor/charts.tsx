@@ -69,6 +69,103 @@ export function TopicMix({
   );
 }
 
+export function MiniSpark({
+  points,
+  color = "#f97316",
+}: {
+  points: number[];
+  color?: string;
+}) {
+  const max = Math.max(...points, 1);
+  const w = 72;
+  const h = 18;
+  if (points.length < 2) return <span className="inline-block h-[18px] w-[72px]" />;
+  const d = points
+    .map((p, i) => {
+      const x = (i / (points.length - 1)) * w;
+      const y = h - (p / max) * (h - 3) - 1.5;
+      return `${i === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(" ");
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="shrink-0">
+      <path d={d} fill="none" stroke={color} strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+const TREND_STYLE: Record<string, { mark: string; color: string; bg: string }> = {
+  up: { mark: "▲", color: "#15803d", bg: "#dcfce7" },
+  down: { mark: "▼", color: "#b91c1c", bg: "#fee2e2" },
+  new: { mark: "●", color: "#c2410c", bg: "#ffedd5" },
+  flat: { mark: "–", color: "#475569", bg: "#f1f5f9" },
+};
+
+export function TrendList({
+  title,
+  hint,
+  rows,
+  onSelect,
+}: {
+  title: string;
+  hint?: string;
+  rows: {
+    id: string;
+    kind: string;
+    label: string;
+    now: number;
+    prev: number;
+    change: number;
+    direction: string;
+    points: number[];
+    sample: string;
+    sourcesNow: number;
+  }[];
+  onSelect: (row: { id: string; kind: string }) => void;
+}) {
+  return (
+    <div className="card-tile">
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">{title}</div>
+        {hint ? <div className="text-[10px] text-slate-400">{hint}</div> : null}
+      </div>
+      {rows.length === 0 ? (
+        <p className="mt-2 text-[12px] text-slate-400">Nothing moving in this window.</p>
+      ) : (
+        <div className="mt-1.5 space-y-0.5">
+          {rows.map((row) => {
+            const style = TREND_STYLE[row.direction] ?? TREND_STYLE.flat;
+            const delta =
+              row.direction === "new"
+                ? "new"
+                : `${row.change >= 0 ? "+" : ""}${Math.round(row.change * 100)}%`;
+            return (
+              <button
+                key={`${row.kind}:${row.id}`}
+                type="button"
+                onClick={() => onSelect(row)}
+                className="flex w-full items-center gap-2 rounded px-0.5 py-1 text-left hover:bg-slate-50"
+              >
+                <MiniSpark points={row.points} color={style.color} />
+                <span
+                  className="tag shrink-0"
+                  style={{ background: style.bg, color: style.color }}
+                >
+                  {style.mark} {row.label}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[10px] text-slate-400">{row.sample}</span>
+                <span className="shrink-0 text-[10px] tabular-nums text-slate-500">
+                  {row.prev}→{row.now} {delta}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function PulseCard({
   title,
   points,

@@ -1,5 +1,7 @@
+import { isKnownTopic } from "./classify";
 import type { PatchRisk } from "./kev";
-import { isDeskId, type Desk, type OriginReason, type TimeRange } from "./types";
+import { isKnownPlace, resolvePlace } from "./places";
+import { isDeskId, type Desk, type OriginReason, type Platform, type TimeRange } from "./types";
 
 export type BoardFilters = {
   desk: Desk;
@@ -14,14 +16,16 @@ export type BoardFilters = {
   ransomware: boolean;
   layer: number | null;
   origin: OriginReason | null;
+  platform: Platform | null;
   person: string | null;
+  rising: boolean;
 };
 
 export const DESKS: { id: Desk; label: string; hint: string }[] = [
   { id: "home", label: "Home", hint: "Situation dashboard" },
   { id: "brief", label: "Brief", hint: "Clustered stories" },
   { id: "scan", label: "Scan", hint: "Raw items" },
-  { id: "pulse", label: "Pulse", hint: "Volume and mix" },
+  { id: "pulse", label: "Pulse", hint: "What's rising" },
   { id: "weather", label: "Weather", hint: "Storms and warnings" },
   { id: "people", label: "People", hint: "Authors and voices" },
   { id: "documents", label: "Documents", hint: "Reports and PDFs" },
@@ -34,6 +38,7 @@ export const DESKS: { id: Desk; label: string; hint: string }[] = [
 const RANGES = new Set<TimeRange>(["1h", "6h", "24h", "7d", "all"]);
 const RISKS = new Set(["all", "p0", "p1", "p2"]);
 const ORIGINS = new Set<OriginReason>(["self", "follow", "mention", "link", "intel", "explore", "reddit"]);
+const PLATFORMS = new Set<Platform>(["rss", "bluesky", "web"]);
 
 function one(value: string | string[] | undefined) {
   if (Array.isArray(value)) return value[0] ?? "";
@@ -54,7 +59,26 @@ export function defaultBoardFilters(stack = ""): BoardFilters {
     ransomware: false,
     layer: null,
     origin: null,
+    platform: null,
     person: null,
+    rising: false,
+  };
+}
+
+export function normalizeBoardFilters(filters: BoardFilters): BoardFilters {
+  const topic = filters.topic?.trim() || null;
+  let place = filters.place?.trim() || null;
+  let nextTopic = topic;
+  if (topic && isKnownPlace(topic) && !isKnownTopic(topic)) {
+    if (!place) place = resolvePlace(topic);
+    nextTopic = null;
+  }
+  return {
+    ...filters,
+    q: filters.q.trim(),
+    topic: nextTopic,
+    place: place ? resolvePlace(place) : null,
+    platform: filters.platform && PLATFORMS.has(filters.platform) ? filters.platform : null,
   };
 }
 
@@ -66,7 +90,8 @@ export function parseBoardFilters(
   const rangeRaw = one(params.range) as TimeRange;
   const riskRaw = one(params.risk);
   const originRaw = one(params.origin) as OriginReason;
-  return {
+  const platformRaw = one(params.platform) as Platform;
+  return normalizeBoardFilters({
     desk: isDeskId(deskRaw) ? deskRaw : "home",
     q: one(params.q),
     topic: one(params.topic) || null,
@@ -79,8 +104,10 @@ export function parseBoardFilters(
     ransomware: one(params.ransomware) === "1",
     layer: one(params.layer) ? Number(one(params.layer)) || null : null,
     origin: ORIGINS.has(originRaw) ? originRaw : null,
+    platform: PLATFORMS.has(platformRaw) ? platformRaw : null,
     person: one(params.person) || null,
-  };
+    rising: one(params.rising) === "1",
+  });
 }
 
 export function boardQueryString(filters: BoardFilters) {
@@ -97,7 +124,9 @@ export function boardQueryString(filters: BoardFilters) {
   if (filters.ransomware) p.set("ransomware", "1");
   if (filters.layer) p.set("layer", String(filters.layer));
   if (filters.origin) p.set("origin", filters.origin);
+  if (filters.platform) p.set("platform", filters.platform);
   if (filters.person) p.set("person", filters.person);
+  if (filters.rising) p.set("rising", "1");
   const qs = p.toString();
   return qs ? `?${qs}` : "";
 }

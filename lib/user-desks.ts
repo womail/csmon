@@ -1,11 +1,12 @@
 import type { BoardFilters } from "./board-state";
-import { defaultBoardFilters } from "./board-state";
-import { isDeskId, type Desk } from "./types";
+import { defaultBoardFilters, normalizeBoardFilters } from "./board-state";
+import { isBuiltinDesk, isDeskId, type BuiltinDesk } from "./types";
 
 export type UserDesk = {
   id: `c-${string}`;
   label: string;
   hint: string;
+  view: BuiltinDesk;
   filters: BoardFilters;
   createdAt: number;
 };
@@ -27,10 +28,12 @@ export function loadUserDesks(): UserDesk[] {
     for (const row of parsed) {
       const id = typeof row.id === "string" ? asCustomId(row.id) : null;
       if (!id || typeof row.label !== "string") continue;
+      const view = typeof row.view === "string" && isBuiltinDesk(row.view) ? row.view : "brief";
       rows.push({
         id,
         label: row.label.slice(0, 24),
         hint: typeof row.hint === "string" ? row.hint.slice(0, 48) : "Custom desk",
+        view,
         createdAt: typeof row.createdAt === "number" ? row.createdAt : Date.now(),
         filters: {
           ...fallback,
@@ -49,18 +52,48 @@ export function saveUserDesks(rows: UserDesk[]) {
   window.localStorage.setItem(USER_DESKS_KEY, JSON.stringify(rows.slice(0, 12)));
 }
 
-export function createUserDesk(label: string, filters: BoardFilters, existing?: UserDesk[]) {
+export function createUserDesk(
+  label: string,
+  filters: BoardFilters,
+  existing?: UserDesk[],
+  view: BuiltinDesk = "brief",
+) {
   const name = label.trim().slice(0, 24);
   if (!name) return existing ?? loadUserDesks();
   const id = `c-${Date.now().toString(36)}` as const;
+  const saved = normalizeBoardFilters({ ...filters, desk: id });
   const next: UserDesk = {
     id,
     label: name,
-    hint: summarizeDesk(filters),
+    hint: summarizeDesk(saved),
+    view,
     createdAt: Date.now(),
-    filters: { ...filters, desk: id },
+    filters: saved,
   };
   const rows = [next, ...(existing ?? loadUserDesks()).filter((row) => row.label.toLowerCase() !== name.toLowerCase())];
+  saveUserDesks(rows);
+  return rows;
+}
+
+export function updateUserDesk(
+  id: string,
+  patch: { label?: string; filters?: BoardFilters; view?: BuiltinDesk },
+  existing?: UserDesk[],
+) {
+  const rows = (existing ?? loadUserDesks()).map((row) => {
+    if (row.id !== id) return row;
+    const filters = patch.filters
+      ? normalizeBoardFilters({ ...patch.filters, desk: row.id })
+      : row.filters;
+    const label = patch.label?.trim().slice(0, 24) || row.label;
+    return {
+      ...row,
+      label,
+      view: patch.view ?? row.view,
+      hint: summarizeDesk(filters),
+      filters,
+    };
+  });
   saveUserDesks(rows);
   return rows;
 }
@@ -71,12 +104,21 @@ export function deleteUserDesk(id: string, existing?: UserDesk[]) {
   return rows;
 }
 
-export function findUserDesk(id: Desk, existing?: UserDesk[]) {
+export function findUserDesk(id: string, existing?: UserDesk[]) {
   return (existing ?? loadUserDesks()).find((row) => row.id === id) ?? null;
 }
 
 export function summarizeDesk(filters: BoardFilters) {
-  const bits = [filters.topic, filters.place, filters.vendor, filters.person, filters.q].filter(Boolean);
+  const bits = [
+    filters.platform,
+    filters.topic,
+    filters.place,
+    filters.origin,
+    filters.vendor,
+    filters.person,
+    filters.rising ? "rising" : "",
+    filters.q,
+  ].filter(Boolean);
   return bits.slice(0, 3).join(" · ") || "Custom filter desk";
 }
 

@@ -52,7 +52,12 @@ function hydrate(raw: Partial<SavedFilter>, fallback: BoardFilters): SavedFilter
       ransomware: Boolean(filters.ransomware),
       layer: typeof filters.layer === "number" ? filters.layer : null,
       origin: (filters.origin as OriginReason | null) ?? null,
+      platform:
+        filters.platform === "rss" || filters.platform === "bluesky" || filters.platform === "web"
+          ? filters.platform
+          : null,
       person: filters.person ?? null,
+      rising: Boolean(filters.rising),
     },
   };
 }

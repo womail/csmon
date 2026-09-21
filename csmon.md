@@ -8,7 +8,7 @@ Maps are their own panes, never a background under copy. Every map has zoom cont
 
 Click a **source** (Home top sources, a card chip, or Sources) to drill into that layer: a source dossier lists its items even if other chips would have hidden them. Source chips are tag-sized like topics: short names, thin padding, wrapping onto extra lines instead of one fat pill. CISA and similar feeds no longer go blank because a leftover topic filter was still on.
 
-Click a **map place** (a city/country dot, or a country fill) to open a place dossier: stories, topics, and sources that mention that location. London and UK share a family so the London-area pin still shows British coverage even when older items were tagged only as UK. Shipping chokepoints (Hormuz, Malacca, Suez, Panama, Bab el-Mandeb, Gibraltar, Bosporus) are tagged the same way when they appear in copy.
+Click a **map place** (a city/country dot, or a country fill) to open a place dossier: stories, topics, and sources that mention that location. **Ireland**, **UK**, and **US** stay pinned in the chip row even when the catalog is quiet. Ireland matches copy in the title and summary (`Irish`, `Dublin`, `Cork`, `Galway`, `Limerick`, `Belfast`, `Éire`), not only stored location tags. London and UK share a family so the London-area pin still shows British coverage even when older items were tagged only as UK. Shipping chokepoints (Hormuz, Malacca, Suez, Panama, Bab el-Mandeb, Gibraltar, Bosporus) are tagged the same way when they appear in copy.
 
 ## How to consume
 
@@ -19,7 +19,7 @@ Default is **Home**.
 | Home | Situation dashboard. Click **tech**, a top source, a map place, or a person to filter or drill in. |
 | Brief | Clustered stories, 2+ sources first, topic/place/vendor chips. Lowest cognitive load. |
 | Scan | Every item, dense cards. Raw desk. Click a source name to isolate that layer. |
-| Pulse | Volume, topic mix, places, vendors, and the same location map. Pattern hunting. |
+| Pulse | **What's rising.** Topics, places, vendors, and people vs the previous half of the time range (sparklines, ▲/▼/new). Click a row to filter. |
 | Weather | Storms, floods, heat, official warnings, and live Met Éireann / Met Office / NWS / Open-Meteo events. |
 | People | Authors and named voices. Click a person to filter the graph to them. |
 | Documents | Reports, PDFs, and advisory-shaped items. |
@@ -27,13 +27,17 @@ Default is **Home**.
 | Advisories | Cyber-classified items plus security RSS (CISA, Krebs, BleepingComputer, NCSC). |
 | Patch | CISA KEV. Exploited CVEs, due dates, ransomware flag, filter to your stack. |
 | Sources | Layers as objects: origin, item count, latest headline. Click a layer to scan it. |
-| *Your desks* | **New desk** pins the current filters to the rail (`c-…` in the URL). |
+| *Your desks* | **New desk** or **Tune** pins or edits filters on the rail (`c-…` in the URL). **edit** on a custom desk retunes place, RSS, topic, and which board it opens. |
 
 Click a story to **read in place**. The pane is a dossier, not a shrink of the card: every contributing source’s full title and summary, a map of related places, then page extract, deep dive, similar articles, related board stories, documents, people, and KEV hits. Topics, places, vendors, people, CVEs, and source names are all filters — they stay on the current desk. **View page** opens the original article in a new tab (news sites block embeds). Related stories and page links open forward; back / Esc walks the trail.
 
 Hover a source, filter chip, or outbound link for a tooltip (destination URL or what the filter will do). Desk labels already show their hint, so the rail does not duplicate it. Tooltips appear after a short hover and hide as soon as the pointer leaves.
 
-Filter with topic chips (including **AI**, **Sports**, **Reddit**), **country** chips, city chips, vendor chips (**Microsoft**, **Linux**, **Oracle**, **macOS**, **Mac**), ransomware, a **layer**, origin (**intel**, **reddit**, **explore**), search, time range, and **2+ sources**. Search also matches mined CVE IDs. **Filters** in the header saves the current URL view under a name.
+Filter with topic chips (including **AI**, **Sports**, **Reddit**), pinned **place** chips (**Ireland**, **UK**, **US**), other country/city chips, vendor chips, **CVE** chips mined from copy, ransomware, a **layer**, origin (**intel**, **reddit**, **explore**), **RSS**, **rising** (topics/places/vendors/people that accelerated vs the previous half-window), search, time range, and **2+ sources**. A place like Ireland also matches words in the article text. Search also matches mined CVE IDs. **Tune** in the header edits those fields as a form. **Filters** saves the current URL view under a name.
+
+**Sources** lists every enabled layer. Click **RSS** to keep only RSS feeds, then click **Ireland** (or Tune a place) to hide layers with no matching copy. The same chips work on Brief and Scan.
+
+**Pulse / trends.** Compare this half of the time range to the half before it (`24h` is last 12h vs the 12h before; `all` is last day vs the day before). A row is **rising** if volume jumped ≥25% and at least +2 items, **new** if it was absent and now has 2+, **falling** if it dropped ≥25%. Sparklines show the shape. Home **Rising now** uses the same scores. The **rising** chip keeps only items that carry a rising or new topic, place, vendor, or person. Click a trend row to filter.
 
 Cards have **Hide** (drop from the board) and **Read** (keep, mark as seen). **Undo** in the header walks the last hide/read. Triage lives in `csmon.triage` / `csmon.triage-undo`.
 
@@ -118,7 +122,7 @@ We reuse the **upstream public sources** (CISA, USGS-style RSS, vendor advisorie
 
 Browser-local (`localStorage` `csmon.options`): start desk, time range, stack, compact cards, home language, auto-translate, **home location**, **palette** (`light` / `dark`, follows the OS until you toggle), auto-load security RSS, auto-load hazards, auto-load KEV. Shared links still override via the query string.
 
-Saved custom filters live in `csmon.saved-filters` (name + full `BoardFilters` snapshot). User desks live in `csmon.user-desks`. Subreddit list lives in `csmon.subreddits`. Applying filters writes the URL the same way chips do. Hide/read triage is `csmon.triage`; Follow next collapse is `csmon.follow-open`.
+Saved custom filters live in `csmon.saved-filters` (name + full `BoardFilters` snapshot). User desks live in `csmon.user-desks` (label, `view` desk, filters including `platform`). Subreddit list lives in `csmon.subreddits`. Applying filters writes the URL the same way chips do (`?place=Ireland&platform=rss`). Hide/read triage is `csmon.triage`; Follow next collapse is `csmon.follow-open`.
 
 ## Caching
 
@@ -138,7 +142,7 @@ Expired rows are deleted on read. The Sources desk shows live entry count and by
 ## Flow
 
 1. Open Home. Load world/hazard/security RSS, manage subreddits, scrape a Bluesky/RSS desk, or load KEV.
-2. Pick a desk. Filter topics, places, vendors, stack, or a layer. Save the view if you will reuse it.
+2. Pick a desk. Filter topics, **Ireland** (or another place), RSS-only, vendors, stack, or a layer. **Tune** to edit the same fields, then save as a custom desk if you will reuse it.
 3. Open a story. Compare desks in the dossier, translate if needed, jump similar coverage, walk back.
 
 ## Stack

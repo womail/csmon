@@ -11,6 +11,7 @@ import { tagStyle } from "@/lib/colors";
 import { SITUATION_LANES, type SituationLane } from "@/lib/lanes";
 import type { PersonRow } from "@/lib/people";
 import type { QuakeEvent } from "@/lib/quakes";
+import type { TrendRow } from "@/lib/trends";
 import type { Item, Source } from "@/lib/types";
 import type { WeatherEvent } from "@/lib/weather";
 
@@ -33,6 +34,8 @@ export function HomeDashboard({
   layer,
   person,
   place,
+  platform,
+  rising,
   onOpenStory,
   onLane,
   onTopic,
@@ -45,6 +48,9 @@ export function HomeDashboard({
   sources,
   compact,
   readKeys,
+  trends,
+  trendHint,
+  onTrend,
 }: {
   stories: Story[];
   items: Item[];
@@ -57,6 +63,8 @@ export function HomeDashboard({
   layer: number | null;
   person: string | null;
   place: string | null;
+  platform?: string | null;
+  rising?: boolean;
   onOpenStory: (story: Story) => void;
   onLane: (lane: SituationLane) => void;
   onTopic: (topic: string) => void;
@@ -69,8 +77,11 @@ export function HomeDashboard({
   sources: Map<number, Source>;
   compact?: boolean;
   readKeys?: string[];
+  trends?: TrendRow[];
+  trendHint?: string;
+  onTrend?: (row: TrendRow) => void;
 }) {
-  const filtered = Boolean(topic || layer || person || place);
+  const filtered = Boolean(topic || layer || person || place || platform || rising);
   const lanes = SITUATION_LANES.map((lane) => {
     const laneStories = stories.filter(
       (story) =>
@@ -160,6 +171,37 @@ export function HomeDashboard({
         </section>
       ) : null}
 
+      {!filtered && trends && trends.length > 0 ? (
+        <section className="card-tile">
+          <div className="flex items-baseline justify-between gap-2">
+            <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+              Rising now
+            </div>
+            {trendHint ? <div className="text-[10px] text-slate-400">{trendHint}</div> : null}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {trends.map((row) => (
+              <Tip
+                key={`${row.kind}:${row.id}`}
+                text={`${row.label} ${row.prev}→${row.now} · ${row.sample}`}
+              >
+                <button
+                  type="button"
+                  className="tag"
+                  style={{
+                    background: row.direction === "new" ? "#ffedd5" : "#dcfce7",
+                    color: row.direction === "new" ? "#c2410c" : "#15803d",
+                  }}
+                  onClick={() => onTrend?.(row)}
+                >
+                  {row.direction === "new" ? "●" : "▲"} {row.label} {row.prev}→{row.now}
+                </button>
+              </Tip>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <SituationMap
         title="Where coverage relates"
         markers={homeMarkers(items, quakes, weatherEvents)}
@@ -174,6 +216,8 @@ export function HomeDashboard({
             {topic ? ` · ${topic}` : ""}
             {person ? ` · ${person}` : ""}
             {place ? ` · ${place}` : ""}
+            {platform ? ` · ${platform}` : ""}
+            {rising ? " · rising" : ""}
           </div>
           <div className={`board mt-1.5 ${compact ? "board-compact" : ""}`}>
             {stories.map((story) => (
