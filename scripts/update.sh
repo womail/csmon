@@ -22,9 +22,8 @@ case "$mode" in
     ;;
   docker)
     command -v docker >/dev/null 2>&1 || fail "docker is not installed"
-    docker compose build
-    docker compose up -d
-    echo "csmon container rebuilt and started. Open http://127.0.0.1:3000"
+    bash "$ROOT/scripts/build-docker.sh"
+    echo "csmon container is up on Ubuntu 24.04. Open http://127.0.0.1:3000"
     ;;
   git)
     command -v git >/dev/null 2>&1 || fail "git is not installed"

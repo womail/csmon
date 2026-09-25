@@ -585,8 +585,11 @@ export function Monitor({
 
   async function refresh() {
     setRefreshing(true);
+    setError(null);
     try {
       setState(await json<MonitorState>("/api/refresh", { method: "POST" }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Refresh failed");
     } finally {
       setRefreshing(false);
     }
@@ -1198,6 +1201,7 @@ export function Monitor({
               onLoad={(subs) => loadReddit(subs)}
             />
             <OptionsButton
+              onSourcesApplied={(next) => setState(next)}
               onApply={(options) => {
                 setCompact(options.compact);
                 if (options.stack) setStack(options.stack);

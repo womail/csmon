@@ -127,6 +127,8 @@ We reuse the **upstream public sources** (CISA, USGS-style RSS, vendor advisorie
 
 Browser-local (`localStorage` `csmon.options`): start desk, time range, stack, compact cards, home language, auto-translate, **home location**, **palette** (`light` / `dark`, follows the OS until you toggle), auto-load security RSS, auto-load hazards, auto-load KEV. Shared links still override via the query string.
 
+**Source library** (Options → Open source library, or `/sources/workbench`): every layer with last fetch, item counts, latest headline, stale/silent badges, and tips. **Add RSS layer**, **Edit** (inline row), **Save layer** / **Save & refresh layer**, **Delete layer**. **Apply** saves all rows marked ● (unsaved). Per-layer **retention (days)** plus Options **default item retention**; **Purge by age** or **Run retention policy** trim SQLite items (age uses published or fetched time). **Export JSON** for GitHub (`lib/intel-feeds.ts` PR). API: `GET/POST/PATCH/DELETE /api/source-catalog`.
+
 Saved custom filters live in `csmon.saved-filters` (name + full `BoardFilters` snapshot). User desks live in `csmon.user-desks` (label, `view` desk, filters including `platform`). Compiled briefings live in `csmon.reports` (title, open/archived, story snapshots with full page extract, CVEs, links, and places). Subreddit list lives in `csmon.subreddits`. Applying filters writes the URL the same way chips do (`?place=Ireland&platform=rss&qb=title.contains.Ireland`). Hide/read triage is `csmon.triage`; Follow next collapse is `csmon.follow-open`. Reader width is `csmon.reader-width`.
 
 ## Caching
@@ -167,7 +169,7 @@ Expired rows are deleted on read. The Sources desk shows live entry count and by
 
 ## Run
 
-Local: `pnpm install && pnpm dev` (or `pnpm build && pnpm start`). Docker: `build-docker.bat` on Windows, or `docker compose build && docker compose up -d` — see `DOCKER.md`. Compose publishes `127.0.0.1:3000` only.
+Local: `pnpm install && pnpm dev` (or `pnpm build && pnpm start`). Docker: `ubuntu:24.04` is the `ubuntu` service in `docker-compose.yml`; deploy with `bash scripts/build-docker.sh`. See `DOCKER.md`. Compose publishes `127.0.0.1:3000` only.
 
 ## Security
 
@@ -222,6 +224,7 @@ Copy `.env.example` to `.env.local`. No new database tables for this milestone.
 | color | TEXT NOT NULL | |
 | enabled | INTEGER NOT NULL | 0/1 |
 | last_fetched_at | INTEGER | |
+| retention_days | INTEGER | Per-layer max item age; NULL uses Options default |
 | created_at | INTEGER NOT NULL | |
 
 ### source_origins

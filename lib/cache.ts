@@ -46,3 +46,10 @@ export const TTL = {
   translate: 7 * 24 * 60 * 60 * 1000,
   live: 20 * 1000,
 };
+
+/** Drop outbound cache so Refresh re-fetches RSS/JSON/KEV/HTML (not translate). */
+export function cacheClearForRefresh() {
+  getDb()
+    .prepare("DELETE FROM fetch_cache WHERE kind IN ('rss', 'json', 'kev', 'html', 'live')")
+    .run();
+}

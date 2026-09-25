@@ -21,16 +21,21 @@ import {
 } from "@/lib/options";
 import type { TimeRange } from "@/lib/types";
 import { Tip } from "@/components/monitor/tip";
+import { SourceWorkbench } from "@/components/monitor/source-workbench";
 import { UpdateChecker } from "@/components/monitor/update-checker";
+import type { MonitorState } from "@/lib/types";
 
 const RANGES: TimeRange[] = ["1h", "6h", "24h", "7d", "all"];
 
 export function OptionsButton({
   onApply,
+  onSourcesApplied,
 }: {
   onApply: (options: UserOptions) => void;
+  onSourcesApplied?: (state: MonitorState) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const [options, setOptions] = useState<UserOptions>(DEFAULT_OPTIONS);
 
   useEffect(() => {
@@ -185,7 +190,43 @@ export function OptionsButton({
               />
               Auto-load weather, quake, war, and unrest RSS when empty
             </label>
+            <label className="block text-[11px] font-medium text-slate-600">
+              Default item retention (days)
+              <Input
+                type="number"
+                min={0}
+                className="mt-1 h-8 text-[12px]"
+                placeholder="Empty = keep until manual purge"
+                value={options.defaultRetentionDays ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value.trim();
+                  setOptions((o) => ({
+                    ...o,
+                    defaultRetentionDays: v === "" ? null : Math.max(0, Number(v) || 0),
+                  }));
+                }}
+              />
+            </label>
             <UpdateChecker />
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
+              <p className="text-[11px] font-medium text-slate-700">Source library</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                Inspect every RSS layer, last fetch, and item counts. Edit locally, apply to this
+                board, export JSON, then open a PR on GitHub (
+                <code className="text-[10px]">lib/intel-feeds.ts</code>).
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-2 w-full"
+                onClick={() => {
+                  setOpen(false);
+                  setSourcesOpen(true);
+                }}
+              >
+                Open source library…
+              </Button>
+            </div>
             <div className="flex justify-end gap-2 pt-1">
               <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
                 Cancel
@@ -197,6 +238,11 @@ export function OptionsButton({
           </div>
         </DialogContent>
       </Dialog>
+      <SourceWorkbench
+        open={sourcesOpen}
+        onOpenChange={setSourcesOpen}
+        onApplied={onSourcesApplied}
+      />
     </>
   );
 }

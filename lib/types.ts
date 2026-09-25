@@ -30,6 +30,8 @@ export type Source = {
   enabled: boolean;
   lastFetchedAt: number | null;
   createdAt: number;
+  /** Max age of items to keep; null uses the board default from Options. */
+  retentionDays: number | null;
   origins: { reason: OriginReason; weight: number; seedHandle: string }[];
 };
 

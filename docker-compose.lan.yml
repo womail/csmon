@@ -1,0 +1,8 @@
+# Override for a remote Docker host (e.g. Proxmox VM on the LAN).
+# Publishes 3000 on all interfaces so http://10.1.1.244:3000 works.
+# Use: docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d
+
+services:
+  csmon:
+    ports:
+      - "3000:3000"

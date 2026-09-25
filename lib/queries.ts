@@ -41,6 +41,7 @@ type SourceRow = {
   enabled: number;
   last_fetched_at: number | null;
   created_at: number;
+  retention_days?: number | null;
 };
 
 type ItemRow = {
@@ -92,6 +93,10 @@ function mapSource(
     enabled: row.enabled === 1,
     lastFetchedAt: row.last_fetched_at,
     createdAt: row.created_at,
+    retentionDays:
+      row.retention_days === undefined || row.retention_days === null
+        ? null
+        : Number(row.retention_days),
     origins,
   };
 }

@@ -107,6 +107,10 @@ const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS idx_fetch_cache_expires ON fetch_cache(expires_at);
     `,
   },
+  {
+    name: "005_source_retention",
+    sql: `ALTER TABLE sources ADD COLUMN retention_days INTEGER;`,
+  },
 ];
 
 const globalForDb = globalThis as unknown as { csmonDb?: DatabaseSync };
@@ -137,6 +141,15 @@ function applyMigrations(db: DatabaseSync) {
       }
       if (!cols.has("locations")) {
         db.exec(`ALTER TABLE items ADD COLUMN locations TEXT NOT NULL DEFAULT '[]'`);
+      }
+    } else if (migration.name === "005_source_retention") {
+      const cols = new Set(
+        (db.prepare("PRAGMA table_info(sources)").all() as { name: string }[]).map(
+          (row) => row.name,
+        ),
+      );
+      if (!cols.has("retention_days")) {
+        db.exec(`ALTER TABLE sources ADD COLUMN retention_days INTEGER`);
       }
     } else {
       db.exec(migration.sql);

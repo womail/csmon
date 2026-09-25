@@ -14,6 +14,8 @@ export type UserOptions = {
   autoTranslate: boolean;
   homePlace: string;
   palette: Palette;
+  /** Default max item age when a layer has no per-source retention (days). null = keep until manual purge. */
+  defaultRetentionDays: number | null;
 };
 
 export const OPTIONS_KEY = "csmon.options";
@@ -30,6 +32,7 @@ export const DEFAULT_OPTIONS: UserOptions = {
   autoTranslate: false,
   homePlace: "Dublin",
   palette: "light",
+  defaultRetentionDays: 30,
 };
 
 export function loadOptions(): UserOptions {

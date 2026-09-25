@@ -19,10 +19,15 @@ pnpm build && pnpm start
 
 ## Docker
 
-Windows: double-click `build-docker.bat` in this folder.
+Deploys on official **Ubuntu Server 24.04** (`ubuntu` in `docker-compose.yml`).
 
 ```bash
-docker compose build
+bash scripts/build-docker.sh
+```
+
+```bash
+docker compose pull ubuntu
+docker compose build --pull
 docker compose up -d
 ```
 

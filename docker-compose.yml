@@ -1,9 +1,19 @@
 services:
+  ubuntu:
+    image: docker.io/library/ubuntu:24.04
+    pull_policy: always
+    restart: "no"
+    command: ["true"]
+
   csmon:
+    image: csmon:local
     build:
       context: .
       dockerfile: Dockerfile
-    image: csmon:local
+      pull: true
+    depends_on:
+      ubuntu:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:3000:3000"
     environment:
