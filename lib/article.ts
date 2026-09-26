@@ -7,6 +7,8 @@ export type ArticleRead = {
   quotes: string[];
   language: string | null;
   related: { href: string; label: string }[];
+  /** CVE IDs mined from copy and NVD links on the page. */
+  cveIds: string[];
 };
 
 const NOISE_COPY =

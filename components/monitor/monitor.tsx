@@ -1039,9 +1039,13 @@ export function Monitor({
   }
 
   function changeDesk(next: Desk) {
+    if (next === desk) return;
     const custom = findUserDesk(next, customDesks);
     if (custom) applyFilters(custom.filters);
-    else setDesk(next);
+    else {
+      setQb(emptyQuery());
+      setDesk(next);
+    }
     if (next === "flights") void loadFlights();
   }
 

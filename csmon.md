@@ -30,7 +30,9 @@ Default is **Home**.
 | Sources | Layers as objects: origin, item count, latest headline. Click a layer to scan it. |
 | *Your desks* | **New desk** or **Tune** pins or edits filters on the rail (`c-…` in the URL). The rail shows the **desk name** you typed (one line), not the query sentence. **edit** on a custom desk retunes place, RSS, topic, query, and which board it opens. |
 
-Click a story to **read in place**. The pane is a dossier, not a shrink of the card: every contributing source’s full title and summary, a map of related places, then page extract, deep dive, similar articles, related board stories, documents, people, and KEV hits. On a wide screen, drag the left edge of the pane (or double-click it) to widen the reader; the width stays in `csmon.reader-width`. Topics, places, vendors, people, CVEs, and source names are all filters — they stay on the current desk. **View page** opens the original article in a new tab (news sites block embeds). Related stories and page links open forward; back / Esc walks the trail.
+Click a story to **read in place**. When copy or links name a **CVE** (including `nvd.nist.gov/vuln/detail/…`), the reader loads the official **NVD JSON API** (not HTML scraping) and shows CVSS, whether a **patch/fix** is listed, fixed versions, **mitigation** and **release notes** links (from NVD reference tags), vendor advisories, and CISA required action when present. `GET /api/nvd?cves=…`.
+
+The pane is a dossier, not a shrink of the card: every contributing source’s full title and summary, a map of related places, then page extract, deep dive, similar articles, related board stories, documents, people, and KEV hits. On a wide screen, drag the left edge of the pane (or double-click it) to widen the reader; the width stays in `csmon.reader-width`. Topics, places, vendors, people, CVEs, and source names are all filters — they stay on the current desk. **View page** opens the original article in a new tab (news sites block embeds). Related stories and page links open forward; back / Esc walks the trail.
 
 **Report** on the reader sends the story into a briefing, including the same full page extract you see in Read in place (paragraphs, CVEs, vendor/advisory links), not only the RSS title and blurb. The first time you are prompted for a **report title**; after that you can keep adding stories to the same open report. The **Reports** desk lists open and archived briefings. Each report has a bright title, a hard separator between stories, edit title / reorder / remove, archive or delete, and **Print to PDF** (the browser print dialog). Reports live in `csmon.reports`. Older briefings that only stored the RSS summary pull the full copy when you open them.
 
@@ -143,6 +145,7 @@ Outbound fetches go through SQLite `fetch_cache` so refresh does not hammer the 
 | html | 6 hours |
 | translate | 7 days |
 | live | 20 seconds (ADS-B) |
+| nvd (CVE JSON) | 30 minutes (same store as `json`; key `nvd:CVE-…`) |
 
 Expired rows are deleted on read. The Sources desk shows live entry count and bytes.
 

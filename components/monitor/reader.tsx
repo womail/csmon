@@ -17,7 +17,15 @@ import { relatedDocuments } from "@/lib/documents";
 import { matchItemByUrl, matchSourceByHost, storySignals } from "@/lib/link";
 import { shortSourceName } from "@/lib/source-label";
 import { personName } from "@/lib/people";
+import { ArticleBody } from "@/components/monitor/article-body";
+import { NvdPanel } from "@/components/monitor/nvd-panel";
+import {
+  articleDisplayBlocks,
+  blocksPlainText,
+  cleanArticleParagraphs,
+} from "@/lib/article-body";
 import { isNoiseCopy, type ArticleRead } from "@/lib/article";
+import type { NvdCveBrief } from "@/lib/nvd";
 import type { Report } from "@/lib/reports";
 import type { Item, Source } from "@/lib/types";
 
@@ -78,14 +86,25 @@ export function ReaderPane({
   const [translated, setTranslated] = useState<string[] | null>(null);
   const [translating, setTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string | null>(null);
+  const [nvdEntries, setNvdEntries] = useState<NvdCveBrief[]>([]);
+  const [nvdLoading, setNvdLoading] = useState(false);
   const active = story.items.find((item) => item.id === activeId) ?? story.items[0];
   const activeSource = sources.get(active.sourceId);
   const signals = storySignals(story);
+
+  const nvdCveKey = useMemo(() => {
+    const ids = new Set<string>();
+    for (const c of signals.cves) ids.add(c.toUpperCase());
+    for (const c of article?.cveIds ?? []) ids.add(c.toUpperCase());
+    return [...ids].sort().slice(0, 5).join(",");
+  }, [story.id, active.url, signals.cves.slice().sort().join(","), (article?.cveIds ?? []).slice().sort().join(",")]);
 
   useEffect(() => {
     setActiveId(story.items[0].id);
     setTranslated(null);
     setShowDive(false);
+    setNvdEntries([]);
+    setNvdLoading(false);
   }, [story.id, story.items]);
 
   useEffect(() => {
@@ -111,7 +130,50 @@ export function ReaderPane({
     };
   }, [active.url]);
 
+  useEffect(() => {
+    if (!nvdCveKey) {
+      setNvdEntries([]);
+      setNvdLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setNvdLoading(true);
+    apiFetch(`/api/nvd?cves=${encodeURIComponent(nvdCveKey)}`)
+      .then(async (res) => {
+        const data = (await res.json()) as { entries?: NvdCveBrief[]; error?: string };
+        if (!res.ok) throw new Error(data.error || "NVD lookup failed");
+        if (!cancelled) setNvdEntries(data.entries ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setNvdEntries([]);
+      })
+      .finally(() => {
+        if (!cancelled) setNvdLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [nvdCveKey]);
+
+  const articleBlocks = useMemo(() => {
+    if (!article?.paragraphs.length) return [];
+    return articleDisplayBlocks(
+      article.title || active.title,
+      article.description,
+      article.paragraphs,
+      article.related,
+    );
+  }, [active.title, article]);
+
   const dossier = useMemo(() => {
+    const fromArticle = articleBlocks.length
+      ? blocksPlainText(articleBlocks)
+      : cleanArticleParagraphs(
+          article?.title ?? active.title,
+          article?.description ?? null,
+          article?.paragraphs ?? [],
+        );
+    if (fromArticle.length) return { blocks: fromArticle };
     const blocks: string[] = [];
     const seen = new Set<string>();
     function add(text: string | null | undefined) {
@@ -125,10 +187,8 @@ export function ReaderPane({
     }
     for (const item of story.items) add(item.summary);
     add(active.title);
-    add(article?.description ?? null);
-    for (const para of article?.paragraphs ?? []) add(para);
-    return { blocks, seen };
-  }, [active.title, article, story.items]);
+    return { blocks };
+  }, [active.title, article, articleBlocks, story.items]);
 
   const dive = useMemo(() => buildDeepDive(story, article), [article, story]);
   const articleLang = dive.language.id;
@@ -423,14 +483,24 @@ export function ReaderPane({
           </p>
         ) : null}
         {article?.title && article.title !== story.title && !translated ? (
-          <p className="mt-2 text-[12.5px] font-medium text-slate-800">{article.title}</p>
+          <h3 className="mt-2 text-[13px] font-semibold leading-snug text-slate-900">{article.title}</h3>
         ) : null}
-        {shownBlocks.map((block) => (
-          <p key={block.slice(0, 64)} className="mt-2 text-[12.5px] leading-relaxed text-slate-700">
-            {block}
-          </p>
-        ))}
-        {dossier.blocks.length === 0 && !loading ? (
+        {translated && translated.length > 1 ? (
+          translated.slice(1).map((block) => (
+            <p key={block.slice(0, 64)} className="mt-2 text-[12.5px] leading-relaxed text-slate-700">
+              {block}
+            </p>
+          ))
+        ) : articleBlocks.length > 0 ? (
+          <ArticleBody blocks={articleBlocks} onCve={onCve} />
+        ) : (
+          shownBlocks.map((block) => (
+            <p key={block.slice(0, 64)} className="mt-2 text-[12.5px] leading-relaxed text-slate-700">
+              {block}
+            </p>
+          ))
+        )}
+        {!articleBlocks.length && dossier.blocks.length === 0 && !loading ? (
           <p className="mt-2 text-[12px] text-slate-500">No extra copy on this item.</p>
         ) : null}
 
@@ -481,7 +551,25 @@ export function ReaderPane({
           ) : null}
         </div>
 
-        {kevHits.length > 0 ? (
+        {nvdCveKey ? (
+          <>
+            {nvdLoading && nvdEntries.length === 0 ? (
+              <p className="mt-4 text-[11px] text-slate-500">Loading NVD patch data…</p>
+            ) : null}
+            <NvdPanel
+              entries={nvdEntries}
+              kevHits={kevHits}
+              onCve={onCve}
+              onVendor={onVendor}
+              onFollow={onFollow}
+            />
+            {nvdLoading && nvdEntries.length > 0 ? (
+              <p className="mt-1 text-[10px] text-slate-400">Updating NVD…</p>
+            ) : null}
+          </>
+        ) : null}
+
+        {!nvdCveKey && kevHits.length > 0 ? (
           <div className="mt-4">
             <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
               KEV on this story

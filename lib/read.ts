@@ -1,6 +1,8 @@
 import * as cheerio from "cheerio";
+import { cleanArticleParagraphs } from "./article-body";
 import { isNoiseCopy, type ArticleRead } from "./article";
 import { fetchText } from "./http";
+import { cveIdsFromNvdLinks, cveIdsFromText } from "./nvd";
 
 export type { ArticleRead } from "./article";
 
@@ -57,13 +59,7 @@ export async function readArticle(url: string): Promise<ArticleRead> {
         .filter((p) => keepParagraph(p, 50)),
     ];
   }
-  const seen = new Set<string>();
-  paragraphs = paragraphs.filter((p) => {
-    const key = p.slice(0, 80);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  }).slice(0, 28);
+  paragraphs = cleanArticleParagraphs(title, description, paragraphs);
 
   const quotes = $("blockquote, q")
     .map((_, el) => $(el).text().replace(/\s+/g, " ").trim())
@@ -93,6 +89,11 @@ export async function readArticle(url: string): Promise<ArticleRead> {
     .filter((l, i, all) => all.findIndex((x) => x.href === l.href) === i)
     .slice(0, 12);
 
+  const cveIds = [
+    ...cveIdsFromText(title, description, ...paragraphs),
+    ...cveIdsFromNvdLinks(related),
+  ].filter((id, i, all) => all.indexOf(id) === i);
+
   return {
     url,
     site: hostOf(url),
@@ -102,5 +103,6 @@ export async function readArticle(url: string): Promise<ArticleRead> {
     quotes,
     language,
     related,
+    cveIds,
   };
 }
