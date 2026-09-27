@@ -14,7 +14,8 @@ fail() {
 case "$mode" in
   check)
     if command -v curl >/dev/null 2>&1; then
-      curl -fsS "http://127.0.0.1:${PORT:-3000}/api/update" || fail "app is not reachable on :${PORT:-3000}"
+      base="${CSMON_UPDATE_CHECK_URL:-http://127.0.0.1:${PORT:-3000}}"
+      curl -fsS "${base%/}/api/update" || fail "app is not reachable at ${base%/}/api/update"
       echo
     else
       fail "curl is required for check"

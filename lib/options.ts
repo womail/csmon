@@ -1,3 +1,7 @@
+import {
+  clampBoardItemLimit,
+  DEFAULT_BOARD_ITEM_LIMIT,
+} from "./board-limit";
 import { detectBrowserLanguage, normalizeLang } from "./lang";
 import { applyPalette, resolvePalette, type Palette } from "./theme";
 import type { Desk, TimeRange } from "./types";
@@ -16,6 +20,10 @@ export type UserOptions = {
   palette: Palette;
   /** Default max item age when a layer has no per-source retention (days). null = keep until manual purge. */
   defaultRetentionDays: number | null;
+  /** Max items loaded from enabled sources onto the board (SQLite LIMIT). */
+  boardItemLimit: number;
+  /** Optional HTTPS manifest URL (must match server allow suffix when set). */
+  updateManifestUrl: string;
 };
 
 export const OPTIONS_KEY = "csmon.options";
@@ -33,6 +41,8 @@ export const DEFAULT_OPTIONS: UserOptions = {
   homePlace: "Dublin",
   palette: "light",
   defaultRetentionDays: 30,
+  boardItemLimit: DEFAULT_BOARD_ITEM_LIMIT,
+  updateManifestUrl: "",
 };
 
 export function loadOptions(): UserOptions {
@@ -51,6 +61,11 @@ export function loadOptions(): UserOptions {
     if (!parsed.homeLanguage) merged.homeLanguage = detectBrowserLanguage();
     else merged.homeLanguage = normalizeLang(parsed.homeLanguage) || "en";
     merged.palette = resolvePalette(parsed.palette);
+    merged.boardItemLimit = clampBoardItemLimit(
+      parsed.boardItemLimit ?? DEFAULT_BOARD_ITEM_LIMIT,
+    );
+    merged.updateManifestUrl =
+      typeof parsed.updateManifestUrl === "string" ? parsed.updateManifestUrl.trim() : "";
     return merged;
   } catch {
     return DEFAULT_OPTIONS;

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
   ExternalLink,
@@ -25,6 +25,7 @@ import {
   saveSourceLibrary,
   type LocalSourceDraft,
 } from "@/lib/source-library";
+import { parseSourceImportJson } from "@/lib/source-import";
 import type { SourceCatalogRow } from "@/lib/source-catalog-shared";
 import type { MonitorState } from "@/lib/types";
 
@@ -170,6 +171,7 @@ export function SourceWorkbenchBody({
   const [purgeDays, setPurgeDays] = useState(30);
   const [defaultRetention, setDefaultRetention] = useState<number | null>(30);
   const [showAdd, setShowAdd] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [newLayer, setNewLayer] = useState({
     name: "",
     url: "",
@@ -245,6 +247,52 @@ export function SourceWorkbenchBody({
     setMessage(
       "Downloaded contribution JSON. Add feeds to lib/intel-feeds.ts in your GitHub fork and open a pull request — csmon never pushes upstream for you.",
     );
+  }
+
+  async function importFile(file: File) {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const text = await file.text();
+      const parsed = parseSourceImportJson(text);
+      if (!parsed.layers.length) {
+        throw new Error(parsed.warnings[0] || "No layers to import.");
+      }
+      const res = await apiFetch("/api/source-catalog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ import: parsed.layers, refresh: true }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        catalog?: CatalogResponse;
+        state?: MonitorState;
+        import?: { created: number; skipped: number; errors: string[] };
+      };
+      if (!res.ok) throw new Error(data.error || "Import failed");
+      if (data.catalog) {
+        setCatalog(data.catalog);
+        setDrafts(mergeDrafts(data.catalog, loadSourceLibrary()));
+      }
+      if (data.state && onApplied) onApplied(data.state);
+      const imp = data.import;
+      const parts = [
+        imp ? `Added ${imp.created} layer${imp.created === 1 ? "" : "s"}` : "Import finished",
+        imp?.skipped ? `${imp.skipped} already present` : "",
+        imp?.errors?.length ? `${imp.errors.length} failed` : "",
+      ].filter(Boolean);
+      const warn =
+        parsed.warnings.length > 0
+          ? ` · ${parsed.warnings.slice(0, 3).join(" ")}${parsed.warnings.length > 3 ? "…" : ""}`
+          : "";
+      setMessage(`${parts.join(", ")}.${warn}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setBusy(false);
+      if (importInputRef.current) importInputRef.current.value = "";
+    }
   }
 
   async function applyRows(ids: number[], refresh = true) {
@@ -568,6 +616,25 @@ export function SourceWorkbenchBody({
             <Button size="xs" variant="outline" disabled={busy} onClick={exportFile}>
               <Download className="size-3" />
               Export JSON
+            </Button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void importFile(file);
+              }}
+            />
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={busy}
+              title="Import Export JSON or a list of RSS layers from another csmon"
+              onClick={() => importInputRef.current?.click()}
+            >
+              Import JSON
             </Button>
             <Button size="xs" variant="outline" disabled={busy} onClick={() => void applyServer(false)}>
               Apply (no refresh)

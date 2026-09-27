@@ -1,5 +1,6 @@
 import { asIdList, fail, gate, jsonOk, readJson } from "@/lib/guard";
-import { deleteSource, getMonitorState, setSourceEnabled } from "@/lib/queries";
+import { deleteSource, setSourceEnabled } from "@/lib/queries";
+import { monitorStateFromRequest } from "@/lib/monitor-state";
 import { refreshSources } from "@/lib/scrape/refresh";
 
 export const runtime = "nodejs";
@@ -17,7 +18,7 @@ export async function PATCH(request: Request) {
       setSourceEnabled(enable, true);
       await refreshSources(enable);
     }
-    return jsonOk(getMonitorState());
+    return jsonOk(monitorStateFromRequest(request));
   } catch (error) {
     return fail(error, "Update failed");
   }
@@ -29,5 +30,5 @@ export async function DELETE(request: Request) {
   const id = Number(new URL(request.url).searchParams.get("id"));
   if (!Number.isInteger(id) || id <= 0) return jsonOk({ error: "Missing id" }, 400);
   deleteSource(id);
-  return jsonOk(getMonitorState());
+  return jsonOk(monitorStateFromRequest(request));
 }

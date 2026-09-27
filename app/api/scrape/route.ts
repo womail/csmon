@@ -1,5 +1,6 @@
 import { fail, gate, jsonOk, readJson } from "@/lib/guard";
-import { getMonitorState, upsertScrape } from "@/lib/queries";
+import { upsertScrape } from "@/lib/queries";
+import { monitorStateFromRequest } from "@/lib/monitor-state";
 import { scrapeInput } from "@/lib/scrape";
 
 export const runtime = "nodejs";
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
       discovered: result.sources,
       user: result.user,
       sources: persisted.sources,
-      state: getMonitorState(),
+      state: monitorStateFromRequest(request),
     });
   } catch (error) {
     return fail(error, "Scrape failed");

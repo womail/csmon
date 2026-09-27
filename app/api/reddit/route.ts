@@ -1,5 +1,6 @@
 import { fail, gate, jsonOk, readJson } from "@/lib/guard";
-import { getMonitorState, registerRedditFeed } from "@/lib/queries";
+import { registerRedditFeed } from "@/lib/queries";
+import { monitorStateFromRequest } from "@/lib/monitor-state";
 import { uniqueSubreddits } from "@/lib/reddit";
 import { refreshSources } from "@/lib/scrape/refresh";
 
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
     if (enable && !subs.length) return jsonOk({ error: "Add at least one subreddit." }, 400);
     const ids = registerRedditFeed(subs, enable);
     if (enable) await refreshSources(ids);
-    return jsonOk(getMonitorState());
+    return jsonOk(monitorStateFromRequest(request));
   } catch (error) {
     return fail(error, "Reddit feed failed");
   }

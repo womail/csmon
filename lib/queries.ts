@@ -392,6 +392,7 @@ export function listUsers(): SeedUser[] {
     .map((row) => mapUser(row as Record<string, unknown>));
 }
 
+/** Recent items from enabled sources (newest first). Limit is capped in board-limit.ts. */
 export function listItems(limit = 500): Item[] {
   return (
     getDb()
@@ -406,9 +407,9 @@ export function listItems(limit = 500): Item[] {
   ).map(mapItem);
 }
 
-export function getMonitorState(): MonitorState {
+export function getMonitorState(itemLimit?: number): MonitorState {
   const sources = listSources();
-  const items = listItems();
+  const items = listItems(itemLimit);
   return {
     users: listUsers(),
     sources,

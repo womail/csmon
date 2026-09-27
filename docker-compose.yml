@@ -7,6 +7,7 @@ services:
 
   csmon:
     image: csmon:local
+    user: "1001:1001"
     build:
       context: .
       dockerfile: Dockerfile
@@ -18,10 +19,13 @@ services:
       - "127.0.0.1:3000:3000"
     environment:
       NODE_ENV: production
-      HOSTNAME: 0.0.0.0
+      CSMON_BIND_HOST: 0.0.0.0
       PORT: "3000"
       CSMON_DATA_DIR: /app/data
       CSMON_UPDATE_REPO: womail/csmon
+      # CSMON_UPDATE_MANIFEST_URL: https://csmon.example.com/csmon-update.json
+      # CSMON_UPDATE_MANIFEST_ALLOW_SUFFIX: .example.com
+      # CSMON_ITEM_LIMIT: "500"
       # CSMON_TOKEN: change-me
       # CSMON_SECURE_COOKIE: "1"
     volumes:

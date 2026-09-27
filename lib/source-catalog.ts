@@ -1,3 +1,4 @@
+/** Source library: catalog rows, manual layers, retention purge, bulk import. */
 import "server-only";
 
 import { colorFor } from "./colors";
@@ -293,6 +294,38 @@ function manualSeedUserId() {
       now,
     );
   return Number(inserted.lastInsertRowid);
+}
+
+export function importManualSources(
+  inputs: CreateSourceInput[],
+): { ids: number[]; created: number; skipped: number; errors: string[] } {
+  const ids: number[] = [];
+  let created = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+  const db = getDb();
+  for (const input of inputs) {
+    try {
+      const feedUrl = input.feedUrl.trim();
+      const key = `rss:${feedUrl}`;
+      const existing = db.prepare("SELECT id FROM sources WHERE key = ?").get(key) as
+        | { id: number }
+        | undefined;
+      if (existing) {
+        skipped += 1;
+        ids.push(existing.id);
+        continue;
+      }
+      const id = createManualSource(input);
+      created += 1;
+      ids.push(id);
+    } catch (err) {
+      errors.push(
+        `${input.name || input.feedUrl}: ${err instanceof Error ? err.message : "failed"}`,
+      );
+    }
+  }
+  return { ids, created, skipped, errors };
 }
 
 export function createManualSource(input: CreateSourceInput): number {

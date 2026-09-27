@@ -24,6 +24,7 @@ import { OptionsButton } from "@/components/monitor/options-panel";
 import { RedditButton } from "@/components/monitor/reddit-panel";
 import { SavedFilters } from "@/components/monitor/saved-filters";
 import { ThemeToggle } from "@/components/monitor/theme-toggle";
+import { DismissFilterChip, ToggleFilterChip } from "@/components/monitor/filter-chip";
 import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +48,7 @@ import { matchesStack, type KevEntry, type PatchRisk } from "@/lib/kev";
 import { matchesLane, type SituationLane } from "@/lib/lanes";
 import { kevForStory, itemsForCve, relatedStories, similarStories } from "@/lib/link";
 import { isAdvisoryItem, itemHasVendor, matchVendorName, mineItem, vendorFamily } from "@/lib/mine";
+import { withItemLimitQuery } from "@/lib/board-limit";
 import { loadOptions, saveOptions } from "@/lib/options";
 import { loadSubreddits, DEFAULT_SUBREDDITS } from "@/lib/reddit";
 import { applyPalette } from "@/lib/theme";
@@ -145,6 +147,10 @@ const RISK_COLOR: Record<PatchRisk, string> = {
   p2: "#64748b",
 };
 
+function statePath(path: string, limit: number) {
+  return withItemLimitQuery(path, limit);
+}
+
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await apiFetch(url, init);
   const data = (await res.json()) as T & { error?: string };
@@ -227,6 +233,7 @@ export function Monitor({
   const [homePlace, setHomePlace] = useState("Dublin");
   const [weatherEvents, setWeatherEvents] = useState<WeatherEvent[]>([]);
   const [followOpen, setFollowOpen] = useState(true);
+  const [boardItemLimit, setBoardItemLimit] = useState(() => loadOptions().boardItemLimit);
   const [triage, setTriage] = useState<TriageState>({ hidden: [], read: [] });
   const [triageUndo, setTriageUndo] = useState<TriageUndo[]>([]);
   const [subreddits, setSubreddits] = useState<string[]>(DEFAULT_SUBREDDITS);
@@ -258,6 +265,7 @@ export function Monitor({
     setOpenReportId(loadActiveReportId());
     setReaderWidth(loadReaderWidth());
     setFollowOpen(window.localStorage.getItem("csmon.follow-open") !== "0");
+    setBoardItemLimit(opts.boardItemLimit);
     if (!seed.stack) {
       setStack(opts.stack || window.localStorage.getItem("csmon.stack") || "");
     }
@@ -271,7 +279,7 @@ export function Monitor({
       try {
         const empty = initial.sources.filter((source) => source.enabled).length === 0;
         if (opts.autoLoadSecurity && empty) {
-          const next = await json<MonitorState>("/api/intel", {
+          const next = await json<MonitorState>(statePath("/api/intel", boardItemLimit), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ pack: "security", enable: true }),
@@ -279,7 +287,7 @@ export function Monitor({
           if (!cancelled) setState(next);
         }
         if (opts.autoLoadHazards && empty) {
-          const next = await json<MonitorState>("/api/intel", {
+          const next = await json<MonitorState>(statePath("/api/intel", boardItemLimit), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ pack: "hazard", enable: true }),
@@ -287,7 +295,9 @@ export function Monitor({
           if (!cancelled) setState(next);
         }
         if (opts.autoLoadKev && !(initial.kev?.length)) {
-          const next = await json<MonitorState>("/api/kev", { method: "POST" });
+          const next = await json<MonitorState>(statePath("/api/kev", boardItemLimit), {
+            method: "POST",
+          });
           if (!cancelled) setState(next);
         }
         const [quakeRes, flightRes, weatherRes] = await Promise.all([
@@ -536,7 +546,7 @@ export function Monitor({
       const data = await json<{
         discovered: DiscoveredSource[];
         state: MonitorState;
-      }>("/api/scrape", {
+      }>(statePath("/api/scrape", boardItemLimit), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ input, mode }),
@@ -559,7 +569,7 @@ export function Monitor({
         .filter((s) => discovered.some((d) => d.key === s.key))
         .map((s) => s.id);
       const disable = discoveredIds.filter((id) => !selected.includes(id));
-      const next = await json<MonitorState>("/api/sources", {
+      const next = await json<MonitorState>(statePath("/api/sources", boardItemLimit), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enable: selected, disable }),
@@ -575,7 +585,7 @@ export function Monitor({
 
   async function toggleLayer(id: number, enabledNow: boolean) {
     setState(
-      await json<MonitorState>("/api/sources", {
+      await json<MonitorState>(statePath("/api/sources", boardItemLimit), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(enabledNow ? { disable: [id] } : { enable: [id] }),
@@ -587,7 +597,7 @@ export function Monitor({
     setRefreshing(true);
     setError(null);
     try {
-      setState(await json<MonitorState>("/api/refresh", { method: "POST" }));
+      setState(await json<MonitorState>(statePath("/api/refresh", boardItemLimit), { method: "POST" }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Refresh failed");
     } finally {
@@ -600,7 +610,7 @@ export function Monitor({
     setError(null);
     try {
       setState(
-        await json<MonitorState>("/api/reddit", {
+        await json<MonitorState>(statePath("/api/reddit", boardItemLimit), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ subs, enable: true }),
@@ -619,7 +629,7 @@ export function Monitor({
     setBusy(true);
     try {
       setState(
-        await json<MonitorState>("/api/intel", {
+        await json<MonitorState>(statePath("/api/intel", boardItemLimit), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ pack, enable: true }),
@@ -653,6 +663,38 @@ export function Monitor({
     setRising(filters.rising);
     setQb(filters.qb ?? emptyQuery());
   }
+
+  function clearBoardFilters() {
+    setQuery("");
+    setTopic(null);
+    setPlace(null);
+    setCross(false);
+    setVendor(null);
+    setRansomware(false);
+    setLayer(null);
+    setOrigin(null);
+    setPlatform(null);
+    setPerson(null);
+    setRising(false);
+    setRiskFilter("p0");
+    setQb(emptyQuery());
+    setOpenSourceId(null);
+  }
+
+  const boardFiltersActive =
+    Boolean(layer) ||
+    Boolean(platform) ||
+    rising ||
+    hasQuery(qb) ||
+    Boolean(place) ||
+    Boolean(person) ||
+    Boolean(vendor) ||
+    Boolean(topic) ||
+    Boolean(origin) ||
+    cross ||
+    Boolean(query.trim()) ||
+    ransomware ||
+    (viewDesk === "patch" && riskFilter !== "all");
 
   function goHome() {
     const next = defaultBoardFilters(stack);
@@ -746,7 +788,7 @@ export function Monitor({
     setBusy(true);
     setError(null);
     try {
-      setState(await json<MonitorState>("/api/kev", { method: "POST" }));
+      setState(await json<MonitorState>(statePath("/api/kev", boardItemLimit), { method: "POST" }));
       setDesk("patch");
     } catch (err) {
       setError(err instanceof Error ? err.message : "KEV failed");
@@ -760,7 +802,7 @@ export function Monitor({
     setBusy(true);
     try {
       setState(
-        await json<MonitorState>("/api/explore", {
+        await json<MonitorState>(statePath("/api/explore", boardItemLimit), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ host, url }),
@@ -1112,21 +1154,7 @@ export function Monitor({
           setCustomDesks(next);
           if (desk === id) setDesk("home");
         }}
-        onClearFilters={() => {
-          setQuery("");
-          setTopic(null);
-          setPlace(null);
-          setCross(false);
-          setVendor(null);
-          setRansomware(false);
-          setLayer(null);
-          setOrigin(null);
-          setPlatform(null);
-          setPerson(null);
-          setRising(false);
-          setRiskFilter("p0");
-          setQb(emptyQuery());
-        }}
+        onClearFilters={clearBoardFilters}
       />
       <div className="flex min-w-0 flex-1 flex-col bg-slate-50">
         <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
@@ -1214,6 +1242,8 @@ export function Monitor({
                 setHomeLanguage(options.homeLanguage);
                 setAutoTranslate(options.autoTranslate);
                 changeHomePlace(options.homePlace || "");
+                setBoardItemLimit(options.boardItemLimit);
+                void json<MonitorState>(statePath("/api/state", options.boardItemLimit)).then(setState);
               }}
             />
             <Tip text="Add a public RSS feed or Bluesky handle">
@@ -1243,80 +1273,80 @@ export function Monitor({
                   : brief}
           </div>
           <div className="flex flex-wrap content-start gap-1 px-3 pb-2">
+            {boardFiltersActive ? (
+              <DismissFilterChip
+                label="Clear all filters"
+                tip="Remove every active filter on this desk"
+                onDismiss={clearBoardFilters}
+                background="#f1f5f9"
+                color="#334155"
+              />
+            ) : null}
+            {query.trim() ? (
+              <DismissFilterChip
+                label={`Search: ${query.trim().slice(0, 32)}${query.trim().length > 32 ? "…" : ""}`}
+                onDismiss={() => setQuery("")}
+                background="#475569"
+              />
+            ) : null}
+            {topic ? (
+              <DismissFilterChip label={`Topic: ${topic}`} onDismiss={() => setTopic(null)} background="#0f172a" />
+            ) : null}
             {layer ? (
-              <button
-                type="button"
-                onClick={() => {
+              <DismissFilterChip
+                label={shortSourceName(byId.get(layer)?.name ?? "layer")}
+                onDismiss={() => {
                   setLayer(null);
                   setOpenSourceId(null);
                 }}
-                className="tag"
-                style={{ background: "#0f172a", color: "#fff" }}
-              >
-                {shortSourceName(byId.get(layer)?.name ?? "layer")} ×
-              </button>
+              />
             ) : null}
             {platform ? (
-              <button
-                type="button"
-                onClick={() => setPlatform(null)}
-                className="tag"
-                style={{ background: "#0f172a", color: "#fff" }}
-              >
-                {platform} ×
-              </button>
+              <DismissFilterChip label={platform} onDismiss={() => setPlatform(null)} />
+            ) : null}
+            {origin ? (
+              <DismissFilterChip label={`origin: ${origin}`} onDismiss={() => setOrigin(null)} />
+            ) : null}
+            {cross ? (
+              <DismissFilterChip label="2+ sources" onDismiss={() => setCross(false)} />
             ) : null}
             {rising ? (
-              <button
-                type="button"
-                onClick={() => setRising(false)}
-                className="tag"
-                style={{ background: "#15803d", color: "#fff" }}
-              >
-                rising ×
-              </button>
+              <DismissFilterChip
+                label="rising"
+                onDismiss={() => setRising(false)}
+                background="#15803d"
+              />
+            ) : null}
+            {ransomware ? (
+              <DismissFilterChip
+                label="ransomware"
+                onDismiss={() => setRansomware(false)}
+                background="#9f1239"
+              />
+            ) : null}
+            {viewDesk === "patch" && riskFilter !== "all" ? (
+              <DismissFilterChip
+                label={RISK_LABEL[riskFilter]}
+                onDismiss={() => setRiskFilter("all")}
+                background="#0f172a"
+              />
             ) : null}
             {hasQuery(qb) ? (
-              <Tip text={summarizeQuery(qb)}>
-                <button
-                  type="button"
-                  onClick={() => setQb(emptyQuery())}
-                  className="tag"
-                  style={{ background: "#1d4ed8", color: "#fff" }}
-                >
-                  query ×
-                </button>
-              </Tip>
+              <DismissFilterChip
+                label="query builder"
+                tip={summarizeQuery(qb)}
+                onDismiss={() => setQb(emptyQuery())}
+                background="#1d4ed8"
+              />
             ) : null}
             {place ? (
-              <button
-                type="button"
-                onClick={() => setPlace(null)}
-                className="tag"
-                style={{ background: "#0e7490", color: "#fff" }}
-              >
-                {place} ×
-              </button>
+              <DismissFilterChip label={place} onDismiss={() => setPlace(null)} background="#0e7490" />
             ) : null}
             {person ? (
-              <button
-                type="button"
-                onClick={() => setPerson(null)}
-                className="tag"
-                style={{ background: "#6d28d9", color: "#fff" }}
-              >
-                {person} ×
-              </button>
+              <DismissFilterChip label={person} onDismiss={() => setPerson(null)} background="#6d28d9" />
             ) : null}
             {vendor ? (
-              <button
-                type="button"
-                onClick={() => setVendor(null)}
-                className="tag"
-                style={{ background: "#9f1239", color: "#fff" }}
-              >
-                {vendor} ×
-              </button>
+              <DismissFilterChip label={vendor} onDismiss={() => setVendor(null)} background="#9f1239" />
             ) : null}
             {triageUndo.length > 0 ? (
               <Tip text="Undo the last hide or read">
@@ -1441,59 +1471,62 @@ export function Monitor({
                     chip.kind === "topic" ? topic === chip.value : vendor === chip.value;
                   const style = tagStyle(chip.kind === "topic" ? chip.value : "cyber");
                   return (
-                    <Tip key={chip.label} text={`Filter to ${chip.label}`}>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          chip.kind === "topic" ? toggleTopic(chip.value) : toggleVendor(chip.value)
-                        }
-                        className="tag"
-                        style={{
-                          background: active ? style.fg : style.bg,
-                          color: active ? "#fff" : style.fg,
-                        }}
-                      >
-                        {chip.label}
-                      </button>
-                    </Tip>
+                    <ToggleFilterChip
+                      key={chip.label}
+                      label={chip.label}
+                      active={active}
+                      tip={active ? `Remove ${chip.label} filter` : `Filter to ${chip.label}`}
+                      onToggle={() =>
+                        chip.kind === "topic" ? toggleTopic(chip.value) : toggleVendor(chip.value)
+                      }
+                      onDismiss={() =>
+                        chip.kind === "topic" ? setTopic(null) : setVendor(null)
+                      }
+                      activeBackground={style.fg}
+                      activeColor="#fff"
+                      idleBackground={style.bg}
+                      idleColor={style.fg}
+                    />
                   );
                 })}
                 {pinnedPlaceCounts.map(([name, count]) => {
                   const style = tagStyle("place");
                   const active = place === name;
                   return (
-                    <Tip key={`pin-${name}`} text={`Everything mentioning ${name} in title or summary`}>
-                      <button
-                        type="button"
-                        onClick={() => focusPlace(name)}
-                        className="tag"
-                        style={{
-                          background: active ? style.fg : style.bg,
-                          color: active ? "#fff" : style.fg,
-                        }}
-                      >
-                        {name} {count}
-                      </button>
-                    </Tip>
+                    <ToggleFilterChip
+                      key={`pin-${name}`}
+                      label={`${name} ${count}`}
+                      active={active}
+                      tip={
+                        active
+                          ? `Remove ${name} filter`
+                          : `Everything mentioning ${name} in title or summary`
+                      }
+                      onToggle={() => focusPlace(name)}
+                      onDismiss={() => setPlace(null)}
+                      activeBackground={style.fg}
+                      activeColor="#fff"
+                      idleBackground={style.bg}
+                      idleColor={style.fg}
+                    />
                   );
                 })}
                 {(viewDesk === "home" ? catalogTopics : topics).slice(0, 10).map(([name, count]) => {
                   const style = tagStyle(name);
                   const active = topic === name;
                   return (
-                    <Tip key={name} text={active ? `Clear ${name}` : `Filter this desk to ${name}`}>
-                      <button
-                        type="button"
-                        onClick={() => toggleTopic(name)}
-                        className="tag"
-                        style={{
-                          background: active ? style.fg : style.bg,
-                          color: active ? "#fff" : style.fg,
-                        }}
-                      >
-                        {name} {count}
-                      </button>
-                    </Tip>
+                    <ToggleFilterChip
+                      key={name}
+                      label={`${name} ${count}`}
+                      active={active}
+                      tip={active ? `Remove ${name} filter` : `Filter this desk to ${name}`}
+                      onToggle={() => toggleTopic(name)}
+                      onDismiss={() => setTopic(null)}
+                      activeBackground={style.fg}
+                      activeColor="#fff"
+                      idleBackground={style.bg}
+                      idleColor={style.fg}
+                    />
                   );
                 })}
                 {places
@@ -1503,18 +1536,17 @@ export function Monitor({
                     const style = tagStyle("place");
                     const active = place === name;
                     return (
-                      <button
+                      <ToggleFilterChip
                         key={`country-${name}`}
-                        type="button"
-                        onClick={() => focusPlace(name)}
-                        className="tag"
-                        style={{
-                          background: active ? style.fg : style.bg,
-                          color: active ? "#fff" : style.fg,
-                        }}
-                      >
-                        {name} {count}
-                      </button>
+                        label={`${name} ${count}`}
+                        active={active}
+                        onToggle={() => focusPlace(name)}
+                        onDismiss={() => setPlace(null)}
+                        activeBackground={style.fg}
+                        activeColor="#fff"
+                        idleBackground={style.bg}
+                        idleColor={style.fg}
+                      />
                     );
                   })}
                 {places
@@ -1524,68 +1556,67 @@ export function Monitor({
                     const style = tagStyle("place");
                     const active = place === name;
                     return (
-                      <button
+                      <ToggleFilterChip
                         key={name}
-                        type="button"
-                        onClick={() => focusPlace(name)}
-                        className="tag"
-                        style={{
-                          background: active ? style.fg : style.bg,
-                          color: active ? "#fff" : style.fg,
-                        }}
-                      >
-                        {name} {count}
-                      </button>
+                        label={`${name} ${count}`}
+                        active={active}
+                        onToggle={() => focusPlace(name)}
+                        onDismiss={() => setPlace(null)}
+                        activeBackground={style.fg}
+                        activeColor="#fff"
+                        idleBackground={style.bg}
+                        idleColor={style.fg}
+                      />
                     );
                   })}
                 {vendors.slice(0, 6).map(([name, count]) => {
                   const active = vendor === name;
                   return (
-                    <button
+                    <ToggleFilterChip
                       key={name}
-                      type="button"
-                      onClick={() => toggleVendor(name)}
-                      className="tag"
-                      style={{
-                        background: active ? "#9f1239" : "#fee2e2",
-                        color: active ? "#fff" : "#9f1239",
-                      }}
-                    >
-                      {name} {count}
-                    </button>
+                      label={`${name} ${count}`}
+                      active={active}
+                      onToggle={() => toggleVendor(name)}
+                      onDismiss={() => setVendor(null)}
+                      activeBackground="#9f1239"
+                      activeColor="#fff"
+                      idleBackground="#fee2e2"
+                      idleColor="#9f1239"
+                    />
                   );
                 })}
-                {cveHits.map(([cve, count]) => (
-                  <Tip key={cve} text={`Search the board for ${cve}`}>
-                    <button
-                      type="button"
-                      className="tag"
-                      style={{
-                        background: query.toLowerCase() === cve.toLowerCase() ? "#9f1239" : "#fff7ed",
-                        color: query.toLowerCase() === cve.toLowerCase() ? "#fff" : "#9a3412",
-                      }}
-                      onClick={() => setQuery((current) => (current === cve ? "" : cve))}
-                    >
-                      {cve} {count}
-                    </button>
-                  </Tip>
-                ))}
+                {cveHits.map(([cve, count]) => {
+                  const active = query.toLowerCase() === cve.toLowerCase();
+                  return (
+                    <ToggleFilterChip
+                      key={cve}
+                      label={`${cve} ${count}`}
+                      active={active}
+                      tip={active ? `Clear ${cve} search` : `Search the board for ${cve}`}
+                      onToggle={() => setQuery((current) => (current === cve ? "" : cve))}
+                      onDismiss={() => setQuery("")}
+                      activeBackground="#9f1239"
+                      activeColor="#fff"
+                      idleBackground="#fff7ed"
+                      idleColor="#9a3412"
+                    />
+                  );
+                })}
                 {peopleCatalog.slice(0, 5).map((row) => {
                   const active = person === row.name;
                   return (
-                    <Tip key={row.name} text={`Filter to ${row.name}`}>
-                      <button
-                        type="button"
-                        onClick={() => togglePerson(row.name)}
-                        className="tag"
-                        style={{
-                          background: active ? "#6d28d9" : "#ede9fe",
-                          color: active ? "#fff" : "#6d28d9",
-                        }}
-                      >
-                        {row.name} {row.count}
-                      </button>
-                    </Tip>
+                    <ToggleFilterChip
+                      key={row.name}
+                      label={`${row.name} ${row.count}`}
+                      active={active}
+                      tip={active ? `Remove ${row.name} filter` : `Filter to ${row.name}`}
+                      onToggle={() => togglePerson(row.name)}
+                      onDismiss={() => setPerson(null)}
+                      activeBackground="#6d28d9"
+                      activeColor="#fff"
+                      idleBackground="#ede9fe"
+                      idleColor="#6d28d9"
+                    />
                   );
                 })}
                 {viewDesk === "sources" ? (

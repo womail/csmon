@@ -1,9 +1,11 @@
 import { fail, gate, jsonOk, readJson } from "@/lib/guard";
-import { deleteSource, getMonitorState } from "@/lib/queries";
+import { deleteSource } from "@/lib/queries";
+import { monitorStateFromRequest } from "@/lib/monitor-state";
 import { parsePublicHttpUrl } from "@/lib/public-url";
 import {
   buildSourceCatalog,
   createManualSource,
+  importManualSources,
   patchSources,
   purgeByRetentionPolicy,
   purgeItemsOlderThan,
@@ -57,7 +59,41 @@ export async function POST(request: Request) {
   const blocked = gate(request, "source-catalog", 15);
   if (blocked) return blocked;
   try {
-    const body = await readJson<{ create?: CreateSourceInput; refresh?: boolean }>(request);
+    const body = await readJson<{
+      create?: CreateSourceInput;
+      import?: CreateSourceInput[];
+      refresh?: boolean;
+    }>(request);
+
+    if (Array.isArray(body.import) && body.import.length) {
+      const layers: CreateSourceInput[] = [];
+      for (const row of body.import) {
+        if (!row?.name?.trim() || !row.url?.trim() || !row.feedUrl?.trim()) continue;
+        await parsePublicHttpUrl(row.url.trim());
+        await parsePublicHttpUrl(row.feedUrl.trim());
+        layers.push({
+          name: row.name.trim(),
+          url: row.url.trim(),
+          feedUrl: row.feedUrl.trim(),
+          description: row.description?.trim() || null,
+          enabled: row.enabled !== false,
+          retentionDays: row.retentionDays ?? null,
+        });
+      }
+      if (!layers.length) {
+        return fail(new Error("Empty import"), "No valid layers in import.", 400);
+      }
+      const result = importManualSources(layers);
+      if (body.refresh !== false && result.ids.length) {
+        await refreshSources(result.ids);
+      }
+      return jsonOk({
+        catalog: buildSourceCatalog(),
+        state: monitorStateFromRequest(request),
+        import: result,
+      });
+    }
+
     const create = body.create;
     if (!create?.name?.trim() || !create.url?.trim() || !create.feedUrl?.trim()) {
       return fail(new Error("Missing fields"), "Name, site URL, and feed URL are required.", 400);
@@ -75,7 +111,7 @@ export async function POST(request: Request) {
     if (body.refresh !== false) {
       await refreshSources([id]);
     }
-    return jsonOk({ catalog: buildSourceCatalog(), state: getMonitorState(), id });
+    return jsonOk({ catalog: buildSourceCatalog(), state: monitorStateFromRequest(request), id });
   } catch (error) {
     return fail(error, "Could not add source");
   }
@@ -89,7 +125,7 @@ export async function DELETE(request: Request) {
     return fail(new Error("Missing id"), "Missing source id.", 400);
   }
   deleteSource(id);
-  return jsonOk({ catalog: buildSourceCatalog(), state: getMonitorState() });
+  return jsonOk({ catalog: buildSourceCatalog(), state: monitorStateFromRequest(request) });
 }
 
 export async function PATCH(request: Request) {
@@ -145,7 +181,7 @@ export async function PATCH(request: Request) {
 
     return jsonOk({
       catalog: buildSourceCatalog(),
-      state: getMonitorState(),
+      state: monitorStateFromRequest(request),
       purged,
     });
   } catch (error) {

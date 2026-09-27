@@ -29,13 +29,13 @@ RUN pnpm install --frozen-lockfile
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN pnpm generate-sbom && pnpm build
+RUN node scripts/write-build-info.mjs && pnpm generate-sbom && pnpm build
 
 FROM ubuntu-node AS runner
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
+ENV CSMON_BIND_HOST=0.0.0.0
 ENV CSMON_DATA_DIR=/app/data
 WORKDIR /app
 
@@ -49,14 +49,12 @@ COPY --from=build --chown=nextjs:nodejs /app/sbom ./sbom
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
-  && apt-get update \
-  && apt-get install -y --no-install-recommends util-linux \
-  && rm -rf /var/lib/apt/lists/*
+RUN chmod 755 /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:3000/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
+USER nextjs
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node", "server.js"]

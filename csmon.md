@@ -127,9 +127,11 @@ We reuse the **upstream public sources** (CISA, USGS-style RSS, vendor advisorie
 
 ## Options
 
-Browser-local (`localStorage` `csmon.options`): start desk, time range, stack, compact cards, home language, auto-translate, **home location**, **palette** (`light` / `dark`, follows the OS until you toggle), auto-load security RSS, auto-load hazards, auto-load KEV. Shared links still override via the query string.
+Browser-local (`localStorage` `csmon.options`): start desk, time range, stack, compact cards, home language, auto-translate, **home location**, **palette** (`light` / `dark`, follows the OS until you toggle), auto-load security RSS, auto-load hazards, auto-load KEV, **board item limit** (how many recent items SQLite loads onto the board; default 500), optional **update manifest URL**. Shared links still override via the query string.
 
-**Source library** (Options → Open source library, or `/sources/workbench`): every layer with last fetch, item counts, latest headline, stale/silent badges, and tips. **Add RSS layer**, **Edit** (inline row), **Save layer** / **Save & refresh layer**, **Delete layer**. **Apply** saves all rows marked ● (unsaved). Per-layer **retention (days)** plus Options **default item retention**; **Purge by age** or **Run retention policy** trim SQLite items (age uses published or fetched time). **Export JSON** for GitHub (`lib/intel-feeds.ts` PR). API: `GET/POST/PATCH/DELETE /api/source-catalog`.
+**Options** uses tabs (Board / Data / Help). **Open manual** is one pop-out at `/help` (user guide, **Source & filter code map**, **Lexicon**, Docker/update checklists). `/help/maintainer` redirects into that manual.
+
+**Source library** (Options → Open source library, or `/sources/workbench`): every layer with last fetch, item counts, latest headline, stale/silent badges, and tips. **Add RSS layer**, **Edit** (inline row), **Save layer** / **Save & refresh layer**, **Delete layer**. **Apply** saves all rows marked ● (unsaved). Per-layer **retention (days)** plus Options **default item retention**; **Purge by age** or **Run retention policy** trim SQLite items (age uses published or fetched time). **Export JSON** / **Import JSON** — move custom RSS layers between installs (same format as GitHub contribution export, local Save drafts, or a JSON array of `{ name, url, feedUrl }`; duplicate feed URLs are skipped). API: `GET/POST/PATCH/DELETE /api/source-catalog` (`POST` body `{ import: [...] }`).
 
 Saved custom filters live in `csmon.saved-filters` (name + full `BoardFilters` snapshot). User desks live in `csmon.user-desks` (label, `view` desk, filters including `platform`). Compiled briefings live in `csmon.reports` (title, open/archived, story snapshots with full page extract, CVEs, links, and places). Subreddit list lives in `csmon.subreddits`. Applying filters writes the URL the same way chips do (`?place=Ireland&platform=rss&qb=title.contains.Ireland`). Hide/read triage is `csmon.triage`; Follow next collapse is `csmon.follow-open`. Reader width is `csmon.reader-width`.
 
@@ -180,7 +182,7 @@ Outbound fetches refuse private/loopback/link-local addresses, odd ports, and cr
 
 ## Updates
 
-Options → **Application updates** calls `GET /api/update` (GitHub latest release vs `0.2.0`). Apply on the host: `bash scripts/update.sh` or `bash scripts/update.sh docker`. The API never writes to the tree.
+Options shows **version**, **git commit**, and **build date** (`GET /api/version`). **Application updates** calls `GET /api/update`: prefer **`CSMON_UPDATE_MANIFEST_URL`** (static JSON like `public/csmon-update.example.json` on your HTTPS site) or fall back to **`CSMON_UPDATE_REPO`** GitHub releases. Operators can save an allowed manifest URL in Options when `CSMON_UPDATE_MANIFEST_ALLOW_SUFFIX` matches. Apply on the host only: `bash scripts/update.sh` or `bash scripts/update.sh docker` (or set `CSMON_UPDATE_CHECK_URL=https://csmon.lof.ie` for `scripts/update.sh check`). The API never writes to the tree.
 
 ## Environment
 
@@ -189,7 +191,10 @@ Options → **Application updates** calls `GET /api/update` (GitHub latest relea
 | `CSMON_DATA_DIR` | `./data` | SQLite directory |
 | `CSMON_TOKEN` | unset | Shared secret for API + session cookie |
 | `CSMON_SECURE_COOKIE` | unset | `1` adds `Secure` on the session cookie |
-| `CSMON_UPDATE_REPO` | `womail/csmon` | GitHub repo for the update check |
+| `CSMON_UPDATE_REPO` | `womail/csmon` | GitHub repo when no manifest URL |
+| `CSMON_UPDATE_MANIFEST_URL` | unset | HTTPS JSON manifest for private installs |
+| `CSMON_UPDATE_MANIFEST_ALLOW_SUFFIX` | unset | Domain suffix for Options manifest override |
+| `CSMON_ITEM_LIMIT` | `500` | Default SQL item cap when client omits `?itemLimit=` |
 
 Copy `.env.example` to `.env.local`. No new database tables for this milestone.
 

@@ -1,6 +1,7 @@
 import { INTEL_FEEDS, type IntelPack } from "@/lib/intel-feeds";
 import { fail, gate, jsonOk, readJson } from "@/lib/guard";
-import { getMonitorState, registerIntelFeeds } from "@/lib/queries";
+import { registerIntelFeeds } from "@/lib/queries";
+import { monitorStateFromRequest } from "@/lib/monitor-state";
 import { refreshSources } from "@/lib/scrape/refresh";
 
 export const runtime = "nodejs";
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
     const enable = body.enable !== false;
     const ids = registerIntelFeeds(feeds, enable);
     if (enable) await refreshSources(ids);
-    return jsonOk(getMonitorState());
+    return jsonOk(monitorStateFromRequest(request));
   } catch (error) {
     return fail(error, "Intel pack failed");
   }

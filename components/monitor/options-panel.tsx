@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Settings } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { BookOpen, Database, Settings, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -22,10 +23,47 @@ import {
 import type { TimeRange } from "@/lib/types";
 import { Tip } from "@/components/monitor/tip";
 import { SourceWorkbench } from "@/components/monitor/source-workbench";
+import { AppVersionLine } from "@/components/monitor/app-version";
 import { UpdateChecker } from "@/components/monitor/update-checker";
+import { MAX_BOARD_ITEM_LIMIT, MIN_BOARD_ITEM_LIMIT } from "@/lib/board-limit";
 import type { MonitorState } from "@/lib/types";
 
 const RANGES: TimeRange[] = ["1h", "6h", "24h", "7d", "all"];
+
+type OptionsTab = "board" | "data" | "system";
+
+function TabButton({
+  id,
+  active,
+  onClick,
+  children,
+}: {
+  id: OptionsTab;
+  active: boolean;
+  onClick: (id: OptionsTab) => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={() => onClick(id)}
+      className={`rounded-md px-2.5 py-1 text-[11px] font-medium ${
+        active ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function FieldLabel({ children }: { children: ReactNode }) {
+  return <span className="text-[11px] font-medium text-slate-600">{children}</span>;
+}
+
+const selectClass =
+  "mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-[12px] dark:border-input dark:bg-background";
 
 export function OptionsButton({
   onApply,
@@ -35,11 +73,15 @@ export function OptionsButton({
   onSourcesApplied?: (state: MonitorState) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<OptionsTab>("board");
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [options, setOptions] = useState<UserOptions>(DEFAULT_OPTIONS);
 
   useEffect(() => {
-    if (open) setOptions(loadOptions());
+    if (open) {
+      setOptions(loadOptions());
+      setTab("board");
+    }
   }, [open]);
 
   function commit() {
@@ -48,194 +90,279 @@ export function OptionsButton({
     setOpen(false);
   }
 
+  function openManual() {
+    window.open("/help", "_blank", "noopener,noreferrer,width=980,height=860");
+  }
+
   return (
     <>
-      <Tip text="Language, layout, and what loads when the board is empty">
+      <Tip text="Board defaults, data limits, updates, and manual">
         <Button size="xs" variant="outline" onClick={() => setOpen(true)}>
           <Settings className="size-3" />
           Options
         </Button>
       </Tip>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-[15px]">Board options</DialogTitle>
-            <p className="text-[12px] text-slate-500">
-              Defaults for this browser. URL filters still win when you share a link.
-            </p>
+        <DialogContent
+          showCloseButton
+          className="flex max-h-[min(90vh,780px)] w-[min(calc(100%-1rem),440px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[440px]"
+        >
+          <DialogHeader className="shrink-0 space-y-1 border-b border-slate-200 px-4 py-3">
+            <DialogTitle className="text-[15px]">Options</DialogTitle>
+            <AppVersionLine />
           </DialogHeader>
-          <div className="space-y-3 px-1 pb-1">
-            <label className="block text-[11px] font-medium text-slate-600">
-              Start on desk
-              <select
-                className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-[12px]"
-                value={options.defaultDesk}
-                onChange={(e) =>
-                  setOptions((o) => ({ ...o, defaultDesk: e.target.value as UserOptions["defaultDesk"] }))
-                }
-              >
-                {DESKS.map((desk) => (
-                  <option key={desk.id} value={desk.id}>
-                    {desk.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-[11px] font-medium text-slate-600">
-              Default time range
-              <select
-                className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-[12px]"
-                value={options.defaultRange}
-                onChange={(e) =>
-                  setOptions((o) => ({ ...o, defaultRange: e.target.value as TimeRange }))
-                }
-              >
-                {RANGES.map((range) => (
-                  <option key={range} value={range}>
-                    {range}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-[11px] font-medium text-slate-600">
-              Home location
-              <select
-                className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-[12px]"
-                value={options.homePlace}
-                onChange={(e) => setOptions((o) => ({ ...o, homePlace: e.target.value }))}
-              >
-                <option value="">World (no 100 km cap)</option>
-                {HOME_CITIES.map((city) => (
-                  <option key={city.name} value={city.name}>
-                    {city.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-[11px] font-medium text-slate-600">
-              Home language
-              <select
-                className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-[12px]"
-                value={options.homeLanguage}
-                onChange={(e) =>
-                  setOptions((o) => ({ ...o, homeLanguage: e.target.value }))
-                }
-              >
-                {HOME_LANGUAGES.map((lang) => (
-                  <option key={lang.id} value={lang.id}>
-                    {lang.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-2 text-[12px] text-slate-700">
-              <input
-                type="checkbox"
-                checked={options.autoTranslate}
-                onChange={(e) => setOptions((o) => ({ ...o, autoTranslate: e.target.checked }))}
-              />
-              Auto-translate articles into the home language
-            </label>
-            <label className="block text-[11px] font-medium text-slate-600">
-              Software stack
-              <Input
-                className="mt-1 h-8 text-[12px]"
-                value={options.stack}
-                onChange={(e) => setOptions((o) => ({ ...o, stack: e.target.value }))}
-                placeholder="microsoft, linux, openssl, chrome"
-              />
-            </label>
-            <label className="block text-[11px] font-medium text-slate-600">
-              Palette
-              <select
-                className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-[12px]"
-                value={options.palette}
-                onChange={(e) =>
-                  setOptions((o) => ({ ...o, palette: e.target.value as UserOptions["palette"] }))
-                }
-              >
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-            </label>
-            <label className="flex items-center gap-2 text-[12px] text-slate-700">
-              <input
-                type="checkbox"
-                checked={options.compact}
-                onChange={(e) => setOptions((o) => ({ ...o, compact: e.target.checked }))}
-              />
-              Compact board (narrower cards)
-            </label>
-            <label className="flex items-center gap-2 text-[12px] text-slate-700">
-              <input
-                type="checkbox"
-                checked={options.autoLoadSecurity}
-                onChange={(e) => setOptions((o) => ({ ...o, autoLoadSecurity: e.target.checked }))}
-              />
-              Auto-load security RSS when the board is empty
-            </label>
-            <label className="flex items-center gap-2 text-[12px] text-slate-700">
-              <input
-                type="checkbox"
-                checked={options.autoLoadKev}
-                onChange={(e) => setOptions((o) => ({ ...o, autoLoadKev: e.target.checked }))}
-              />
-              Auto-load CISA KEV when Patch is empty
-            </label>
-            <label className="flex items-center gap-2 text-[12px] text-slate-700">
-              <input
-                type="checkbox"
-                checked={options.autoLoadHazards}
-                onChange={(e) => setOptions((o) => ({ ...o, autoLoadHazards: e.target.checked }))}
-              />
-              Auto-load weather, quake, war, and unrest RSS when empty
-            </label>
-            <label className="block text-[11px] font-medium text-slate-600">
-              Default item retention (days)
-              <Input
-                type="number"
-                min={0}
-                className="mt-1 h-8 text-[12px]"
-                placeholder="Empty = keep until manual purge"
-                value={options.defaultRetentionDays ?? ""}
-                onChange={(e) => {
-                  const v = e.target.value.trim();
-                  setOptions((o) => ({
-                    ...o,
-                    defaultRetentionDays: v === "" ? null : Math.max(0, Number(v) || 0),
-                  }));
-                }}
-              />
-            </label>
-            <UpdateChecker />
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
-              <p className="text-[11px] font-medium text-slate-700">Source library</p>
-              <p className="mt-0.5 text-[11px] text-slate-500">
-                Inspect every RSS layer, last fetch, and item counts. Edit locally, apply to this
-                board, export JSON, then open a PR on GitHub (
-                <code className="text-[10px]">lib/intel-feeds.ts</code>).
-              </p>
-              <Button
-                size="sm"
-                variant="outline"
-                className="mt-2 w-full"
-                onClick={() => {
-                  setOpen(false);
-                  setSourcesOpen(true);
-                }}
-              >
-                Open source library…
-              </Button>
-            </div>
-            <div className="flex justify-end gap-2 pt-1">
-              <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
-                Cancel
-              </Button>
-              <Button size="sm" onClick={commit}>
-                Save
-              </Button>
-            </div>
+
+          <div
+            className="flex shrink-0 gap-1 border-b border-slate-100 px-3 py-2"
+            role="tablist"
+            aria-label="Options sections"
+          >
+            <TabButton id="board" active={tab === "board"} onClick={setTab}>
+              <span className="inline-flex items-center gap-1">
+                <SlidersHorizontal className="size-3" />
+                Board
+              </span>
+            </TabButton>
+            <TabButton id="data" active={tab === "data"} onClick={setTab}>
+              <span className="inline-flex items-center gap-1">
+                <Database className="size-3" />
+                Data
+              </span>
+            </TabButton>
+            <TabButton id="system" active={tab === "system"} onClick={setTab}>
+              <span className="inline-flex items-center gap-1">
+                <BookOpen className="size-3" />
+                Help
+              </span>
+            </TabButton>
           </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            {tab === "board" ? (
+              <div className="space-y-3">
+                <label className="block">
+                  <FieldLabel>Start on desk</FieldLabel>
+                  <select
+                    className={selectClass}
+                    value={options.defaultDesk}
+                    onChange={(e) =>
+                      setOptions((o) => ({
+                        ...o,
+                        defaultDesk: e.target.value as UserOptions["defaultDesk"],
+                      }))
+                    }
+                  >
+                    {DESKS.map((desk) => (
+                      <option key={desk.id} value={desk.id}>
+                        {desk.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <FieldLabel>Time range</FieldLabel>
+                    <select
+                      className={selectClass}
+                      value={options.defaultRange}
+                      onChange={(e) =>
+                        setOptions((o) => ({ ...o, defaultRange: e.target.value as TimeRange }))
+                      }
+                    >
+                      {RANGES.map((range) => (
+                        <option key={range} value={range}>
+                          {range}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <FieldLabel>Palette</FieldLabel>
+                    <select
+                      className={selectClass}
+                      value={options.palette}
+                      onChange={(e) =>
+                        setOptions((o) => ({
+                          ...o,
+                          palette: e.target.value as UserOptions["palette"],
+                        }))
+                      }
+                    >
+                      <option value="light">Light</option>
+                      <option value="dark">Dark</option>
+                    </select>
+                  </label>
+                </div>
+                <label className="block">
+                  <FieldLabel>Home location</FieldLabel>
+                  <select
+                    className={selectClass}
+                    value={options.homePlace}
+                    onChange={(e) => setOptions((o) => ({ ...o, homePlace: e.target.value }))}
+                  >
+                    <option value="">World (no 100 km cap)</option>
+                    {HOME_CITIES.map((city) => (
+                      <option key={city.name} value={city.name}>
+                        {city.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <FieldLabel>Home language</FieldLabel>
+                  <select
+                    className={selectClass}
+                    value={options.homeLanguage}
+                    onChange={(e) => setOptions((o) => ({ ...o, homeLanguage: e.target.value }))}
+                  >
+                    {HOME_LANGUAGES.map((lang) => (
+                      <option key={lang.id} value={lang.id}>
+                        {lang.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <FieldLabel>Patch stack filter</FieldLabel>
+                  <Input
+                    className="mt-1 h-8 text-[12px]"
+                    value={options.stack}
+                    onChange={(e) => setOptions((o) => ({ ...o, stack: e.target.value }))}
+                    placeholder="microsoft, linux, openssl"
+                  />
+                </label>
+                <div className="space-y-2 text-[12px] text-slate-700">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={options.autoTranslate}
+                      onChange={(e) => setOptions((o) => ({ ...o, autoTranslate: e.target.checked }))}
+                    />
+                    Auto-translate into home language
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={options.compact}
+                      onChange={(e) => setOptions((o) => ({ ...o, compact: e.target.checked }))}
+                    />
+                    Compact cards
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={options.autoLoadSecurity}
+                      onChange={(e) => setOptions((o) => ({ ...o, autoLoadSecurity: e.target.checked }))}
+                    />
+                    Auto-load security RSS when empty
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={options.autoLoadKev}
+                      onChange={(e) => setOptions((o) => ({ ...o, autoLoadKev: e.target.checked }))}
+                    />
+                    Auto-load KEV when Patch is empty
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={options.autoLoadHazards}
+                      onChange={(e) => setOptions((o) => ({ ...o, autoLoadHazards: e.target.checked }))}
+                    />
+                    Auto-load hazard RSS when empty
+                  </label>
+                </div>
+              </div>
+            ) : null}
+
+            {tab === "data" ? (
+              <div className="space-y-3">
+                <label className="block">
+                  <FieldLabel>Board item limit</FieldLabel>
+                  <Input
+                    type="number"
+                    min={MIN_BOARD_ITEM_LIMIT}
+                    max={MAX_BOARD_ITEM_LIMIT}
+                    className="mt-1 h-8 text-[12px]"
+                    value={options.boardItemLimit}
+                    onChange={(e) =>
+                      setOptions((o) => ({
+                        ...o,
+                        boardItemLimit: Math.min(
+                          MAX_BOARD_ITEM_LIMIT,
+                          Math.max(MIN_BOARD_ITEM_LIMIT, Number(e.target.value) || MIN_BOARD_ITEM_LIMIT),
+                        ),
+                      }))
+                    }
+                  />
+                  <p className="mt-1 text-[10px] text-slate-500">
+                    Recent items from enabled sources ({MIN_BOARD_ITEM_LIMIT}–{MAX_BOARD_ITEM_LIMIT}). Save, then
+                    Refresh.
+                  </p>
+                </label>
+                <label className="block">
+                  <FieldLabel>Default retention (days)</FieldLabel>
+                  <Input
+                    type="number"
+                    min={0}
+                    className="mt-1 h-8 text-[12px]"
+                    placeholder="Empty = manual purge only"
+                    value={options.defaultRetentionDays ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      setOptions((o) => ({
+                        ...o,
+                        defaultRetentionDays: v === "" ? null : Math.max(0, Number(v) || 0),
+                      }));
+                    }}
+                  />
+                </label>
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5">
+                  <p className="text-[11px] font-medium text-slate-800">Source library</p>
+                  <p className="mt-1 text-[10px] leading-snug text-slate-600">
+                    Edit RSS layers, import/export JSON, retention purge. Shipped defaults live in{" "}
+                    <code className="text-[9px]">lib/intel-feeds.ts</code>.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 w-full"
+                    onClick={() => {
+                      setOpen(false);
+                      setSourcesOpen(true);
+                    }}
+                  >
+                    Open source library…
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {tab === "system" ? (
+              <div className="space-y-3">
+                <UpdateChecker />
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5">
+                  <p className="text-[11px] font-medium text-slate-800">Manual & lexicon</p>
+                  <p className="mt-1 text-[10px] leading-snug text-slate-600">
+                    User guide, maintainer notes (which files to edit), and term definitions — one pop-out.
+                  </p>
+                  <Button size="sm" variant="outline" className="mt-2 w-full" onClick={openManual}>
+                    Open manual…
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter className="shrink-0 gap-2 border-t border-slate-200 px-4 py-3 sm:justify-end">
+            <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={commit}>
+              Save
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <SourceWorkbench

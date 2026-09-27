@@ -265,7 +265,7 @@ Copy `.env.example` to `.env` next to `docker-compose.yml` if you want Compose t
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `3000` | Listen port inside the container |
-| `HOSTNAME` | `0.0.0.0` | Bind address inside the container |
+| `CSMON_BIND_HOST` | `0.0.0.0` | Bind address for Next.js (entrypoint sets `HOSTNAME` from this). Do **not** set `HOSTNAME` to a LAN IP like `10.1.3.130` — the app cannot listen on the host address inside the container. |
 | `CSMON_DATA_DIR` | `/app/data` | SQLite directory |
 | `CSMON_TOKEN` | unset | Optional shared secret (see `SECURITY.md`) |
 | `CSMON_SECURE_COOKIE` | unset | Set `1` behind HTTPS |
@@ -293,6 +293,22 @@ Troubleshooting: `docker compose ps` and `docker compose logs csmon`. A failing 
 
 1. **No layers enabled** — Refresh only hits **enabled** sources. On Home use **Load world RSS** / **Load security RSS**, or enable layers under **Sources**, then Refresh again. The UI now shows an error if nothing is enabled.
 2. **`CSMON_TOKEN`** — If set, unlock the board (token gate) so API calls include your token. Failed refresh shows **Token required** in the header error strip.
-3. **Outbound network** — Feeds are fetched from inside the container. From the host: `docker logs csmon 2>&1 | tail -50` and look for `refresh rss:…` errors. Test DNS/HTTPS: `docker exec csmon runuser -u nextjs -- node -e "fetch('https://www.cisa.gov').then(r=>console.log(r.status)).catch(e=>console.error(e))"`.
-4. **SQLite volume permissions** — The image entrypoint `chown`s `CSMON_DATA_DIR` (default `/app/data`) before dropping to user `nextjs`. Rebuild the image if you run an older tag without the entrypoint.
-5. **Rebuild** — After pulling fixes, rebuild and recreate the container (image transfer alone is not enough if you only `docker load` an old image).
+3. **Outbound network** — Feeds are fetched from inside the container. From the host: `docker compose logs csmon 2>&1 | tail -50` and look for `refresh rss:…` errors. Test DNS/HTTPS: `docker compose exec csmon node -e "fetch('https://www.cisa.gov').then(r=>console.log(r.status)).catch(e=>console.error(e))"`.
+4. **SQLite volume permissions** — The app runs as **uid 1001** (`user: "1001:1001"` in Compose). The entrypoint does **not** `chown` the volume (that fails on many hosts and conflicts with `cap_drop: ALL`). **Fix on the Docker host** (once):
+
+   ```bash
+   # Named volume (Compose project csmon → volume csmon_csmon-data)
+   MP="$(docker volume inspect csmon_csmon-data -f '{{ .Mountpoint }}')"
+   chown -R 1001:1001 "$MP"
+
+   # Bind mount instead of a volume, e.g. -v /opt/csmon-data:/app/data
+   chown -R 1001:1001 /opt/csmon-data
+   ```
+
+   Then recreate: `docker compose up -d --force-recreate csmon`. If SQLite still fails with `EACCES`, confirm `ls -la` on that directory shows owner **1001**.
+
+5. **`runuser: cannot set groups`** — Compose drops all capabilities; do not use `runuser` in a custom entrypoint. Run as `user: "1001:1001"` and start `node server.js` directly (see `docker-compose.fix.yml` pattern below, or rebuild a current image).
+
+6. **`listen EADDRNOTAVAIL` / `10.x.x.x:3000`** — Something set **`HOSTNAME`** to a host LAN IP. Inside the container, bind **`0.0.0.0`** only; publish with Compose `ports:` (`docker-compose.lan.yml`). Remove `HOSTNAME=…` from a host `.env` if present. Current images use **`CSMON_BIND_HOST=0.0.0.0`** in the entrypoint.
+
+7. **Rebuild** — After pulling fixes, rebuild and recreate the container (image transfer alone is not enough if you only `docker load` an old image).

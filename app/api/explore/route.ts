@@ -1,7 +1,8 @@
 import { probeHint } from "@/lib/explore";
 import { fail, gate, jsonOk, readJson } from "@/lib/guard";
 import { parsePublicHttpUrl } from "@/lib/public-url";
-import { getMonitorState, registerExploredSource } from "@/lib/queries";
+import { registerExploredSource } from "@/lib/queries";
+import { monitorStateFromRequest } from "@/lib/monitor-state";
 import { refreshSources } from "@/lib/scrape/refresh";
 
 export const runtime = "nodejs";
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
       host: probed.host,
     });
     await refreshSources([id]);
-    return jsonOk(getMonitorState());
+    return jsonOk(monitorStateFromRequest(request));
   } catch (error) {
     return fail(error, "Explore failed");
   }
