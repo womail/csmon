@@ -37,10 +37,19 @@ export type SourceCatalogSummary = {
   purgePreviewCount?: number;
 };
 
+export type FeedOverrideStats = {
+  path: string;
+  count: number;
+  updatedAt: string | null;
+  shippedCount: number;
+  effectiveCount: number;
+};
+
 export type SourceCatalog = {
   rows: SourceCatalogRow[];
   summary: SourceCatalogSummary;
   shippedFeedCount: number;
+  feedOverrides?: FeedOverrideStats;
 };
 
 export type SourcePatch = {

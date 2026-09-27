@@ -321,8 +321,10 @@ export function OptionsButton({
                 <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5">
                   <p className="text-[11px] font-medium text-slate-800">Source library</p>
                   <p className="mt-1 text-[10px] leading-snug text-slate-600">
-                    Edit RSS layers, import/export JSON, retention purge. Shipped defaults live in{" "}
-                    <code className="text-[9px]">lib/intel-feeds.ts</code>.
+                    Edit RSS layers, then <strong className="font-medium">Save instance overrides</strong> to write{" "}
+                    <code className="text-[9px]">data/overrides/feeds.json</code> (beats shipped{" "}
+                    <code className="text-[9px]">intel-feeds.ts</code> on this host). Import/export JSON for other
+                    servers.
                   </p>
                   <Button
                     size="sm"

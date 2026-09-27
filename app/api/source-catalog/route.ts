@@ -11,6 +11,11 @@ import {
   purgeItemsOlderThan,
   type SourcePatch,
 } from "@/lib/source-catalog";
+import {
+  feedOverridesPath,
+  saveFeedOverrides,
+  snapshotIntelOverridesFromDb,
+} from "@/lib/feed-overrides";
 import { refreshSources } from "@/lib/scrape/refresh";
 import type { CreateSourceInput } from "@/lib/source-catalog-shared";
 
@@ -137,7 +142,18 @@ export async function PATCH(request: Request) {
       refresh?: boolean;
       purge?: { maxAgeDays?: number; sourceIds?: number[] };
       retentionPolicy?: { globalDefaultDays?: number | null; sourceIds?: number[] };
+      saveFeedOverrides?: boolean;
     }>(request);
+
+    if (body.saveFeedOverrides) {
+      const feeds = snapshotIntelOverridesFromDb();
+      const file = saveFeedOverrides(feeds);
+      return jsonOk({
+        catalog: buildSourceCatalog(),
+        state: monitorStateFromRequest(request),
+        feedOverrides: { saved: feeds.length, path: feedOverridesPath(), updatedAt: file.updatedAt },
+      });
+    }
 
     let purged = 0;
     const purgeRequested =

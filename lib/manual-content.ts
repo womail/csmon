@@ -77,6 +77,8 @@ Switching a built-in desk clears the **Query builder** so an old \`qb=\` string 
 | \`lib/intel-feeds.ts\` | Shipped RSS layers (packs: core, security, hazard, …). Primary maintainer surface. |
 | \`lib/queries.ts\` | Registers intel feeds into SQLite; \`listItems\` limit for the board. |
 | \`app/api/intel/route.ts\` | Loads a pack into the database when user clicks World/Security RSS. |
+| \`lib/feed-overrides.ts\` | Reads \`CSMON_DATA_DIR/overrides/feeds.json\`; merged over shipped feeds at runtime. |
+| \`data/overrides/feeds.json\` | Instance file (Docker volume). Source library → **Save instance overrides**. |
 
 ### Instance-only layers (no git)
 

@@ -2,6 +2,7 @@
 import "server-only";
 
 import { colorFor } from "./colors";
+import { feedOverrideStats, intelFeedById, intelFeedByUrl } from "./feed-overrides";
 import { INTEL_FEEDS } from "./intel-feeds";
 import { getDb } from "./db";
 import type {
@@ -15,9 +16,6 @@ import type { OriginReason, Platform, SourceKind } from "./types";
 export type { SourceCatalog, SourceCatalogRow, SourceCatalogSummary, SourcePatch } from "./source-catalog-shared";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-const feedByUrl = new Map(INTEL_FEEDS.map((feed) => [feed.feedUrl, feed]));
-const feedById = new Map(INTEL_FEEDS.map((feed) => [feed.id, feed]));
 
 function primaryReason(origins: SourceCatalogRow["origins"]): OriginReason | "unknown" {
   if (!origins.length) return "unknown";
@@ -114,8 +112,8 @@ export function buildSourceCatalog(options?: {
     const silent = enabled && itemCount === 0;
     const feedUrl = row.feed_url;
     const intelFeed =
-      (feedUrl && feedByUrl.get(feedUrl)) ||
-      (row.handle && feedById.get(row.handle)) ||
+      (feedUrl && intelFeedByUrl(feedUrl)) ||
+      (row.handle && intelFeedById(row.handle)) ||
       null;
     const origins = originsBySource.get(row.id) ?? [];
 
@@ -198,6 +196,7 @@ export function buildSourceCatalog(options?: {
       purgePreviewCount,
     },
     shippedFeedCount: INTEL_FEEDS.length,
+    feedOverrides: feedOverrideStats(),
   };
 }
 

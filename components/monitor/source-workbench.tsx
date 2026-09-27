@@ -61,6 +61,13 @@ type CatalogResponse = {
     purgePreviewCount?: number;
   };
   shippedFeedCount: number;
+  feedOverrides?: {
+    path: string;
+    count: number;
+    updatedAt: string | null;
+    shippedCount: number;
+    effectiveCount: number;
+  };
 };
 
 const PACKS: IntelPack[] = [
@@ -247,6 +254,35 @@ export function SourceWorkbenchBody({
     setMessage(
       "Downloaded contribution JSON. Add feeds to lib/intel-feeds.ts in your GitHub fork and open a pull request — csmon never pushes upstream for you.",
     );
+  }
+
+  async function saveInstanceOverrides() {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await apiFetch("/api/source-catalog", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ saveFeedOverrides: true, refresh: false }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        catalog?: CatalogResponse;
+        feedOverrides?: { saved: number; path: string; updatedAt: string };
+      };
+      if (!res.ok) throw new Error(data.error || "Could not save overrides");
+      if (data.catalog) setCatalog(data.catalog);
+      setMessage(
+        `Saved ${data.feedOverrides?.saved ?? 0} intel feed override(s) on this server. ` +
+          `File: ${data.feedOverrides?.path ?? "data/overrides/feeds.json"}. ` +
+          "These beat shipped lib/intel-feeds.ts on load and intel pack refresh.",
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save overrides failed");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function importFile(file: File) {
@@ -478,10 +514,14 @@ export function SourceWorkbenchBody({
                 Source library
               </h2>
               <p className="mt-1 max-w-2xl text-[12px] text-slate-500">
-                All layers in your SQLite database. Edit names and feed URLs here, save locally, apply
-                to this instance, then contribute upstream via GitHub (
-                <code className="text-[11px]">lib/intel-feeds.ts</code>). Shipped catalog:{" "}
-                {catalog?.shippedFeedCount ?? "—"} feeds · in DB: {summary?.total ?? "—"}.
+                Layers live in SQLite. Apply edits, then <strong className="font-medium">Save instance overrides</strong>{" "}
+                for intel feeds on this server (
+                <code className="text-[11px]">data/overrides/feeds.json</code>). Export JSON for git or other hosts.
+                Shipped: {catalog?.shippedFeedCount ?? "—"} · DB: {summary?.total ?? "—"}
+                {catalog?.feedOverrides?.count
+                  ? ` · overrides: ${catalog.feedOverrides.count}`
+                  : ""}
+                .
               </p>
             </div>
             <div className="flex flex-wrap gap-1">
@@ -635,6 +675,16 @@ export function SourceWorkbenchBody({
               onClick={() => importInputRef.current?.click()}
             >
               Import JSON
+            </Button>
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={busy}
+              title="Write intel-layer edits to data/overrides/feeds.json on this server"
+              onClick={() => void saveInstanceOverrides()}
+            >
+              <Save className="size-3" />
+              Save instance overrides
             </Button>
             <Button size="xs" variant="outline" disabled={busy} onClick={() => void applyServer(false)}>
               Apply (no refresh)
