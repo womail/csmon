@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM docker.io/library/ubuntu:24.04 AS ubuntu-node
+FROM docker.io/library/ubuntu:26.04 AS ubuntu-node
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_VERSION=22.20.0
 RUN apt-get update \
