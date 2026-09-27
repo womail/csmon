@@ -1,7 +1,7 @@
 {
   "schema": "csmon-update/1",
   "name": "csmon",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "publishedAt": "2026-09-27",
   "commit": "e937896",
   "releaseNotes": "Brief note for operators — what changed in this build.",
