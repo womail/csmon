@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 import { cleanArticleParagraphs } from "./article-body";
 import { isNoiseCopy, type ArticleRead } from "./article";
+import { filterArticlePageLinks } from "./page-links";
 import { fetchText } from "./http";
 import { cveIdsFromNvdLinks, cveIdsFromText } from "./nvd";
 
@@ -74,7 +75,7 @@ export async function readArticle(url: string): Promise<ArticleRead> {
     $('meta[http-equiv="content-language"]').attr("content")?.trim() ||
     null;
 
-  const related = $("article a[href], main a[href], .related a[href], aside a[href]")
+  const relatedRaw = $("article a[href], main a[href], .article-body a[href], [itemprop='articleBody'] a[href]")
     .map((_, el) => {
       const href = absUrl($(el).attr("href") || "", url);
       const label = $(el).text().replace(/\s+/g, " ").trim();
@@ -84,10 +85,10 @@ export async function readArticle(url: string): Promise<ArticleRead> {
     .filter(
       (l) =>
         /^https?:/i.test(l.href) &&
-        (l.label.length > 16 || /\/sk\/|cve-|advisory|hotfix|security.?update/i.test(l.href)),
-    )
-    .filter((l, i, all) => all.findIndex((x) => x.href === l.href) === i)
-    .slice(0, 12);
+        (l.label.length > 12 ||
+          /\/sk\/|cve-|advisory|hotfix|security.?update|external\/article|CTX\d/i.test(l.href)),
+    );
+  const related = filterArticlePageLinks(relatedRaw, url);
 
   const cveIds = [
     ...cveIdsFromText(title, description, ...paragraphs),

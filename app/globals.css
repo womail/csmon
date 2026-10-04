@@ -169,6 +169,12 @@
   box-shadow: 0 2px 6px rgb(15 23 42 / 0.06);
 }
 
+.card-tile-focus {
+  border-color: color-mix(in oklch, var(--border), var(--foreground) 40%);
+  outline: 2px solid color-mix(in oklch, var(--foreground), transparent 72%);
+  outline-offset: 1px;
+}
+
 .card-tile.source-layer-card {
   padding: 7px 9px;
 }
@@ -482,6 +488,119 @@ html.dark select {
   border-color: var(--border);
 }
 
+/* Vulnerability response panel — readable in light and dark reader */
+.laya-insights {
+  border-color: var(--border);
+  background-color: var(--card);
+  color: var(--foreground);
+}
+.laya-panel,
+.laya-checklist-item,
+.laya-step {
+  border-color: var(--border);
+  background-color: var(--muted);
+  color: var(--foreground);
+}
+.laya-chip {
+  background-color: var(--muted);
+  color: var(--foreground);
+}
+.laya-link {
+  color: #0369a1;
+}
+html.dark .laya-link {
+  color: #7dd3fc;
+}
+.laya-btn {
+  border: 1px solid var(--border);
+  background-color: var(--muted);
+  color: var(--foreground);
+}
+.laya-btn:hover {
+  background-color: var(--accent);
+}
+.laya-badge-active {
+  background-color: rgb(237 233 254);
+  color: rgb(76 29 149);
+}
+html.dark .laya-badge-active {
+  background-color: rgb(76 29 149 / 0.45);
+  color: #f5f3ff;
+}
+.laya-badge {
+  background-color: var(--muted);
+  color: var(--muted-foreground);
+}
+.laya-status {
+  border: 1px solid var(--border);
+}
+.laya-status-answered {
+  background-color: rgb(209 250 229);
+  color: rgb(6 78 59);
+}
+html.dark .laya-status-answered {
+  background-color: rgb(6 78 59 / 0.55);
+  color: #ecfdf5;
+}
+.laya-status-partial {
+  background-color: rgb(224 242 254);
+  color: rgb(7 89 133);
+}
+html.dark .laya-status-partial {
+  background-color: rgb(7 89 133 / 0.55);
+  color: #e0f2fe;
+}
+.laya-status-action {
+  background-color: rgb(254 243 199);
+  color: rgb(146 64 14);
+}
+html.dark .laya-status-action {
+  background-color: rgb(146 64 14 / 0.55);
+  color: #fffbeb;
+}
+.laya-status-unknown {
+  background-color: rgb(226 232 240);
+  color: rgb(15 23 42);
+}
+html.dark .laya-status-unknown {
+  background-color: rgb(51 65 85);
+  color: #f8fafc;
+}
+.laya-worry {
+  color: var(--foreground);
+}
+.laya-worry-now {
+  border-color: rgb(253 164 175);
+  background-color: rgb(255 241 242);
+}
+html.dark .laya-worry-now {
+  border-color: rgb(190 18 60 / 0.6);
+  background-color: rgb(76 5 25 / 0.65);
+  color: #ffe4e6;
+}
+.laya-worry-soon {
+  border-color: rgb(252 211 77);
+  background-color: rgb(255 251 235);
+}
+html.dark .laya-worry-soon {
+  border-color: rgb(180 83 9 / 0.55);
+  background-color: rgb(69 26 3 / 0.55);
+  color: #fef3c7;
+}
+.laya-worry-watch {
+  border-color: rgb(125 211 252);
+  background-color: rgb(240 249 255);
+}
+html.dark .laya-worry-watch {
+  border-color: rgb(3 105 161 / 0.55);
+  background-color: rgb(12 74 110 / 0.45);
+  color: #e0f2fe;
+}
+.laya-worry-low {
+  border-color: var(--border);
+  background-color: var(--muted);
+}
+
 .reader-resizer {
   width: 8px;
   flex-shrink: 0;
@@ -573,5 +692,45 @@ html.dark .report-rule span {
 
   html.print-report .report-rule {
     break-after: avoid;
+  }
+
+  html.print-reader .no-print,
+  html.print-reader nav,
+  html.print-reader header,
+  html.print-reader main,
+  html.print-reader aside:not(#reader-print-sheet) {
+    display: none !important;
+  }
+
+  html.print-reader body {
+    background: white !important;
+  }
+
+  html.print-reader #reader-print-sheet {
+    display: flex !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: none;
+    min-height: auto;
+    border: none;
+    overflow: visible;
+  }
+
+  html.print-reader #reader-print-sheet .overflow-y-auto {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  html.print-reader .map-toolbar,
+  html.print-reader .map-tool,
+  html.print-reader .leaflet-control-container {
+    display: none !important;
+  }
+
+  html.print-reader .laya-insights,
+  html.print-reader .reader-sheet section {
+    break-inside: avoid;
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useDeferredValue, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Layers, Plus, RefreshCw, Search, Shield, ChevronDown, ChevronRight, Undo2, SlidersHorizontal } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
 import {
@@ -14,7 +14,9 @@ import {
 } from "@/components/monitor/cards";
 import { PulseCard, TopicMix, TrendList } from "@/components/monitor/charts";
 import { FilterTuner } from "@/components/monitor/filter-tuner";
+import { CommandPalette } from "@/components/monitor/command-palette";
 import { QueryBuilderButton } from "@/components/monitor/query-builder";
+import { WatchButton } from "@/components/monitor/watch-panel";
 import { EntityDesk, HomeDashboard } from "@/components/monitor/dashboard";
 import { PlacePane } from "@/components/monitor/place-pane";
 import { SourcePane } from "@/components/monitor/source-pane";
@@ -59,9 +61,11 @@ import {
   emptyQuery,
   hasQuery,
   itemMatchesQuery,
+  parseQueryLine,
   summarizeQuery,
   type QueryTree,
 } from "@/lib/query-builder";
+import { COMMAND_DESKS, isTypingTarget } from "@/lib/hotkeys";
 import type { QuakeEvent } from "@/lib/quakes";
 import { rangeStart } from "@/lib/time";
 import {
@@ -83,17 +87,22 @@ import {
   type TriageState,
   type TriageUndo,
 } from "@/lib/triage";
-import type { Desk, DiscoveredSource, Item, MonitorState, OriginReason, Platform, TimeRange } from "@/lib/types";
+import type { Desk, DiscoveredSource, Item, MonitorState, OriginReason, Platform, TimeRange, Watchlist } from "@/lib/types";
 import { isBuiltinDesk } from "@/lib/types";
 import type { IntelPack } from "@/lib/intel-feeds";
 import {
+  addStoryToReport,
   clampReaderWidth,
+  createReport,
+  hydrateReports,
   loadActiveReportId,
   loadReaderWidth,
   loadReports,
+  openReports,
   READER_WIDTH_DEFAULT,
   saveActiveReportId,
   saveReaderWidth,
+  snapshotStory,
   type Report,
 } from "@/lib/reports";
 import type { WeatherEvent } from "@/lib/weather";
@@ -147,8 +156,11 @@ const RISK_COLOR: Record<PatchRisk, string> = {
   p2: "#64748b",
 };
 
-function statePath(path: string, limit: number) {
-  return withItemLimitQuery(path, limit);
+function statePath(path: string, limit: number, q?: string) {
+  const base = withItemLimitQuery(path, limit);
+  const text = q?.trim();
+  if (!text) return base;
+  return `${base}${base.includes("?") ? "&" : "?"}q=${encodeURIComponent(text)}`;
 }
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
@@ -191,7 +203,11 @@ export function Monitor({
     kev: initial.kev ?? [],
     hints: initial.hints ?? [],
     cache: initial.cache ?? { entries: 0, bytes: 0 },
+    watches: initial.watches ?? [],
   });
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteMode, setPaletteMode] = useState<"palette" | "help">("palette");
+  const [focusIndex, setFocusIndex] = useState(0);
   const [query, setQuery] = useState(seed.q);
   const deferredQuery = useDeferredValue(query);
   const [boardCap, setBoardCap] = useState(BOARD_PAGE);
@@ -247,10 +263,12 @@ export function Monitor({
       kev: next.kev ?? [],
       hints: next.hints ?? [],
       cache: next.cache ?? { entries: 0, bytes: 0 },
+      watches: next.watches ?? [],
     });
   }
 
   useEffect(() => {
+    let cancelled = false;
     setCustomDesks(loadUserDesks());
     const opts = loadOptions();
     applyPalette(opts.palette);
@@ -262,6 +280,9 @@ export function Monitor({
     setTriageUndo(loadTriageUndo());
     setSubreddits(loadSubreddits());
     setReports(loadReports());
+    void hydrateReports().then((rows) => {
+      if (!cancelled) setReports(rows);
+    });
     setOpenReportId(loadActiveReportId());
     setReaderWidth(loadReaderWidth());
     setFollowOpen(window.localStorage.getItem("csmon.follow-open") !== "0");
@@ -272,7 +293,6 @@ export function Monitor({
     const params = new URLSearchParams(window.location.search);
     if (!params.get("desk") && opts.defaultDesk !== "home") setDesk(opts.defaultDesk);
     if (!params.get("range") && opts.defaultRange !== "24h") setRange(opts.defaultRange);
-    let cancelled = false;
     const city = homeCity(opts.homePlace || "Dublin");
     const near = city ? `lat=${city.lat}&lng=${city.lng}&km=100&place=${encodeURIComponent(city.name)}` : "";
     (async () => {
@@ -376,7 +396,8 @@ export function Monitor({
   }, [deferredQuery, layer, origin, person, place, platform, qb, range, rising, topic, vendor, viewDesk]);
 
   const baseItems = useMemo(() => {
-    const q = deferredQuery.trim().toLowerCase();
+    const parsedLine = parseQueryLine(deferredQuery);
+    const q = parsedLine.text.trim().toLowerCase();
     const needMine = ransomware || Boolean(q);
     return rangedItems.filter((item) => {
       const source = byId.get(item.sourceId);
@@ -404,13 +425,14 @@ export function Monitor({
         if (ransomware && !mined.ransomware) return false;
         if (
           q &&
-          !`${item.title} ${item.summary ?? ""} ${source?.name ?? ""} ${item.locations.join(" ")} ${mined.cves.join(" ")}`
+          !`${item.title} ${item.summary ?? ""} ${item.extractText ?? ""} ${source?.name ?? ""} ${item.locations.join(" ")} ${mined.cves.join(" ")} ${item.iocs?.join(" ") ?? ""}`
             .toLowerCase()
             .includes(q)
         ) {
           return false;
         }
       }
+      if (!itemMatchesQuery(item, parsedLine.tree, source)) return false;
       if (!itemMatchesQuery(item, qb, source)) return false;
       return true;
     });
@@ -429,6 +451,40 @@ export function Monitor({
     const allowed = new Set(items.map((item) => item.id));
     return storiesFromPool(poolStories, allowed, cross, triage.hidden);
   }, [cross, items, poolStories, triage.hidden]);
+
+  const boardList = useMemo(() => {
+    if (viewDesk === "scan") return items.slice(0, boardCap).map((item) => ({ kind: "item" as const, item }));
+    const rows = viewDesk === "pulse" ? stories.slice(0, 12) : stories.slice(0, boardCap);
+    return rows.map((story) => ({ kind: "story" as const, story }));
+  }, [boardCap, items, stories, viewDesk]);
+
+  useEffect(() => {
+    setFocusIndex(0);
+  }, [boardList]);
+
+  useEffect(() => {
+    document.querySelector(".card-tile-focus")?.scrollIntoView({ block: "nearest" });
+  }, [focusIndex]);
+
+  const searchPulled = useRef(Boolean(seed.q.trim()));
+  useEffect(() => {
+    const line = deferredQuery.trim();
+    if (!line && !searchPulled.current) return;
+    let cancelled = false;
+    void json<MonitorState>(statePath("/api/state", boardItemLimit, line || undefined))
+      .then((next) => {
+        if (!cancelled) {
+          setState(next);
+          searchPulled.current = Boolean(line);
+        }
+      })
+      .catch(() => {
+        /* keep current board */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [boardItemLimit, deferredQuery]);
 
   const topics = useMemo(() => {
     const counts = new Map<string, number>();
@@ -935,20 +991,108 @@ export function Monitor({
     if (viewDesk === "home" || viewDesk === "sources" || viewDesk === "pulse") setDesk("scan");
   }
 
+  function focusedStory(): Story | null {
+    if (openStory) return openStory;
+    const row = boardList[focusIndex];
+    if (!row) return null;
+    if (row.kind === "story") return row.story;
+    return itemAsStory(row.item);
+  }
+
+  function reportFocused() {
+    const story = focusedStory();
+    if (!story) return;
+    const snap = snapshotStory(story, byId);
+    const live = openReports(reports);
+    const target = live.find((row) => row.id === openReportId) ?? live[0];
+    if (target) {
+      setReports(addStoryToReport(target.id, snap, reports));
+      setOpenReportId(target.id);
+      return;
+    }
+    const next = createReport(story.title, snap, reports);
+    setReports(next.rows);
+    setOpenReportId(next.report.id);
+  }
+
+  function hideFocused() {
+    const story = focusedStory();
+    if (!story) return;
+    hideStory(story);
+  }
+
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
+      const typing = isTypingTarget(event.target);
       if (event.key === "Escape") {
+        if (paletteOpen) {
+          setPaletteOpen(false);
+          return;
+        }
         if (trail.length) backReader();
         else closeReader();
+        return;
       }
-      if (event.key === "/" && !(event.target instanceof HTMLInputElement)) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteMode("palette");
+        setPaletteOpen((current) => !current);
+        return;
+      }
+      if (paletteOpen) return;
+      if (event.key === "/" && !typing) {
         event.preventDefault();
         document.getElementById("board-search")?.focus();
+        return;
+      }
+      if (event.key === "?" && !typing) {
+        event.preventDefault();
+        setPaletteMode("help");
+        setPaletteOpen(true);
+        return;
+      }
+      if (typing) return;
+      if (event.key >= "1" && event.key <= "9") {
+        const next = COMMAND_DESKS[Number(event.key) - 1];
+        if (next) setDesk(next);
+        return;
+      }
+      if (event.key === "j") {
+        event.preventDefault();
+        setFocusIndex((current) => Math.min(boardList.length - 1, current + 1));
+        return;
+      }
+      if (event.key === "k") {
+        event.preventDefault();
+        setFocusIndex((current) => Math.max(0, current - 1));
+        return;
+      }
+      if (event.key === "Enter") {
+        const story = focusedStory();
+        if (story) {
+          event.preventDefault();
+          openReader(story);
+        }
+        return;
+      }
+      if (event.key === "h") {
+        event.preventDefault();
+        hideFocused();
+        return;
+      }
+      if (event.key === "u") {
+        event.preventDefault();
+        applyTriage(undoTriage(triage, triageUndo));
+        return;
+      }
+      if (event.key === "r") {
+        event.preventDefault();
+        reportFocused();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [trail.length]);
+  }, [boardList, focusIndex, openReportId, openStory, paletteOpen, reports, trail.length, triage, triageUndo]);
 
   const emptyBoard =
     items.length === 0 &&
@@ -1177,7 +1321,9 @@ export function Monitor({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={
-                  viewDesk === "patch" ? "CVE, vendor, product" : "Filter stories, CVE, vendor  /"
+                  viewDesk === "patch"
+                    ? "CVE, vendor, product"
+                    : "source:cisa cve:2024- ireland   /"
                 }
                 className="h-7 bg-slate-50 pl-7 text-[12px]"
               />
@@ -1213,6 +1359,28 @@ export function Monitor({
             </Tip>
             <SavedFilters current={currentFilters} onApply={applyFilters} />
             <QueryBuilderButton value={qb} onChange={setQb} />
+            <WatchButton
+              query={[query.trim(), summarizeQuery(qb)].filter(Boolean).join(" ")}
+              desk={desk}
+              watches={state.watches ?? []}
+              onChange={(watches) => setStateRaw((current) => ({ ...current, watches }))}
+              onOpenWatch={(watch) => {
+                setQuery(watch.query);
+                if (watch.desk) setDesk(watch.desk as Desk);
+                void apiFetch("/api/watchlists", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ ack: watch.id }),
+                })
+                  .then((res) => res.json())
+                  .then((data: { watches?: Watchlist[] }) => {
+                    if (data.watches) setStateRaw((current) => ({ ...current, watches: data.watches ?? [] }));
+                  })
+                  .catch(() => {
+                    /* ignore */
+                  });
+              }}
+            />
             <Tip text="Tune topic, place, RSS, and range, then apply or save as a desk">
               <Button
                 size="xs"
@@ -1287,6 +1455,19 @@ export function Monitor({
                 label={`Search: ${query.trim().slice(0, 32)}${query.trim().length > 32 ? "…" : ""}`}
                 onDismiss={() => setQuery("")}
                 background="#475569"
+              />
+            ) : null}
+            {(state.watches ?? []).some((watch) => watch.newHits > 0) ? (
+              <DismissFilterChip
+                label={`Watch hits: ${(state.watches ?? []).reduce((sum, watch) => sum + watch.newHits, 0)}`}
+                tip="Open the first watch with new matches"
+                onDismiss={() => {
+                  const watch = (state.watches ?? []).find((row) => row.newHits > 0);
+                  if (!watch) return;
+                  setQuery(watch.query);
+                  if (watch.desk) setDesk(watch.desk as Desk);
+                }}
+                background="#c2410c"
               />
             ) : null}
             {topic ? (
@@ -1940,7 +2121,7 @@ export function Monitor({
                   </>
                 ) : null}
                 {viewDesk === "scan"
-                  ? items.slice(0, boardCap).map((item) => (
+                  ? items.slice(0, boardCap).map((item, index) => (
                       <ItemCard
                         key={item.id}
                         item={item}
@@ -1953,10 +2134,11 @@ export function Monitor({
                         onHide={() => hideItem(item)}
                         onRead={() => readItem(item)}
                         read={triage.read.includes(itemKey(item.id))}
+                        focused={focusIndex === index}
                       />
                     ))
                   : viewDesk === "pulse"
-                    ? stories.slice(0, 12).map((story) => (
+                    ? stories.slice(0, 12).map((story, index) => (
                         <StoryCard
                           key={story.id}
                           story={story}
@@ -1969,9 +2151,10 @@ export function Monitor({
                           onHide={() => hideStory(story)}
                           onRead={() => readStory(story)}
                           read={triage.read.includes(`story:${story.id}`)}
+                          focused={focusIndex === index}
                         />
                       ))
-                    : stories.slice(0, boardCap).map((story) => (
+                    : stories.slice(0, boardCap).map((story, index) => (
                         <StoryCard
                           key={story.id}
                           story={story}
@@ -1984,6 +2167,7 @@ export function Monitor({
                           onHide={() => hideStory(story)}
                           onRead={() => readStory(story)}
                           read={triage.read.includes(`story:${story.id}`)}
+                          focused={focusIndex === index}
                         />
                       ))}
               </div>
@@ -2046,6 +2230,8 @@ export function Monitor({
                   reports={reports}
                   onReportsChange={setReports}
                   onOpenReport={openCompiledReport}
+                  stack={stack}
+                  onDesk={changeDesk}
                 />
               </div>
             </div>
@@ -2209,6 +2395,36 @@ export function Monitor({
         discovered={discovered}
         onScrape={scrape}
         onAdd={addLayers}
+      />
+      <CommandPalette
+        open={paletteOpen}
+        mode={paletteMode}
+        sources={state.sources}
+        places={places.map(([name]) => name)}
+        watches={state.watches ?? []}
+        customDesks={customDesks}
+        onClose={() => setPaletteOpen(false)}
+        onAction={(action) => {
+          if (action.kind === "desk") changeDesk(action.desk);
+          if (action.kind === "place") focusPlace(action.place);
+          if (action.kind === "source") focusSource(action.sourceId);
+          if (action.kind === "search") document.getElementById("board-search")?.focus();
+          if (action.kind === "refresh") void refresh();
+          if (action.kind === "help") {
+            setPaletteMode("help");
+            setPaletteOpen(true);
+            return;
+          }
+          if (action.kind === "watch-current") {
+            setPaletteOpen(false);
+            return;
+          }
+          if (action.kind === "watch") {
+            setQuery(action.watch.query);
+            if (action.watch.desk) setDesk(action.watch.desk as Desk);
+          }
+          setPaletteOpen(false);
+        }}
       />
     </div>
   );

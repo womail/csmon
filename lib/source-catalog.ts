@@ -5,6 +5,7 @@ import { colorFor } from "./colors";
 import { feedOverrideStats, intelFeedById, intelFeedByUrl } from "./feed-overrides";
 import { INTEL_FEEDS } from "./intel-feeds";
 import { getDb } from "./db";
+import { PROTECTED_ITEM_SQL } from "./evidence";
 import type {
   CreateSourceInput,
   SourceCatalog,
@@ -209,14 +210,15 @@ export function countItemsOlderThan(maxAgeDays: number, sourceIds?: number[]) {
       .prepare(
         `SELECT COUNT(*) AS n FROM items
          WHERE source_id IN (${placeholders})
-         AND COALESCE(published_at, fetched_at) < ?`,
+         AND COALESCE(published_at, fetched_at) < ?
+         AND ${PROTECTED_ITEM_SQL}`,
       )
       .get(...sourceIds, cutoff) as { n: number };
     return Number(row.n);
   }
   const row = db
     .prepare(
-      `SELECT COUNT(*) AS n FROM items WHERE COALESCE(published_at, fetched_at) < ?`,
+      `SELECT COUNT(*) AS n FROM items WHERE COALESCE(published_at, fetched_at) < ? AND ${PROTECTED_ITEM_SQL}`,
     )
     .get(cutoff) as { n: number };
   return Number(row.n);
@@ -236,7 +238,7 @@ export function purgeByRetentionPolicy(
   }[];
   let deleted = 0;
   const del = db.prepare(
-    `DELETE FROM items WHERE source_id = ? AND COALESCE(published_at, fetched_at) < ?`,
+    `DELETE FROM items WHERE source_id = ? AND COALESCE(published_at, fetched_at) < ? AND ${PROTECTED_ITEM_SQL}`,
   );
   for (const source of sources) {
     if (sourceIds?.length && !sourceIds.includes(source.id)) continue;
@@ -257,13 +259,14 @@ export function purgeItemsOlderThan(maxAgeDays: number, sourceIds?: number[]) {
     const result = db
       .prepare(
         `DELETE FROM items WHERE source_id IN (${placeholders})
-         AND COALESCE(published_at, fetched_at) < ?`,
+         AND COALESCE(published_at, fetched_at) < ?
+         AND ${PROTECTED_ITEM_SQL}`,
       )
       .run(...sourceIds, cutoff);
     return Number(result.changes);
   }
   const result = db
-    .prepare(`DELETE FROM items WHERE COALESCE(published_at, fetched_at) < ?`)
+    .prepare(`DELETE FROM items WHERE COALESCE(published_at, fetched_at) < ? AND ${PROTECTED_ITEM_SQL}`)
     .run(cutoff);
   return Number(result.changes);
 }

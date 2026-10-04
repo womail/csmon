@@ -1,3 +1,4 @@
+import { saveExtractForUrl } from "@/lib/evidence";
 import { fail, gate, jsonOk } from "@/lib/guard";
 import { parsePublicHttpUrl } from "@/lib/public-url";
 import { readArticle } from "@/lib/read";
@@ -12,7 +13,9 @@ export async function GET(request: Request) {
   if (!url) return jsonOk({ error: "Missing url" }, 400);
   try {
     parsePublicHttpUrl(url);
-    return jsonOk(await readArticle(url));
+    const article = await readArticle(url);
+    saveExtractForUrl(url, article);
+    return jsonOk(article);
   } catch (error) {
     return fail(error, "Could not read article");
   }

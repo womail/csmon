@@ -161,7 +161,7 @@ export function itemHasPlace(
   if (item.locations.some((loc) => aliases.has(loc.toLowerCase()) || resolvePlace(loc) === canon)) {
     return true;
   }
-  const text = `${item.title} ${item.summary ?? ""}`;
+  const text = `${item.title} ${item.summary ?? ""} ${"extractText" in item ? (item as { extractText?: string | null }).extractText ?? "" : ""}`;
   if (textHasPlace(text, canon)) return true;
   for (const alias of aliases) {
     if (alias.length > 2 && textHasPlace(text, alias)) return true;

@@ -69,7 +69,7 @@ export async function fetchRssXml(url: string, timeoutMs = 12000): Promise<strin
     url,
     "application/rss+xml,application/atom+xml,application/xml,text/xml,*/*",
     timeoutMs,
-    2_000_000,
+    4_000_000,
   );
 }
 

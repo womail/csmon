@@ -12,6 +12,7 @@ export const QUERY_FIELDS = [
   { id: "source", label: "Source" },
   { id: "author", label: "Author" },
   { id: "cve", label: "CVE" },
+  { id: "ioc", label: "IOC" },
 ] as const;
 
 export const QUERY_OPS = [
@@ -109,7 +110,7 @@ function haystacks(item: Item, source: Source | undefined, field: QueryField): s
   const mined = mineItem(item);
   switch (field) {
     case "text":
-      return [`${item.title} ${item.summary ?? ""} ${source?.name ?? ""}`];
+      return [`${item.title} ${item.summary ?? ""} ${source?.name ?? ""} ${item.extractText ?? ""}`];
     case "title":
       return [item.title];
     case "summary":
@@ -126,6 +127,8 @@ function haystacks(item: Item, source: Source | undefined, field: QueryField): s
       return [item.author ?? ""];
     case "cve":
       return mined.cves;
+    case "ioc":
+      return item.iocs ?? item.entities?.filter((row) => row.kind === "ioc").map((row) => row.label) ?? [];
   }
 }
 
@@ -154,6 +157,79 @@ export function itemMatchesQuery(
     acc = rule.join === "or" ? acc || hit : acc && hit;
   }
   return acc;
+}
+
+const LINE_FIELDS: Record<string, QueryField> = {
+  text: "text",
+  title: "title",
+  summary: "summary",
+  topic: "topic",
+  place: "place",
+  vendor: "vendor",
+  source: "source",
+  src: "source",
+  author: "author",
+  cve: "cve",
+  ioc: "ioc",
+};
+
+function unquote(value: string) {
+  const text = value.trim();
+  if (
+    (text.startsWith('"') && text.endsWith('"') && text.length >= 2) ||
+    (text.startsWith("'") && text.endsWith("'") && text.length >= 2)
+  ) {
+    return text.slice(1, -1);
+  }
+  return text;
+}
+
+function tokenizeQueryLine(raw: string) {
+  const tokens: string[] = [];
+  const re = /"([^"]+)"|'([^']+)'|[^\s]+/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(raw))) {
+    tokens.push(match[1] ?? match[2] ?? match[0]);
+  }
+  return tokens;
+}
+
+/** Typed search line: `source:cisa cve:2024- -topic:sports ireland`. */
+export function parseQueryLine(raw: string | null | undefined): { text: string; tree: QueryTree } {
+  const tokens = tokenizeQueryLine(raw ?? "");
+  const rules: QueryRule[] = [];
+  const textParts: string[] = [];
+  let join: QueryJoin = "and";
+  for (const token of tokens) {
+    const lower = token.toLowerCase();
+    if (lower === "or") {
+      join = "or";
+      continue;
+    }
+    if (lower === "and") {
+      join = "and";
+      continue;
+    }
+    let body = token;
+    let negated = false;
+    if (body.startsWith("-") && body.includes(":")) {
+      negated = true;
+      body = body.slice(1);
+    }
+    const colon = body.indexOf(":");
+    if (colon > 0) {
+      const field = LINE_FIELDS[body.slice(0, colon).toLowerCase()];
+      const value = unquote(body.slice(colon + 1));
+      if (field && value) {
+        rules.push({ field, op: negated ? "neq" : "contains", value, join });
+        join = "and";
+        continue;
+      }
+    }
+    textParts.push(unquote(token));
+    join = "and";
+  }
+  return { text: textParts.join(" ").trim(), tree: { rules: rules.slice(0, 8) } };
 }
 
 export function summarizeQuery(tree: QueryTree | null | undefined): string {

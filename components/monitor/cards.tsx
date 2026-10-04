@@ -123,6 +123,7 @@ export function StoryCard({
   onHide,
   onRead,
   read,
+  focused,
 }: {
   story: Story;
   sources: Map<number, Source>;
@@ -134,13 +135,14 @@ export function StoryCard({
   onHide?: () => void;
   onRead?: () => void;
   read?: boolean;
+  focused?: boolean;
 }) {
   const shownIds = story.sourceIds.slice(0, 3);
   const extra = story.sourceIds.length - shownIds.length;
   const vendors = [...new Set(story.items.flatMap((item) => mineItem(item).vendors))].slice(0, 4);
 
   return (
-    <article className={`card-tile cursor-pointer ${read ? "opacity-55" : ""}`} onClick={onOpen}>
+    <article className={`card-tile cursor-pointer ${read ? "opacity-55" : ""} ${focused ? "card-tile-focus" : ""}`} onClick={onOpen}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-wrap gap-1">
           {story.topics.slice(0, 3).map((topic) => {
@@ -234,6 +236,7 @@ export function ItemCard({
   onHide,
   onRead,
   read,
+  focused,
 }: {
   item: Item;
   source?: Source;
@@ -245,13 +248,14 @@ export function ItemCard({
   onHide?: () => void;
   onRead?: () => void;
   read?: boolean;
+  focused?: boolean;
 }) {
   const author = personName(item, source) ?? undefined;
   const vendors = mineItem(item).vendors.slice(0, 4);
 
   return (
     <article
-      className={`card-tile ${onOpen ? "cursor-pointer" : ""} ${read ? "opacity-55" : ""}`}
+      className={`card-tile ${onOpen ? "cursor-pointer" : ""} ${read ? "opacity-55" : ""} ${focused ? "card-tile-focus" : ""}`}
       onClick={onOpen}
     >
       <div className="flex items-start justify-between gap-2">

@@ -3,6 +3,7 @@ import Parser from "rss-parser";
 import { classifyItem } from "../classify";
 import { fetchRssXml, fetchText, UA } from "../http";
 import type { DiscoveredSource, ScrapeResult, ScrapedItem } from "../types";
+import { prepareRssXml } from "./rss-xml";
 
 const parser = new Parser({
   timeout: 10000,
@@ -68,7 +69,7 @@ export async function discoverRss(pageUrl: string): Promise<string | null> {
     const url = new URL(path, `${base.protocol}//${base.host}`).toString();
     try {
       const xml = await fetchRssXml(url, 8000);
-      const feed = await parser.parseString(xml);
+      const feed = await parser.parseString(prepareRssXml(xml));
       if (feed.items?.length) return url;
     } catch {
       /* next */
@@ -77,15 +78,19 @@ export async function discoverRss(pageUrl: string): Promise<string | null> {
   return null;
 }
 
+async function parseFeedXml(xml: string) {
+  return parser.parseString(prepareRssXml(xml));
+}
+
 export async function fetchRss(feedUrl: string): Promise<ScrapedItem[]> {
   const xml = await fetchRssXml(feedUrl);
-  const feed = await parser.parseString(xml);
+  const feed = await parseFeedXml(xml);
   return asItems(feed, feedUrl);
 }
 
 export async function scrapeRssUrl(url: string): Promise<ScrapeResult> {
   const xml = await fetchRssXml(url);
-  const feed = await parser.parseString(xml);
+  const feed = await parseFeedXml(xml);
   const host = hostOf(url);
   const items = asItems(feed, url);
   const source: DiscoveredSource = {

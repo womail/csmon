@@ -22,6 +22,7 @@ import {
   snapshotStory,
   type Report,
 } from "@/lib/reports";
+import type { ReportVulnPlanSnapshot } from "@/lib/report-vuln-plan";
 import type { Source } from "@/lib/types";
 
 export function SendToReportButton({
@@ -29,6 +30,7 @@ export function SendToReportButton({
   sources,
   reports,
   article,
+  vulnPlanSnapshot,
   onChange,
   onOpenReport,
 }: {
@@ -36,6 +38,7 @@ export function SendToReportButton({
   sources: Map<number, Source>;
   reports: Report[];
   article?: ArticleRead | null;
+  vulnPlanSnapshot?: ReportVulnPlanSnapshot | null;
   onChange: (rows: Report[]) => void;
   onOpenReport?: (id: string) => void;
 }) {
@@ -72,7 +75,9 @@ export function SendToReportButton({
         (url) => !seed.some((row) => row.url === url),
       );
       const fetched = missing.length ? await fetchArticleReads(missing) : [];
-      const snap = snapshotStory(story, sources, [...seed, ...fetched]);
+      const snap = snapshotStory(story, sources, [...seed, ...fetched], {
+        vulnPlan: vulnPlanSnapshot ?? undefined,
+      });
       if (target === "new") {
         const { rows, report } = createReport(title || story.title, snap, reports);
         onChange(rows);

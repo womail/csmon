@@ -78,6 +78,25 @@ export function relatedStories(story: Story, pool: Story[]) {
     .slice(0, 8);
 }
 
+function storyIsCyber(story: Story) {
+  const sig = storySignals(story);
+  return story.topics.includes("cyber") || sig.cves.length > 0 || sig.vendors.length > 0;
+}
+
+function hazardOnlyStory(other: Story) {
+  const otherSig = storySignals(other);
+  if (other.topics.includes("cyber") || otherSig.cves.length > 0 || otherSig.vendors.length > 0) {
+    return false;
+  }
+  const hazardTopics = ["weather", "quake", "unrest", "sports", "markets", "conflict"];
+  return hazardTopics.some((t) => other.topics.includes(t));
+}
+
+function offTopicForCyberReader(story: Story, other: Story) {
+  if (!storyIsCyber(story)) return false;
+  return hazardOnlyStory(other);
+}
+
 export function similarStories(story: Story, pool: Story[], take = 6) {
   const relatedIds = new Set(relatedStories(story, pool).map((row) => row.story.id));
   const toks = clusterTokens(story.title);
@@ -85,6 +104,7 @@ export function similarStories(story: Story, pool: Story[], take = 6) {
   const topics = new Set(story.topics.filter((topic) => topic !== "world"));
   return pool
     .filter((other) => other.id !== story.id && !relatedIds.has(other.id))
+    .filter((other) => !offTopicForCyberReader(story, other))
     .map((other) => {
       const otherToks = clusterTokens(other.title);
       let inter = 0;
@@ -106,7 +126,7 @@ export function similarStories(story: Story, pool: Story[], take = 6) {
       }
       return { story: other, score, why: why[0] ?? "nearby" };
     })
-    .filter((row) => row.score >= 1.6)
+    .filter((row) => row.score >= (storyIsCyber(story) ? 2.4 : 1.6))
     .sort((a, b) => b.score - a.score)
     .slice(0, take);
 }

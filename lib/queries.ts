@@ -4,7 +4,11 @@ import { cacheStats } from "./cache";
 import { classifyItem } from "./classify";
 import { colorFor } from "./colors";
 import { getDb, withTransaction } from "./db";
+import { entitiesForItemIds, indexItemEntities } from "./entities";
+import { extractSnippet, searchItemIds, upsertItemFts } from "./evidence";
 import { hintSources } from "./explore";
+import { parseQueryLine } from "./query-builder";
+import { listWatchlists, notifyWatchAlerts, recordWatchHits, type WatchAlert } from "./watchlists";
 import { type IntelFeed } from "./intel-feeds";
 import {
   REDDIT_SOURCE_KEY,
@@ -57,6 +61,8 @@ type ItemRow = {
   topics?: string;
   locations?: string;
   fetched_at: number;
+  extract_body?: string | null;
+  extract_at?: number | null;
 };
 
 function mapUser(row: Record<string, unknown>): SeedUser {
@@ -111,12 +117,13 @@ function parseJsonArray(raw: string | undefined) {
   }
 }
 
-function mapItem(row: ItemRow): Item {
+function mapItem(row: ItemRow, entities?: Item["entities"]): Item {
   const topics = parseJsonArray(row.topics);
   const locations = parseJsonArray(row.locations);
   const tags = parseJsonArray(row.tags);
   const classified =
     topics.length || locations.length || tags.length ? null : classifyItem(row.title, row.summary);
+  const extractText = extractSnippet(row.extract_body);
   return {
     id: row.id,
     sourceId: row.source_id,
@@ -130,8 +137,21 @@ function mapItem(row: ItemRow): Item {
     topics: topics.length ? topics : (classified?.topics ?? []),
     locations: locations.length ? locations : (classified?.locations ?? []),
     fetchedAt: row.fetched_at,
+    extractText,
+    extractAt: row.extract_at ?? null,
+    iocs: entities?.filter((row) => row.kind === "ioc").map((row) => row.label),
+    entities,
   };
 }
+
+function hydrateItems(rows: ItemRow[]): Item[] {
+  const entities = entitiesForItemIds(rows.map((row) => row.id));
+  return rows.map((row) => mapItem(row, entities.get(row.id)));
+}
+
+const ITEM_SELECT = `SELECT items.*, extracts.body AS extract_body, extracts.extracted_at AS extract_at
+  FROM items
+  LEFT JOIN extracts ON extracts.item_id = items.id`;
 
 export function upsertScrape(result: ScrapeResult) {
   const db = getDb();
@@ -242,18 +262,19 @@ export function upsertScrape(result: ScrapeResult) {
 
   const self = sourceIds.find((s) => s.source.reason === "self");
   if (self && result.items.length) {
-    insertItems(self.id, result.items);
+    const ingested = insertItems(self.id, result.items);
     db.prepare("UPDATE sources SET last_fetched_at = ? WHERE id = ?").run(
       now,
       self.id,
     );
+    void notifyWatchAlerts(ingested.alerts);
   }
 
   return { userId, sources: listSources() };
 }
 
-export function insertItems(sourceId: number, items: ScrapedItem[]) {
-  if (!items.length) return;
+export function insertItems(sourceId: number, items: ScrapedItem[]): { ids: number[]; alerts: WatchAlert[] } {
+  if (!items.length) return { ids: [], alerts: [] };
   const db = getDb();
   const now = Date.now();
   const stmt = db.prepare(
@@ -269,12 +290,14 @@ export function insertItems(sourceId: number, items: ScrapedItem[]) {
        tags = excluded.tags,
        topics = excluded.topics,
        locations = excluded.locations,
-       fetched_at = excluded.fetched_at`,
+       fetched_at = excluded.fetched_at
+     RETURNING id`,
   );
+  const indexed: { id: number; scraped: ScrapedItem }[] = [];
   withTransaction(() => {
     for (const item of items) {
       const classified = classifyItem(item.title, item.summary);
-      stmt.run(
+      const row = stmt.get(
         sourceId,
         item.externalId,
         item.title,
@@ -286,9 +309,37 @@ export function insertItems(sourceId: number, items: ScrapedItem[]) {
         JSON.stringify(item.topics.length ? item.topics : classified.topics),
         JSON.stringify(item.locations.length ? item.locations : classified.locations),
         now,
-      );
+      ) as { id: number } | undefined;
+      if (!row) continue;
+      const existing = db.prepare("SELECT body FROM extracts WHERE item_id = ?").get(row.id) as
+        | { body: string }
+        | undefined;
+      upsertItemFts(row.id, item.title, item.summary, existing?.body ?? "");
+      indexItemEntities(row.id, `${item.title}\n${item.summary ?? ""}`, item);
+      indexed.push({ id: row.id, scraped: item });
     }
   });
+  const source = getSource(sourceId);
+  const watches = listWatchlists();
+  const alerts: WatchAlert[] = [];
+  for (const row of indexed) {
+    const mapped: Item = {
+      id: row.id,
+      sourceId,
+      externalId: row.scraped.externalId,
+      title: row.scraped.title,
+      summary: row.scraped.summary,
+      url: row.scraped.url,
+      author: row.scraped.author,
+      publishedAt: row.scraped.publishedAt,
+      tags: row.scraped.tags,
+      topics: row.scraped.topics,
+      locations: row.scraped.locations,
+      fetchedAt: now,
+    };
+    alerts.push(...recordWatchHits(mapped, source ?? undefined, watches));
+  }
+  return { ids: indexed.map((row) => row.id), alerts };
 }
 
 export function setSourceEnabled(ids: number[], enabled: boolean) {
@@ -308,6 +359,14 @@ export function markFetched(sourceId: number) {
 
 export function deleteSource(id: number) {
   const db = getDb();
+  const rows = db.prepare("SELECT id FROM items WHERE source_id = ?").all(id) as { id: number }[];
+  for (const row of rows) {
+    try {
+      db.prepare("DELETE FROM items_fts WHERE rowid = ?").run(row.id);
+    } catch {
+      /* FTS optional */
+    }
+  }
   db.prepare("DELETE FROM items WHERE source_id = ?").run(id);
   db.prepare("DELETE FROM source_origins WHERE source_id = ?").run(id);
   db.prepare("DELETE FROM sources WHERE id = ?").run(id);
@@ -394,22 +453,53 @@ export function listUsers(): SeedUser[] {
 
 /** Recent items from enabled sources (newest first). Limit is capped in board-limit.ts. */
 export function listItems(limit = 500): Item[] {
-  return (
+  return hydrateItems(
     getDb()
       .prepare(
-        `SELECT items.* FROM items
+        `${ITEM_SELECT}
          JOIN sources ON sources.id = items.source_id
          WHERE sources.enabled = 1
          ORDER BY COALESCE(items.published_at, items.fetched_at) DESC
          LIMIT ?`,
       )
-      .all(limit) as ItemRow[]
-  ).map(mapItem);
+      .all(limit) as ItemRow[],
+  );
 }
 
-export function getMonitorState(itemLimit?: number): MonitorState {
+export function listItemsByIds(ids: number[]): Item[] {
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = getDb()
+    .prepare(`${ITEM_SELECT} WHERE items.id IN (${placeholders})`)
+    .all(...ids) as ItemRow[];
+  const order = new Map(ids.map((id, index) => [id, index]));
+  return hydrateItems(rows).sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+}
+
+function mergeBoardItems(recent: Item[], extra: Item[], cap: number) {
+  const seen = new Set(recent.map((item) => item.id));
+  const merged = [...recent];
+  for (const item of extra) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    merged.push(item);
+  }
+  return merged
+    .sort((a, b) => (b.publishedAt ?? b.fetchedAt) - (a.publishedAt ?? a.fetchedAt))
+    .slice(0, Math.max(cap, recent.length + Math.min(extra.length, 160)));
+}
+
+export function getMonitorState(itemLimit?: number, search?: string | null): MonitorState {
   const sources = listSources();
-  const items = listItems(itemLimit);
+  const cap = itemLimit ?? 500;
+  let items = listItems(cap);
+  const parsed = parseQueryLine(search);
+  const ftsNeedle = [parsed.text, ...parsed.tree.rules.map((rule) => rule.value)]
+    .filter(Boolean)
+    .join(" ");
+  if (ftsNeedle) {
+    items = mergeBoardItems(items, listItemsByIds(searchItemIds(ftsNeedle, 160)), cap);
+  }
   return {
     users: listUsers(),
     sources,
@@ -417,6 +507,7 @@ export function getMonitorState(itemLimit?: number): MonitorState {
     hints: hintSources(items, sources),
     kev: listKev(),
     cache: cacheStats(),
+    watches: listWatchlists(),
   };
 }
 
@@ -428,6 +519,7 @@ export function emptyMonitorState(): MonitorState {
     hints: [],
     kev: [],
     cache: { entries: 0, bytes: 0 },
+    watches: [],
   };
 }
 
@@ -530,17 +622,22 @@ export function registerIntelFeeds(feeds: IntelFeed[], enable: boolean) {
   const ids: number[] = [];
   for (const feed of feeds) {
     const key = `rss:${feed.feedUrl}`;
-    const current = db.prepare("SELECT id FROM sources WHERE key = ?").get(key) as
+    let current = db.prepare("SELECT id FROM sources WHERE key = ?").get(key) as
       | { id: number }
       | undefined;
+    if (!current) {
+      current = db
+        .prepare("SELECT id FROM sources WHERE handle = ? AND platform = 'rss'")
+        .get(feed.id) as { id: number } | undefined;
+    }
     let id: number;
     if (current) {
       id = current.id;
       db.prepare(
-        `UPDATE sources SET name = ?, handle = ?, url = ?, feed_url = ?, description = COALESCE(?, description)${
+        `UPDATE sources SET key = ?, name = ?, handle = ?, url = ?, feed_url = ?, description = COALESCE(?, description)${
           enable ? ", enabled = 1" : ""
         } WHERE id = ?`,
-      ).run(feed.name, feed.id, feed.url, feed.feedUrl, feed.blurb, id);
+      ).run(key, feed.name, feed.id, feed.url, feed.feedUrl, feed.blurb, id);
     } else {
       const inserted = db
         .prepare(

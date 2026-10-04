@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ExternalLink, Languages, Rss, ScanSearch, X } from "lucide-react";
+import { ChevronLeft, ExternalLink, Languages, Printer, Rss, ScanSearch, X } from "lucide-react";
 import { SendToReportButton } from "@/components/monitor/send-to-report";
 import { Ago } from "@/components/monitor/ago";
 import { SituationMap, placeMarkers } from "@/components/monitor/map";
@@ -18,6 +18,8 @@ import { matchItemByUrl, matchSourceByHost, storySignals } from "@/lib/link";
 import { shortSourceName } from "@/lib/source-label";
 import { personName } from "@/lib/people";
 import { ArticleBody } from "@/components/monitor/article-body";
+import { ExternalLinkRow } from "@/components/monitor/external-link-row";
+import { VulnResponsePanel } from "@/components/monitor/vuln-response-panel";
 import { NvdPanel } from "@/components/monitor/nvd-panel";
 import {
   articleDisplayBlocks,
@@ -25,9 +27,11 @@ import {
   cleanArticleParagraphs,
 } from "@/lib/article-body";
 import { isNoiseCopy, type ArticleRead } from "@/lib/article";
+import { isVendorAdvisoryLink } from "@/lib/page-links";
+import type { ReportVulnPlanSnapshot } from "@/lib/report-vuln-plan";
 import type { NvdCveBrief } from "@/lib/nvd";
 import type { Report } from "@/lib/reports";
-import type { Item, Source } from "@/lib/types";
+import type { BuiltinDesk, Item, Source } from "@/lib/types";
 
 export function ReaderPane({
   story,
@@ -53,6 +57,9 @@ export function ReaderPane({
   reports = [],
   onReportsChange,
   onOpenReport,
+  stack = "",
+  onDesk,
+  vulnResponse = true,
 }: {
   story: Story;
   sources: Map<number, Source>;
@@ -77,6 +84,9 @@ export function ReaderPane({
   reports?: Report[];
   onReportsChange?: (rows: Report[]) => void;
   onOpenReport?: (id: string) => void;
+  stack?: string;
+  onDesk?: (desk: BuiltinDesk) => void;
+  vulnResponse?: boolean;
 }) {
   const [activeId, setActiveId] = useState(story.items[0].id);
   const [article, setArticle] = useState<ArticleRead | null>(null);
@@ -88,6 +98,10 @@ export function ReaderPane({
   const [translateError, setTranslateError] = useState<string | null>(null);
   const [nvdEntries, setNvdEntries] = useState<NvdCveBrief[]>([]);
   const [nvdLoading, setNvdLoading] = useState(false);
+  const [vulnPlanSnapshot, setVulnPlanSnapshot] = useState<ReportVulnPlanSnapshot | null>(null);
+  useEffect(() => {
+    setVulnPlanSnapshot(null);
+  }, [story.id]);
   const active = story.items.find((item) => item.id === activeId) ?? story.items[0];
   const activeSource = sources.get(active.sourceId);
   const signals = storySignals(story);
@@ -98,6 +112,9 @@ export function ReaderPane({
     for (const c of article?.cveIds ?? []) ids.add(c.toUpperCase());
     return [...ids].sort().slice(0, 5).join(",");
   }, [story.id, active.url, signals.cves.slice().sort().join(","), (article?.cveIds ?? []).slice().sort().join(",")]);
+
+  const showVulnResponse =
+    vulnResponse && (signals.cves.length > 0 || kevHits.length > 0 || nvdCveKey.length > 0);
 
   useEffect(() => {
     setActiveId(story.items[0].id);
@@ -242,9 +259,23 @@ export function ReaderPane({
   const shownBlocks = translated && translated.length > 1 ? translated.slice(1) : dossier.blocks;
   const shownTitle = translated?.[0] ?? story.title;
 
+  function printReaderPdf() {
+    const root = document.documentElement;
+    root.classList.add("print-reader");
+    const done = () => {
+      root.classList.remove("print-reader");
+      window.removeEventListener("afterprint", done);
+    };
+    window.addEventListener("afterprint", done);
+    window.setTimeout(() => window.print(), 50);
+  }
+
   return (
-    <aside className="flex h-full min-h-[70vh] flex-col border-l border-slate-200 bg-white">
-      <div className="flex items-start gap-1 border-b border-slate-100 px-3 py-2">
+    <aside
+      id="reader-print-sheet"
+      className="reader-sheet flex h-full min-h-[70vh] flex-col border-l border-slate-200 bg-white"
+    >
+      <div className="no-print flex items-start gap-1 border-b border-slate-100 px-3 py-2">
         {canBack ? (
           <Tip text="Previous story">
             <button
@@ -273,6 +304,7 @@ export function ReaderPane({
             sources={sources}
             reports={reports}
             article={article}
+            vulnPlanSnapshot={vulnPlanSnapshot}
             onChange={onReportsChange}
             onOpenReport={onOpenReport}
           />
@@ -569,6 +601,33 @@ export function ReaderPane({
           </>
         ) : null}
 
+        <VulnResponsePanel
+          story={story}
+          article={article}
+          articleBlocks={articleBlocks}
+          kevHits={kevHits}
+          nvdEntries={nvdEntries}
+          stack={stack}
+          enabled={showVulnResponse}
+          onPlanSnapshot={setVulnPlanSnapshot}
+          onDesk={
+            onDesk
+              ? (desk) => {
+                  const allowed: BuiltinDesk[] = [
+                    "patch",
+                    "advisories",
+                    "weather",
+                    "home",
+                    "documents",
+                    "brief",
+                    "scan",
+                  ];
+                  if (allowed.includes(desk as BuiltinDesk)) onDesk(desk as BuiltinDesk);
+                }
+              : undefined
+          }
+        />
+
         {!nvdCveKey && kevHits.length > 0 ? (
           <div className="mt-4">
             <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
@@ -648,37 +707,46 @@ export function ReaderPane({
             <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
               From the page
             </div>
-            <div className="mt-1 space-y-1">
-              {pageLinks.map((link) => (
-                <Tip
-                  key={link.href}
-                  text={
-                    link.item
-                      ? "Already on the board — open it"
-                      : link.source
-                        ? `Follow via ${link.source.name}`
-                        : link.href
-                  }
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (link.item) onOpenItem(link.item);
-                      else onFollow(link.href);
-                    }}
-                    className="block w-full truncate rounded px-1 py-1 text-left text-[12px] text-slate-700 hover:bg-slate-50"
-                  >
-                    {link.label}
-                    <span className="block truncate text-[10px] text-slate-400">
-                      {link.item
-                        ? "already on the board"
+            <div className="mt-1 space-y-1.5">
+              {pageLinks.map((link) => {
+                const advisory = isVendorAdvisoryLink(link.href);
+                return (
+                  <ExternalLinkRow
+                    key={link.href}
+                    href={link.href}
+                    label={link.label}
+                    variant={advisory ? "advisory" : "default"}
+                    urlCaption={advisory ? link.href.replace(/^https?:\/\//, "") : undefined}
+                    hint={
+                      link.item
+                        ? "Already on the board"
                         : link.source
-                          ? `via ${link.source.name}`
-                          : link.href.replace(/^https?:\/\//, "")}
-                    </span>
-                  </button>
-                </Tip>
-              ))}
+                          ? `Known source: ${link.source.name}`
+                          : advisory
+                            ? "Vendor advisory — open in browser; not a feed to follow"
+                            : link.href.replace(/^https?:\/\//, "")
+                    }
+                    onPrimaryClick={
+                      advisory
+                        ? undefined
+                        : link.item
+                          ? () => onOpenItem(link.item!)
+                          : link.source
+                            ? undefined
+                            : () => onFollow(link.href)
+                    }
+                    primaryActionLabel={
+                      advisory
+                        ? undefined
+                        : link.item
+                          ? "Open on board"
+                          : !link.source
+                            ? "Follow this URL"
+                            : undefined
+                    }
+                  />
+                );
+              })}
             </div>
           </div>
         ) : null}
@@ -690,25 +758,21 @@ export function ReaderPane({
             </div>
             <div className="mt-1 space-y-1">
               {relatedDocuments(pageLinks).map((doc) => (
-                <Tip key={doc.href} text={doc.href}>
-                  <a
-                    href={doc.href}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block truncate rounded px-1 py-1 text-[12px] text-slate-700 hover:bg-slate-50"
-                  >
-                    {doc.label}
-                    <span className="block text-[10px] text-slate-400">{doc.kind}</span>
-                  </a>
-                </Tip>
+                <ExternalLinkRow key={doc.href} href={doc.href} label={doc.label} hint={doc.kind} />
               ))}
             </div>
           </div>
         ) : null}
       </div>
 
-      <div className="border-t border-slate-100 px-3 py-2">
+      <div className="no-print border-t border-slate-100 px-3 py-2">
         <div className="flex flex-wrap gap-1">
+          <Tip text="Print this reader view (use Save as PDF in the print dialog)">
+            <Button size="xs" variant="outline" onClick={printReaderPdf}>
+              <Printer className="size-3" />
+              Print to PDF
+            </Button>
+          </Tip>
           <Tip text={`Open the full page: ${active.url}`}>
             <Button size="xs" asChild>
               <a href={active.url} target="_blank" rel="noreferrer">

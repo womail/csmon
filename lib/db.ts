@@ -111,6 +111,83 @@ const MIGRATIONS: { name: string; sql: string }[] = [
     name: "005_source_retention",
     sql: `ALTER TABLE sources ADD COLUMN retention_days INTEGER;`,
   },
+  {
+    name: "006_evidence",
+    sql: `
+      CREATE TABLE IF NOT EXISTS extracts (
+        item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+        url TEXT NOT NULL,
+        title TEXT,
+        description TEXT,
+        body TEXT NOT NULL,
+        quotes TEXT NOT NULL DEFAULT '[]',
+        language TEXT,
+        cves TEXT NOT NULL DEFAULT '[]',
+        extracted_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS entities (
+        id INTEGER PRIMARY KEY,
+        kind TEXT NOT NULL,
+        key TEXT NOT NULL,
+        label TEXT NOT NULL,
+        extra TEXT,
+        first_seen INTEGER NOT NULL,
+        last_seen INTEGER NOT NULL,
+        UNIQUE(kind, key)
+      );
+
+      CREATE TABLE IF NOT EXISTS item_entities (
+        item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+        PRIMARY KEY (item_id, entity_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_item_entities_entity ON item_entities(entity_id);
+      CREATE INDEX IF NOT EXISTS idx_entities_kind ON entities(kind, last_seen DESC);
+
+      CREATE TABLE IF NOT EXISTS watchlists (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        query TEXT NOT NULL,
+        notify_url TEXT,
+        desk TEXT,
+        created_at INTEGER NOT NULL,
+        last_hit_at INTEGER,
+        last_ack_at INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS watch_hits (
+        id INTEGER PRIMARY KEY,
+        watchlist_id INTEGER NOT NULL REFERENCES watchlists(id) ON DELETE CASCADE,
+        item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        hit_at INTEGER NOT NULL,
+        UNIQUE(watchlist_id, item_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_watch_hits_item ON watch_hits(item_id);
+
+      CREATE TABLE IF NOT EXISTS reports (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS report_stories (
+        id TEXT PRIMARY KEY,
+        report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+        item_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+        position INTEGER NOT NULL,
+        snapshot TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_report_stories_report ON report_stories(report_id, position);
+      CREATE INDEX IF NOT EXISTS idx_report_stories_item ON report_stories(item_id);
+    `,
+  },
 ];
 
 const globalForDb = globalThis as unknown as { csmonDb?: DatabaseSync };
@@ -154,10 +231,55 @@ function applyMigrations(db: DatabaseSync) {
     } else {
       db.exec(migration.sql);
     }
+    if (migration.name === "006_evidence") {
+      ensureItemsFts(db);
+    }
     db.prepare("INSERT INTO _migrations (name, applied_at) VALUES (?, ?)").run(
       migration.name,
       Date.now(),
     );
+  }
+  if (applied.has("006_evidence")) {
+    ensureItemsFts(db);
+  }
+}
+
+function ensureItemsFts(db: DatabaseSync) {
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
+        title,
+        summary,
+        body,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+    `);
+  } catch (error) {
+    console.error("items_fts unavailable", error);
+    return;
+  }
+  const count = db.prepare("SELECT COUNT(*) AS n FROM items_fts").get() as { n: number };
+  if (Number(count.n) > 0) return;
+  const rows = db
+    .prepare(
+      `SELECT items.id, items.title, items.summary, extracts.body AS body
+       FROM items
+       LEFT JOIN extracts ON extracts.item_id = items.id`,
+    )
+    .all() as { id: number; title: string; summary: string | null; body: string | null }[];
+  const insert = db.prepare("INSERT INTO items_fts(rowid, title, summary, body) VALUES (?, ?, ?, ?)");
+  db.exec("BEGIN");
+  try {
+    for (const row of rows) {
+      insert.run(row.id, row.title, row.summary ?? "", row.body ?? "");
+    }
+    db.exec("COMMIT");
+  } catch {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      /* ignore */
+    }
   }
 }
 

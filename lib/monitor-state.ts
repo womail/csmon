@@ -6,7 +6,8 @@ import type { MonitorState } from "./types";
 
 /** Monitor snapshot with item limit from request query or server env default. */
 export function monitorStateFromRequest(request: Request): MonitorState {
-  return getMonitorState(itemLimitFromRequest(request));
+  const q = new URL(request.url).searchParams.get("q");
+  return getMonitorState(itemLimitFromRequest(request), q);
 }
 
 export function monitorStateDefault(): MonitorState {

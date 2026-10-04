@@ -42,7 +42,8 @@ function isPrivateIPv4(ip: string): boolean {
   if (a === 169 && b === 254) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
-  if (a === 192 && b === 0) return true;
+  // 192.0.0.0/24 (IETF special) — not all of 192.0.0.0/16 (WordPress VIP and others use 192.0.66.x).
+  if (a === 192 && b === 0 && t[2] === 0) return true;
   if (a === 198 && (b === 18 || b === 19 || b === 51)) return true;
   if (a === 203 && b === 113) return true;
   if (a >= 224) return true;

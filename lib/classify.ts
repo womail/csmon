@@ -195,12 +195,12 @@ export function knownTopicTags() {
 }
 
 export function itemHasTopic(
-  item: { title: string; summary?: string | null; topics: string[]; tags: string[] },
+  item: { title: string; summary?: string | null; topics: string[]; tags: string[]; extractText?: string | null },
   topic: string | null,
 ) {
   if (!topic) return true;
   if (item.topics.includes(topic) || item.tags.includes(topic)) return true;
-  return textHasTopic(`${item.title} ${item.summary ?? ""}`, topic);
+  return textHasTopic(`${item.title} ${item.summary ?? ""} ${item.extractText ?? ""}`, topic);
 }
 
 export function textHasPlace(text: string, place: string) {

@@ -35,6 +35,14 @@ export type Source = {
   origins: { reason: OriginReason; weight: number; seedHandle: string }[];
 };
 
+export type EntityKind = "person" | "org" | "place" | "vendor" | "cve" | "ioc";
+
+export type ItemEntity = {
+  kind: EntityKind;
+  key: string;
+  label: string;
+};
+
 export type Item = {
   id: number;
   sourceId: number;
@@ -48,6 +56,24 @@ export type Item = {
   topics: string[];
   locations: string[];
   fetchedAt: number;
+  /** Truncated page extract for board search; full copy stays in `extracts`. */
+  extractText?: string | null;
+  extractAt?: number | null;
+  iocs?: string[];
+  entities?: ItemEntity[];
+};
+
+export type Watchlist = {
+  id: number;
+  name: string;
+  query: string;
+  notifyUrl: string | null;
+  desk: string | null;
+  createdAt: number;
+  lastHitAt: number | null;
+  lastAckAt: number | null;
+  hitCount: number;
+  newHits: number;
 };
 
 export type DiscoveredSource = {
@@ -113,6 +139,7 @@ export type MonitorState = {
   hints: SourceHint[];
   kev: KevEntry[];
   cache: CacheStats;
+  watches: Watchlist[];
 };
 
 export type TimeRange = "1h" | "6h" | "24h" | "7d" | "all";

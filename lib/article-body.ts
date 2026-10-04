@@ -207,6 +207,8 @@ export function blocksPlainText(blocks: ArticleBlock[]): string[] {
   return out;
 }
 
+export const URL_INLINE = /https?:\/\/[^\s\]>'",<>]+/gi;
+
 export function splitCveSegments(text: string): { text: string; cve?: string }[] {
   const parts: { text: string; cve?: string }[] = [];
   let last = 0;
@@ -218,4 +220,36 @@ export function splitCveSegments(text: string): { text: string; cve?: string }[]
   }
   if (last < text.length) parts.push({ text: text.slice(last) });
   return parts.length ? parts : [{ text }];
+}
+
+export type InlineSegment =
+  | { kind: "text"; text: string }
+  | { kind: "cve"; cve: string }
+  | { kind: "url"; url: string };
+
+function trimUrlTrailing(url: string) {
+  return url.replace(/[).,;]+$/, "");
+}
+
+/** Split paragraph copy into plain text, CVE tokens, and clickable URLs. */
+export function splitInlineSegments(text: string): InlineSegment[] {
+  const out: InlineSegment[] = [];
+  for (const cvePart of splitCveSegments(text)) {
+    if (cvePart.cve) {
+      out.push({ kind: "cve", cve: cvePart.cve });
+      continue;
+    }
+    const chunk = cvePart.text;
+    if (!chunk) continue;
+    let last = 0;
+    for (const match of chunk.matchAll(URL_INLINE)) {
+      const idx = match.index ?? 0;
+      if (idx > last) out.push({ kind: "text", text: chunk.slice(last, idx) });
+      const href = trimUrlTrailing(match[0]);
+      out.push({ kind: "url", url: href });
+      last = idx + match[0].length;
+    }
+    if (last < chunk.length) out.push({ kind: "text", text: chunk.slice(last) });
+  }
+  return out.length ? out : [{ kind: "text", text }];
 }

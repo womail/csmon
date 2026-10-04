@@ -2,26 +2,55 @@
 
 import { ExternalLink } from "lucide-react";
 import type { ArticleBlock } from "@/lib/article-body";
-import { splitCveSegments } from "@/lib/article-body";
+import { splitInlineSegments } from "@/lib/article-body";
 
-function CveText({ text, onCve }: { text: string; onCve?: (cve: string) => void }) {
-  const parts = splitCveSegments(text);
+function RichInlineText({ text, onCve }: { text: string; onCve?: (cve: string) => void }) {
+  const parts = splitInlineSegments(text);
   return (
     <>
-      {parts.map((part, i) =>
-        part.cve && onCve ? (
-          <button
-            key={`${part.cve}-${i}`}
-            type="button"
-            onClick={() => onCve(part.cve!)}
-            className="font-mono text-[11px] font-semibold text-sky-900 underline-offset-2 hover:underline"
-          >
-            {part.cve}
-          </button>
-        ) : (
-          <span key={`t-${i}`}>{part.text}</span>
-        ),
-      )}
+      {parts.map((part, i) => {
+        if (part.kind === "cve") {
+          if (onCve) {
+            return (
+              <button
+                key={`cve-${part.cve}-${i}`}
+                type="button"
+                onClick={() => onCve(part.cve)}
+                className="font-mono text-[11px] font-semibold text-violet-900 underline-offset-2 hover:underline"
+              >
+                {part.cve}
+              </button>
+            );
+          }
+          return (
+            <a
+              key={`cve-${part.cve}-${i}`}
+              href={`https://nvd.nist.gov/vuln/detail/${part.cve}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono text-[11px] font-semibold text-violet-900 underline-offset-2 hover:underline"
+            >
+              {part.cve}
+            </a>
+          );
+        }
+        if (part.kind === "url") {
+          const host = part.url.replace(/^https?:\/\//, "").split("/")[0] ?? part.url;
+          return (
+            <a
+              key={`url-${i}-${part.url.slice(0, 24)}`}
+              href={part.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-sky-800 underline decoration-sky-300 underline-offset-2 hover:text-sky-950 hover:decoration-sky-600"
+              title={part.url}
+            >
+              {host.length > 48 ? `${host.slice(0, 45)}…` : host}
+            </a>
+          );
+        }
+        return <span key={`t-${i}`}>{part.text}</span>;
+      })}
     </>
   );
 }
@@ -51,7 +80,7 @@ export function ArticleBody({
                 key={key}
                 className="rounded-md border border-sky-200 bg-sky-50/90 px-2.5 py-2 text-[12px] leading-relaxed text-sky-950"
               >
-                <CveText text={block.text} onCve={onCve} />
+                <RichInlineText text={block.text} onCve={onCve} />
               </p>
             );
           case "cve":
@@ -88,7 +117,7 @@ export function ArticleBody({
                 <ul className="list-disc space-y-1 pl-4 text-[12px] leading-relaxed text-slate-700">
                   {block.items.map((item) => (
                     <li key={item.slice(0, 48)}>
-                      <CveText text={item} onCve={onCve} />
+                      <RichInlineText text={item} onCve={onCve} />
                     </li>
                   ))}
                 </ul>
@@ -96,18 +125,21 @@ export function ArticleBody({
             );
           case "reference":
             return (
-              <p key={key} className="text-[11px] text-slate-600">
-                <span className="font-medium text-slate-500">[{block.index}] </span>
+              <div
+                key={key}
+                className="rounded-md border border-sky-200 bg-sky-50/90 px-2.5 py-1.5 text-[11px] text-slate-700"
+              >
+                <span className="font-semibold text-sky-900/80">[{block.index}] </span>
                 <a
                   href={block.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 break-all text-sky-800 hover:underline"
+                  className="inline-flex items-center gap-1 break-all font-medium text-sky-950 hover:underline"
                 >
                   {block.label}
-                  <ExternalLink className="size-3 shrink-0" />
+                  <ExternalLink className="size-3.5 shrink-0 text-sky-700" />
                 </a>
-              </p>
+              </div>
             );
           case "meta":
             return (
@@ -118,7 +150,7 @@ export function ArticleBody({
           case "paragraph":
             return (
               <p key={key} className="text-[12.5px] leading-relaxed text-slate-700">
-                <CveText text={block.text} onCve={onCve} />
+                <RichInlineText text={block.text} onCve={onCve} />
               </p>
             );
           default:

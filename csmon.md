@@ -34,11 +34,19 @@ Click a story to **read in place**. When copy or links name a **CVE** (including
 
 The pane is a dossier, not a shrink of the card: every contributing source’s full title and summary, a map of related places, then page extract, deep dive, similar articles, related board stories, documents, people, and KEV hits. On a wide screen, drag the left edge of the pane (or double-click it) to widen the reader; the width stays in `csmon.reader-width`. Topics, places, vendors, people, CVEs, and source names are all filters — they stay on the current desk. **View page** opens the original article in a new tab (news sites block embeds). Related stories and page links open forward; back / Esc walks the trail.
 
-**Report** on the reader sends the story into a briefing, including the same full page extract you see in Read in place (paragraphs, CVEs, vendor/advisory links), not only the RSS title and blurb. The first time you are prompted for a **report title**; after that you can keep adding stories to the same open report. The **Reports** desk lists open and archived briefings. Each report has a bright title, a hard separator between stories, edit title / reorder / remove, archive or delete, and **Print to PDF** (the browser print dialog). Reports live in `csmon.reports`. Older briefings that only stored the RSS summary pull the full copy when you open them.
+**Report** on the reader sends the story into a briefing, including the same full page extract you see in Read in place (paragraphs, CVEs, vendor/advisory links), not only the RSS title and blurb. The first time you are prompted for a **report title**; after that you can keep adding stories to the same open report. The **Reports** desk lists open and archived briefings. Each report has a bright title, a hard separator between stories, edit title / reorder / remove, archive or delete, and **Print to PDF** (the browser print dialog). Reports live in SQLite (`reports`, `report_stories`) and cache in `csmon.reports` for the first load. Older briefings that only stored the RSS summary pull the full copy when you open them. Items cited in a report (or a watch hit) are skipped by retention purge.
+
+**Evidence store.** Read in place writes the page extract to `extracts` and indexes title / summary / body in FTS5 (`items_fts`). Search and Pulse then hit the same corpus, including older extract matches that were off the 500-item board. Ingest also mines people, orgs, places, vendors, CVEs, and threat IOCs into `entities` / `item_entities`.
+
+**Typed search.** The board search line accepts prefixes: `source:cisa cve:2024- ioc:sha256 place:Ireland -topic:sports`. Bare words still do substring / FTS. `OR` joins the next term. Tune / Query builder stays as extra `qb=` rules.
+
+**Keyboard.** `/` focuses search. `Ctrl/⌘ K` opens the command palette (desks, places, sources, watches). `j` / `k` move the focused card, `Enter` opens it, `h` hides, `u` undoes, `r` sends the focused story to the open report (or starts one). `1`–`9` jump Home through Flights. `?` is the cheatsheet. Esc closes the palette, then the reader.
+
+**Watch.** Header **Watch** saves the current search + query as a watchlist. New matches are logged, stay off the purge list, and can POST to an optional public ntfy URL. Click a watch (palette or the orange hits chip) to reopen its query and desk.
 
 Hover a source, filter chip, or outbound link for a tooltip (destination URL or what the filter will do). Desk labels already show their hint, so the rail does not duplicate it. Tooltips appear after a short hover and hide as soon as the pointer leaves.
 
-Filter with topic chips (including **AI**, **Sports**, **Reddit**), pinned **place** chips (**Ireland**, **UK**, **US**), other country/city chips, vendor chips, **CVE** chips mined from copy, ransomware, a **layer**, origin (**intel**, **reddit**, **explore**), **RSS**, **rising** (topics/places/vendors/people that accelerated vs the previous half-window), search, time range, **2+ sources**, and the **Query** builder (`equals` / `not equal` / `contains`, combined left-to-right with **AND** / **OR**). A place like Ireland also matches words in the article text. Search also matches mined CVE IDs. Query lives in the URL as `qb` (for example `?qb=title.contains.SharePoint|and.vendor.eq.Microsoft`). **Tune** in the header edits those fields as a form, including the same query rows. **Filters** saves the current URL view under a name.
+Filter with topic chips (including **AI**, **Sports**, **Reddit**), pinned **place** chips (**Ireland**, **UK**, **US**), other country/city chips, vendor chips, **CVE** chips mined from copy, ransomware, a **layer**, origin (**intel**, **reddit**, **explore**), **RSS**, **rising** (topics/places/vendors/people that accelerated vs the previous half-window), search, time range, **2+ sources**, and the **Query** builder (`equals` / `not equal` / `contains`, combined left-to-right with **AND** / **OR**). A place like Ireland also matches words in the article text and stored extracts. Search also matches mined CVE IDs and extract body. Query lives in the URL as `qb` (for example `?qb=title.contains.SharePoint|and.vendor.eq.Microsoft`) and as a typed line in `q` (`source:cisa cve:2024-`). **Tune** in the header edits those fields as a form, including the same query rows. **Filters** saves the current URL view under a name. **Watch** persists the current line.
 
 **Sources** lists every enabled layer. Click **RSS** to keep only RSS feeds, then click **Ireland** (or Tune a place) to hide layers with no matching copy. The same chips work on Brief and Scan.
 
@@ -46,7 +54,7 @@ Filter with topic chips (including **AI**, **Sports**, **Reddit**), pinned **pla
 
 **Pulse / trends.** Compare this half of the time range to the half before it (`24h` is last 12h vs the 12h before; `all` is last day vs the day before). A row is **rising** if volume jumped ≥25% and at least +2 items, **new** if it was absent and now has 2+, **falling** if it dropped ≥25%. Sparklines show the shape. Home **Rising now** uses the same scores. The **rising** chip keeps only items that carry a rising or new topic, place, vendor, or person. Click a trend row to filter.
 
-Cards have **Hide** (drop from the board) and **Read** (keep, mark as seen). **Undo** in the header walks the last hide/read. Triage lives in `csmon.triage` / `csmon.triage-undo`.
+Cards have **Hide** (drop from the board) and **Read** (keep, mark as seen). **Undo** in the header walks the last hide/read. Keyboard `h` / `u` do the same for the focused card. Triage lives in `csmon.triage` / `csmon.triage-undo`.
 
 **Follow next** on the right is auto-explore: hosts that keep showing up in coverage, one click to add as a layer. Collapse the rail; it stays collapsed in `csmon.follow-open`.
 
@@ -86,6 +94,8 @@ Source (layer, origin, freshness)
 Read-in-place walks that graph. Isolated sources with zero items are pool only — they do not corroborate anything until they fetch.
 
 Deep dive (in the reader) extracts language, places, dates, quotes, and short briefing bullets from the dossier copy.
+
+**Vulnerability response** (Read in place, CVE stories): **KEV/NVD/CWE catalog plan** via `POST /api/vuln/response` — incident steps, three-part checklist, MITRE CWE mitigations (`GET /api/cwe?cwes=…`), mitigation links, threat IOCs (excluding vendor/CERT reference URLs). Rules and floors in `lib/laya-rules-fallback.ts`, `lib/vuln-response-checklist.ts`, `lib/incident-response-plan.ts`. Snapshots attach to reports as `vulnPlan`.
 
 ## Language
 
@@ -131,9 +141,9 @@ Browser-local (`localStorage` `csmon.options`): start desk, time range, stack, c
 
 **Options** uses tabs (Board / Data / Help). **Open manual** is one pop-out at `/help` (user guide, **Source & filter code map**, **Lexicon**, Docker/update checklists). `/help/maintainer` redirects into that manual.
 
-**Source library** (Options → Open source library, or `/sources/workbench`): every layer with last fetch, item counts, latest headline, stale/silent badges, and tips. **Add RSS layer**, **Edit** (inline row), **Save layer** / **Save & refresh layer**, **Delete layer**. **Apply** saves all rows marked ● (unsaved). Per-layer **retention (days)** plus Options **default item retention**; **Purge by age** or **Run retention policy** trim SQLite items (age uses published or fetched time). **Export JSON** / **Import JSON** — move custom RSS layers between installs. **Save instance overrides** writes intel-linked layer edits to `CSMON_DATA_DIR/overrides/feeds.json` on the server; that file is merged over `lib/intel-feeds.ts` at runtime (volume survives rebuilds). API: `GET/POST/PATCH/DELETE /api/source-catalog` (`POST` `{ import: [...] }`, `PATCH` `{ saveFeedOverrides: true }`).
+**Source library** (Options → Open source library, or `/sources/workbench`): every layer with last fetch, item counts, latest headline, stale/silent badges, and tips. **Add RSS layer**, **Edit** (inline row), **Save layer** / **Save & refresh layer**, **Delete layer**. **Apply** saves all rows marked ● (unsaved). Per-layer **retention (days)** plus Options **default item retention**; **Purge by age** or **Run retention policy** trim SQLite items (age uses published or fetched time; items in a report or watch hit are kept). **Export JSON** / **Import JSON** — move custom RSS layers between installs. **Save instance overrides** writes intel-linked layer edits to `CSMON_DATA_DIR/overrides/feeds.json` on the server; that file is merged over `lib/intel-feeds.ts` at runtime (volume survives rebuilds). API: `GET/POST/PATCH/DELETE /api/source-catalog` (`POST` `{ import: [...] }`, `PATCH` `{ saveFeedOverrides: true }`).
 
-Saved custom filters live in `csmon.saved-filters` (name + full `BoardFilters` snapshot). User desks live in `csmon.user-desks` (label, `view` desk, filters including `platform`). Compiled briefings live in `csmon.reports` (title, open/archived, story snapshots with full page extract, CVEs, links, and places). Subreddit list lives in `csmon.subreddits`. Applying filters writes the URL the same way chips do (`?place=Ireland&platform=rss&qb=title.contains.Ireland`). Hide/read triage is `csmon.triage`; Follow next collapse is `csmon.follow-open`. Reader width is `csmon.reader-width`.
+Saved custom filters live in `csmon.saved-filters` (name + full `BoardFilters` snapshot). User desks live in `csmon.user-desks` (label, `view` desk, filters including `platform`). Compiled briefings live in SQLite `reports` (browser cache `csmon.reports`). Watchlists live in SQLite. Subreddit list lives in `csmon.subreddits`. Applying filters writes the URL the same way chips do (`?place=Ireland&platform=rss&qb=title.contains.Ireland`). Hide/read triage is `csmon.triage`; Follow next collapse is `csmon.follow-open`. Reader width is `csmon.reader-width`.
 
 ## Caching
 
@@ -148,8 +158,9 @@ Outbound fetches go through SQLite `fetch_cache` so refresh does not hammer the 
 | translate | 7 days |
 | live | 20 seconds (ADS-B) |
 | nvd (CVE JSON) | 30 minutes (same store as `json`; key `nvd:CVE-…`) |
+| cwe (MITRE weakness JSON) | 7 days (`cwe:502,787…` via `https://cwe-api.mitre.org/api/v1/cwe/weakness/…`) |
 
-Expired rows are deleted on read. The Sources desk shows live entry count and bytes.
+Expired rows are deleted on read. The Sources desk shows live entry count and bytes. Article extracts are stored in `extracts` (not TTL) and indexed in `items_fts`. `GET /api/state?q=` unions recent items with FTS hits. `GET/POST /api/reports` and `GET/POST /api/watchlists` persist analyst work.
 
 ## Flow
 
@@ -196,7 +207,7 @@ Options shows **version**, **git commit**, and **build date** (`GET /api/version
 | `CSMON_UPDATE_MANIFEST_ALLOW_SUFFIX` | unset | Domain suffix for Options manifest override |
 | `CSMON_ITEM_LIMIT` | `500` | Default SQL item cap when client omits `?itemLimit=` |
 
-Copy `.env.example` to `.env.local`. No new database tables for this milestone.
+Copy `.env.example` to `.env.local`.
 
 ## Schema
 
@@ -264,6 +275,95 @@ Copy `.env.example` to `.env.local`. No new database tables for this milestone.
 | fetched_at | INTEGER NOT NULL | |
 | UNIQUE(source_id, external_id) | | |
 
+Page extract (if read) lives in `extracts`, not as extra columns here. Board state may include a truncated `extractText` plus mined `entities` / `iocs`.
+
+### extracts
+
+Persisted Read-in-place copy (`006_evidence`).
+
+| column | type | notes |
+| --- | --- | --- |
+| item_id | INTEGER PK | FK items ON DELETE CASCADE |
+| url | TEXT NOT NULL | |
+| title | TEXT | |
+| description | TEXT | |
+| body | TEXT NOT NULL | paragraphs joined |
+| quotes | TEXT NOT NULL | JSON |
+| language | TEXT | |
+| cves | TEXT NOT NULL | JSON |
+| extracted_at | INTEGER NOT NULL | unix ms |
+
+### items_fts
+
+FTS5 virtual table (`title`, `summary`, `body`). `rowid` = `items.id`. Rebuilt on ingest and when an extract is saved.
+
+### entities
+
+Named things mined on ingest / extract (`006_evidence`).
+
+| column | type | notes |
+| --- | --- | --- |
+| id | INTEGER PK | |
+| kind | TEXT NOT NULL | `person` \| `org` \| `place` \| `vendor` \| `cve` \| `ioc` |
+| key | TEXT NOT NULL | normalized |
+| label | TEXT NOT NULL | |
+| extra | TEXT | reserved JSON |
+| first_seen | INTEGER NOT NULL | |
+| last_seen | INTEGER NOT NULL | |
+| UNIQUE(kind, key) | | |
+
+### item_entities
+
+| column | type | notes |
+| --- | --- | --- |
+| item_id | INTEGER NOT NULL | FK items |
+| entity_id | INTEGER NOT NULL | FK entities |
+| PRIMARY KEY(item_id, entity_id) | | |
+
+### watchlists
+
+| column | type | notes |
+| --- | --- | --- |
+| id | INTEGER PK | |
+| name | TEXT NOT NULL | |
+| query | TEXT NOT NULL | typed search line |
+| notify_url | TEXT | optional public ntfy POST URL |
+| desk | TEXT | desk to reopen |
+| created_at | INTEGER NOT NULL | |
+| last_hit_at | INTEGER | |
+| last_ack_at | INTEGER | |
+
+### watch_hits
+
+| column | type | notes |
+| --- | --- | --- |
+| id | INTEGER PK | |
+| watchlist_id | INTEGER NOT NULL | FK watchlists |
+| item_id | INTEGER NOT NULL | FK items |
+| hit_at | INTEGER NOT NULL | |
+| UNIQUE(watchlist_id, item_id) | | |
+
+### reports / report_stories
+
+Compiled briefings (`006_evidence`). Browser `csmon.reports` is a cache; `GET/POST /api/reports` is source of truth.
+
+| reports column | type | notes |
+| --- | --- | --- |
+| id | TEXT PK | |
+| title | TEXT NOT NULL | |
+| status | TEXT NOT NULL | `open` \| `archived` |
+| created_at | INTEGER NOT NULL | |
+| updated_at | INTEGER NOT NULL | |
+
+| report_stories column | type | notes |
+| --- | --- | --- |
+| id | TEXT PK | `{reportId}:{storyId}` |
+| report_id | TEXT NOT NULL | FK reports |
+| item_id | INTEGER | first board item, for purge protection |
+| position | INTEGER NOT NULL | |
+| snapshot | TEXT NOT NULL | JSON ReportStory |
+| created_at | INTEGER NOT NULL | |
+
 ### kev
 
 CISA Known Exploited Vulnerabilities snapshot (`003_kev`).
@@ -294,7 +394,7 @@ TTL body cache for outbound RSS, JSON, KEV, HTML, and translations (`004_fetch_c
 | fetched_at | INTEGER NOT NULL | unix ms |
 | expires_at | INTEGER NOT NULL | unix ms |
 
-No new tables for this milestone. Reports stay in `localStorage` (`csmon.reports`) with the full page extract (`body`, `cves`, `links`). Saved filters and language options also stay in `localStorage`. USGS points are fetched live (JSON cache 30m) and not persisted as rows. `CSMON_DATA_DIR` only moves the SQLite file.
+Saved filters, user desks, language options, and triage stay in `localStorage`. USGS points are fetched live (JSON cache 30m) and not persisted as rows. `CSMON_DATA_DIR` only moves the SQLite file.
 
 ## Migrations
 
@@ -302,3 +402,5 @@ No new tables for this milestone. Reports stay in `localStorage` (`csmon.reports
 - `002_topics_locations` — `items.topics`, `items.locations` (skipped if columns already exist)
 - `003_kev` — `kev` catalog table
 - `004_fetch_cache` — `fetch_cache` TTL table
+- `005_source_retention` — `sources.retention_days`
+- `006_evidence` — extracts, FTS5, entities, watchlists, reports

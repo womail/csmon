@@ -6,7 +6,6 @@ import {
   ArchiveRestore,
   ArrowDown,
   ArrowUp,
-  ExternalLink,
   Pencil,
   Printer,
   Trash2,
@@ -15,6 +14,13 @@ import { Ago } from "@/components/monitor/ago";
 import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ArticleBody } from "@/components/monitor/article-body";
+import { ExternalLinkRow } from "@/components/monitor/external-link-row";
+import { NvdPanel } from "@/components/monitor/nvd-panel";
+import { apiFetch } from "@/lib/api-client";
+import { isVendorAdvisoryLink } from "@/lib/page-links";
+import type { ReportVulnPlanSnapshot } from "@/lib/report-vuln-plan";
+import type { NvdCveBrief } from "@/lib/nvd";
 import { extractUrlsForReportStory, fetchArticleReads } from "@/lib/report-extract";
 import {
   applyArticlesToReportStory,
@@ -25,6 +31,7 @@ import {
   removeStoryFromReport,
   renameReport,
   replaceStoryInReport,
+  reportStoryDisplayBlocks,
   setReportStatus,
   storyNeedsExtract,
   type Report,
@@ -338,8 +345,8 @@ function ReportView({
                   <Ago ts={story.latestAt} className="ml-auto" />
                 </div>
                 <h2 className="report-heading mt-1 text-[20px] leading-snug font-bold">{story.title}</h2>
-                {(story.cves ?? []).length ? (
-                  <p className="mt-1.5 text-[11px] text-slate-600">{story.cves.join(" · ")}</p>
+                {story.topics.length ? (
+                  <p className="mt-1.5 text-[11px] text-slate-600">{story.topics.join(" · ")}</p>
                 ) : null}
                 {story.locations.length ? (
                   <p className="mt-1 text-[11px] text-slate-500">{story.locations.join(" · ")}</p>
@@ -395,20 +402,98 @@ function linkLabel(link: ReportLink) {
   }
 }
 
+function openCveInNvd(cve: string) {
+  window.open(`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cve)}`, "_blank", "noopener,noreferrer");
+}
+
+function ReportStoryNvd({ cves }: { cves: string[] }) {
+  const key = [...new Set(cves.map((c) => c.toUpperCase()))].sort().slice(0, 5).join(",");
+  const [entries, setEntries] = useState<NvdCveBrief[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!key) {
+      setEntries([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    apiFetch(`/api/nvd?cves=${encodeURIComponent(key)}`)
+      .then(async (res) => {
+        const data = (await res.json()) as { entries?: NvdCveBrief[] };
+        if (!cancelled) setEntries(data.entries ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setEntries([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [key]);
+
+  if (!key) return null;
+  if (loading && !entries.length) {
+    return <p className="mt-3 text-[11px] text-slate-500">Loading NVD patch data…</p>;
+  }
+  return (
+    <NvdPanel entries={entries} onCve={openCveInNvd} />
+  );
+}
+
+function ReportVulnPlanBlock({ plan }: { plan: ReportVulnPlanSnapshot }) {
+  return (
+    <div className="mt-4 rounded-md border border-violet-200 bg-violet-50/80 px-3 py-3 dark:border-violet-800 dark:bg-violet-950/30">
+      <div className="text-[10px] font-semibold tracking-wide text-violet-800 uppercase dark:text-violet-200">
+        Vulnerability response (catalog)
+      </div>
+      <p className="mt-2 text-[13px] font-semibold text-slate-900 dark:text-slate-100">{plan.worryLabel}</p>
+      <p className="mt-1 text-[13px] leading-relaxed text-slate-700 dark:text-slate-200">{plan.summary}</p>
+      <p className="mt-1.5 text-[12px] leading-relaxed text-slate-600 dark:text-slate-300">{plan.thumbRule}</p>
+      {plan.catalogNotes.length ? (
+        <ul className="mt-2 space-y-0.5 text-[11px] leading-snug text-slate-600 dark:text-slate-300">
+          {plan.catalogNotes.map((line) => (
+            <li key={line.slice(0, 48)}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      {plan.incidentSteps.length ? (
+        <ol className="mt-3 space-y-1.5">
+          {plan.incidentSteps.map((step) => (
+            <li key={step.order} className="text-[12px] leading-snug text-slate-700 dark:text-slate-200">
+              <span className="font-semibold tabular-nums">{step.order}.</span> [{step.phase}] {step.title}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      {plan.cweMitigationSample.length ? (
+        <ul className="mt-2 space-y-0.5 text-[11px] text-slate-600 dark:text-slate-300">
+          {plan.cweMitigationSample.map((line) => (
+            <li key={line.slice(0, 40)}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function ReportStoryCopy({ story, filling }: { story: ReportStory; filling: boolean }) {
   const body = story.body ?? [];
+  const displayBlocks = reportStoryDisplayBlocks(story);
   const summary = story.summary?.trim() ?? "";
   const summaryShown =
     Boolean(summary) &&
-    (body.length === 0 ||
+    ((displayBlocks.length === 0 && body.length === 0) ||
       !body.some((para) => para.slice(0, 48).toLowerCase() === summary.slice(0, 48).toLowerCase()));
   const known = new Set([story.url, ...story.items.map((item) => item.url)].filter(Boolean));
   const extra = (story.links ?? []).filter((link) => !known.has(link.url));
   const seen = new Set<string>();
   const sources: ReportLink[] = [];
   for (const row of [
-    story.url ? { title: "Original", url: story.url } : null,
-    ...story.items.map((item) => ({ title: item.source, url: item.url })),
+    story.url ? { title: "Original article", url: story.url } : null,
+    ...story.items.map((item) => ({ title: `${item.source} — ${item.title}`, url: item.url })),
   ]) {
     if (!row?.url || seen.has(row.url)) continue;
     seen.add(row.url);
@@ -418,50 +503,54 @@ function ReportStoryCopy({ story, filling }: { story: ReportStory; filling: bool
   return (
     <>
       {summaryShown ? (
-        <p className="mt-1.5 text-[13px] leading-relaxed text-slate-600">{summary}</p>
+        <p className="mt-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-[13px] leading-relaxed text-slate-700">
+          {summary}
+        </p>
       ) : null}
-      {filling && body.length === 0 ? (
+      {filling && displayBlocks.length === 0 && body.length === 0 ? (
         <p className="mt-1.5 text-[12px] text-slate-400">Pulling the full page extract…</p>
       ) : null}
-      {body.map((para) => (
-        <p key={para.slice(0, 64)} className="mt-2 text-[13px] leading-relaxed text-slate-700">
-          {para}
-        </p>
-      ))}
+      {displayBlocks.length > 0 ? (
+        <ArticleBody blocks={displayBlocks} onCve={openCveInNvd} />
+      ) : (
+        body.map((para) => (
+          <p key={para.slice(0, 64)} className="mt-2 text-[13px] leading-relaxed text-slate-700">
+            {para}
+          </p>
+        ))
+      )}
+      {(story.cves ?? []).length ? <ReportStoryNvd cves={story.cves} /> : null}
+      {story.vulnPlan ? <ReportVulnPlanBlock plan={story.vulnPlan} /> : null}
       {extra.length ? (
-        <div className="mt-2">
-          <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">References</div>
-          <ul className="mt-1 space-y-0.5">
-            {extra.map((link) => (
-              <li key={link.url}>
-                <a
+        <div className="mt-4">
+          <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+            Links from the page
+          </div>
+          <div className="mt-1.5 space-y-1.5">
+            {extra.map((link) => {
+              const advisory = isVendorAdvisoryLink(link.url);
+              return (
+                <ExternalLinkRow
+                  key={link.url}
                   href={link.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-[12px] text-slate-600 hover:text-slate-900"
-                >
-                  <ExternalLink className="size-3" />
-                  {linkLabel(link)}
-                </a>
-              </li>
-            ))}
-          </ul>
+                  label={linkLabel(link)}
+                  variant={advisory ? "advisory" : "default"}
+                  urlCaption={link.url.replace(/^https?:\/\//, "")}
+                  hint={advisory ? "Vendor advisory" : link.url.replace(/^https?:\/\//, "")}
+                />
+              );
+            })}
+          </div>
         </div>
       ) : null}
       {sources.length ? (
-        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-          {sources.map((link) => (
-            <a
-              key={link.url}
-              href={link.url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800"
-            >
-              <ExternalLink className="size-3" />
-              {link.title}
-            </a>
-          ))}
+        <div className="mt-4">
+          <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">Sources</div>
+          <div className="mt-1.5 space-y-1.5">
+            {sources.map((link) => (
+              <ExternalLinkRow key={link.url} href={link.url} label={link.title} />
+            ))}
+          </div>
         </div>
       ) : null}
     </>

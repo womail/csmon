@@ -103,7 +103,10 @@ Switching a built-in desk clears the **Query builder** so an old \`qb=\` string 
 | File | Role |
 | --- | --- |
 | \`lib/board-state.ts\` | Desk list, \`BoardFilters\`, parse/sync URL query params. |
-| \`lib/query-builder.ts\` | Structured \`qb=\` query tree (title/vendor contains, etc.). |
+| \`lib/query-builder.ts\` | Structured \`qb=\` query tree plus typed search line (\`source:cisa cve:2024-\`). |
+| \`lib/evidence.ts\` | Persisted page extracts, FTS5 index, purge protection. |
+| \`lib/entities.ts\` | People, orgs, places, CVEs, IOCs mined on ingest. |
+| \`lib/watchlists.ts\` | Named watches, hit log, optional ntfy. |
 | \`components/monitor/monitor.tsx\` | Applies filters client-side to items and stories. |
 | \`lib/cluster.ts\` | Story clustering for Brief. |
 

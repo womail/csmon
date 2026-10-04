@@ -2,6 +2,12 @@ import type { Story } from "./cluster";
 import { mineText } from "./mine";
 import { isNoiseCopy, type ArticleRead } from "./article";
 import type { Source } from "./types";
+import {
+  articleDisplayBlocks,
+  paragraphsToBlocks,
+  type ArticleBlock,
+} from "./article-body";
+import type { ReportVulnPlanSnapshot } from "./report-vuln-plan";
 
 export type ReportStatus = "open" | "archived";
 
@@ -11,6 +17,7 @@ export type ReportItem = {
   url: string;
   source: string;
   publishedAt: number | null;
+  itemId?: number;
 };
 
 export type ReportLink = {
@@ -29,9 +36,13 @@ export type ReportStory = {
   sources: { name: string; color: string }[];
   items: ReportItem[];
   body: string[];
+  /** Structured layout matching Read in place (headings, CVE blocks, reference links). */
+  blocks?: ArticleBlock[];
   cves: string[];
   links: ReportLink[];
   extractAt?: number;
+  /** KEV/NVD/CWE catalog plan from Read in place. */
+  vulnPlan?: ReportVulnPlanSnapshot;
 };
 
 export type Report = {
@@ -47,7 +58,7 @@ export const REPORTS_KEY = "csmon.reports";
 export const ACTIVE_REPORT_KEY = "csmon.report-active";
 export const READER_WIDTH_KEY = "csmon.reader-width";
 
-const MAX_REPORTS = 24;
+const MAX_REPORTS = 48;
 const MAX_STORIES = 40;
 export const READER_WIDTH_MIN = 380;
 export const READER_WIDTH_DEFAULT = 560;
@@ -85,6 +96,25 @@ function shouldKeepCopy(value: string, title: string) {
 }
 
 const URL_IN_TEXT = /https?:\/\/[^\s\]>'"<>]+/gi;
+const MAX_REPORT_BLOCKS = 48;
+
+function pickPrimaryArticle(articles: ArticleRead[]) {
+  if (!articles.length) return null;
+  return [...articles].sort((a, b) => b.paragraphs.length - a.paragraphs.length)[0] ?? null;
+}
+
+function isArticleBlock(value: unknown): value is ArticleBlock {
+  if (!value || typeof value !== "object" || !("kind" in value)) return false;
+  const kind = (value as { kind: unknown }).kind;
+  return typeof kind === "string";
+}
+
+export function reportStoryDisplayBlocks(story: ReportStory): ArticleBlock[] {
+  if (story.blocks?.length) return story.blocks;
+  if (!story.body.length) return [];
+  const related = (story.links ?? []).map((link) => ({ href: link.url, label: link.title || link.url }));
+  return paragraphsToBlocks(story.body, { title: story.title, related }).slice(0, MAX_REPORT_BLOCKS);
+}
 
 export function collectReportCopy(input: {
   title: string;
@@ -125,8 +155,24 @@ export function collectReportCopy(input: {
   }
 
   const mined = mineText([title, ...blocks].join("\n"));
+  const primary = pickPrimaryArticle(input.articles ?? []);
+  let displayBlocks: ArticleBlock[] = [];
+  if (primary?.paragraphs.length) {
+    displayBlocks = articleDisplayBlocks(
+      primary.title || title,
+      primary.description,
+      primary.paragraphs,
+      primary.related,
+    );
+  } else if (blocks.length) {
+    displayBlocks = paragraphsToBlocks(blocks.slice(0, 28), {
+      title,
+      related: links.map((link) => ({ href: link.url, label: link.title })),
+    });
+  }
   return {
     body: blocks.slice(0, 28),
+    blocks: displayBlocks.slice(0, MAX_REPORT_BLOCKS),
     cves: mined.cves.slice(0, 12),
     links: links.slice(0, 16),
   };
@@ -136,6 +182,7 @@ export function snapshotStory(
   story: Story,
   sources: Map<number, Source>,
   articles: ArticleRead[] = [],
+  extras?: { vulnPlan?: ReportVulnPlanSnapshot },
 ): ReportStory {
   const copy = collectReportCopy({
     title: story.title,
@@ -160,11 +207,14 @@ export function snapshotStory(
       url: item.url,
       source: sources.get(item.sourceId)?.name ?? "source",
       publishedAt: item.publishedAt ?? item.fetchedAt,
+      itemId: item.id,
     })),
     body: copy.body,
+    blocks: copy.blocks,
     cves: copy.cves,
     links: copy.links,
     extractAt: Date.now(),
+    vulnPlan: extras?.vulnPlan,
   };
 }
 
@@ -176,6 +226,9 @@ function asStringList(value: unknown, max: number) {
 function hydrateStory(row: Partial<ReportStory> | null | undefined): ReportStory | null {
   if (!row || typeof row.id !== "string" || typeof row.title !== "string") return null;
   const body = asStringList(row.body, 28).filter((para) => !isNoiseCopy(para));
+  const blocks = Array.isArray(row.blocks)
+    ? row.blocks.filter(isArticleBlock).slice(0, MAX_REPORT_BLOCKS)
+    : undefined;
   const links = Array.isArray(row.links)
     ? row.links
         .filter((link): link is ReportLink => Boolean(link && typeof link.url === "string" && link.url.trim()))
@@ -199,12 +252,15 @@ function hydrateStory(row: Partial<ReportStory> | null | undefined): ReportStory
       : [],
     items: Array.isArray(row.items) ? (row.items as ReportItem[]) : [],
     body,
+    blocks: blocks?.length ? blocks : undefined,
     cves:
       cves.length > 0
         ? cves
         : mineText([row.title, row.summary ?? "", ...body].join("\n")).cves.slice(0, 12),
     links,
     extractAt: typeof row.extractAt === "number" ? row.extractAt : undefined,
+    vulnPlan:
+      row.vulnPlan && typeof row.vulnPlan === "object" ? (row.vulnPlan as ReportVulnPlanSnapshot) : undefined,
   };
 }
 
@@ -213,7 +269,10 @@ export function mergeReportStories(current: ReportStory, next: ReportStory): Rep
   const nextBody = next.body ?? [];
   const currentLinks = current.links ?? [];
   const nextLinks = next.links ?? [];
+  const currentBlocks = current.blocks ?? [];
+  const nextBlocks = next.blocks ?? [];
   const body = nextBody.length >= currentBody.length ? nextBody : currentBody;
+  const blocks = nextBlocks.length >= currentBlocks.length ? nextBlocks : currentBlocks;
   const links = nextLinks.length >= currentLinks.length ? nextLinks : currentLinks;
   return {
     ...current,
@@ -221,8 +280,10 @@ export function mergeReportStories(current: ReportStory, next: ReportStory): Rep
     title: next.title || current.title,
     summary: next.summary || current.summary,
     body,
+    blocks: blocks.length ? blocks : undefined,
     links,
     cves: [...new Set([...(current.cves ?? []), ...(next.cves ?? [])])].slice(0, 12),
+    vulnPlan: next.vulnPlan ?? current.vulnPlan,
     extractAt: next.extractAt ?? current.extractAt,
     items: next.items.length ? next.items : current.items,
     sources: next.sources.length ? next.sources : current.sources,
@@ -238,6 +299,7 @@ export function applyArticlesToReportStory(story: ReportStory, articles: Article
   return mergeReportStories(story, {
     ...story,
     body: copy.body,
+    blocks: copy.blocks,
     cves: copy.cves,
     links: copy.links,
     extractAt: Date.now(),
@@ -275,8 +337,52 @@ export function loadReports(): Report[] {
   }
 }
 
-export function saveReports(rows: Report[]) {
+function saveReportsLocal(rows: Report[]) {
+  if (typeof window === "undefined") return;
   window.localStorage.setItem(REPORTS_KEY, JSON.stringify(rows.slice(0, MAX_REPORTS)));
+}
+
+export function saveReports(rows: Report[]) {
+  saveReportsLocal(rows);
+  if (typeof window !== "undefined") {
+    void persistServerReports(rows);
+  }
+}
+
+export async function persistServerReports(rows: Report[]) {
+  const { apiFetch } = await import("@/lib/api-client");
+  const res = await apiFetch("/api/reports", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reports: rows.slice(0, MAX_REPORTS) }),
+  });
+  if (!res.ok) return rows;
+  const data = (await res.json()) as { reports?: Report[] };
+  const next = Array.isArray(data.reports) ? data.reports.map(hydrate).filter((row): row is Report => row != null) : rows;
+  saveReportsLocal(next);
+  return next;
+}
+
+export async function hydrateReports(): Promise<Report[]> {
+  const local = loadReports();
+  if (typeof window === "undefined") return local;
+  try {
+    const { apiFetch } = await import("@/lib/api-client");
+    const res = await apiFetch("/api/reports");
+    if (!res.ok) return local;
+    const data = (await res.json()) as { reports?: Partial<Report>[] };
+    const remote = Array.isArray(data.reports)
+      ? data.reports.map(hydrate).filter((row): row is Report => row != null)
+      : [];
+    if (remote.length) {
+      saveReportsLocal(remote);
+      return remote;
+    }
+    if (local.length) return persistServerReports(local);
+    return local;
+  } catch {
+    return local;
+  }
 }
 
 export function loadActiveReportId() {
