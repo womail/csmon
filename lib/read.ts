@@ -4,6 +4,7 @@ import { isNoiseCopy, type ArticleRead } from "./article";
 import { filterArticlePageLinks } from "./page-links";
 import { fetchText } from "./http";
 import { cveIdsFromNvdLinks, cveIdsFromText } from "./nvd";
+import { publishDateFromHtml } from "./publish-date";
 
 export type { ArticleRead } from "./article";
 
@@ -95,11 +96,14 @@ export async function readArticle(url: string): Promise<ArticleRead> {
     ...cveIdsFromNvdLinks(related),
   ].filter((id, i, all) => all.indexOf(id) === i);
 
+  const publishedAt = publishDateFromHtml($);
+
   return {
     url,
     site: hostOf(url),
     title,
     description,
+    publishedAt,
     paragraphs,
     quotes,
     language,

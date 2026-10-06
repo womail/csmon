@@ -4,7 +4,7 @@ Current Situation Monitor. Harvest public sources, collapse them into desks, and
 
 Navigation is desks, not a firehose. Filters live in the URL so a view can be bookmarked (`?desk=patch&risk=p0&stack=linux&ransomware=1&layer=12&person=Jane`). Custom filters and **user desks** can also be named and saved in the browser.
 
-Maps are their own panes, never a background under copy. Every map has zoom controls and a pop-out. Country fills are Natural Earth 110m with atlas-style tints; Flights uses Esri World Street Map (political countries and cities) plus heading-aware top-down plane icons instead of dots.
+Maps are their own panes, never a background under copy. The board uses a **fast SVG preview** (Leaflet is lazy-loaded, not on first paint). **Pop out** or **Flights** load **low-res CARTO** tiles (no labels, max zoom 5) — no 800KB country GeoJSON. Map height is resizable (`localStorage`).
 
 Click a **source** (Home top sources, a card chip, or Sources) to drill into that layer: a source dossier lists its items even if other chips would have hidden them. Source chips are tag-sized like topics: short names, thin padding, wrapping inside the card instead of overflowing a Scan column. RSS feed titles are not treated as authors. CISA and similar feeds no longer go blank because a leftover topic filter was still on.
 
@@ -54,7 +54,7 @@ Filter with topic chips (including **AI**, **Sports**, **Reddit**), pinned **pla
 
 **Pulse / trends.** Compare this half of the time range to the half before it (`24h` is last 12h vs the 12h before; `all` is last day vs the day before). A row is **rising** if volume jumped ≥25% and at least +2 items, **new** if it was absent and now has 2+, **falling** if it dropped ≥25%. Sparklines show the shape. Home **Rising now** uses the same scores. The **rising** chip keeps only items that carry a rising or new topic, place, vendor, or person. Click a trend row to filter.
 
-Cards have **Hide** (drop from the board) and **Read** (keep, mark as seen). **Undo** in the header walks the last hide/read. Keyboard `h` / `u` do the same for the focused card. Triage lives in `csmon.triage` / `csmon.triage-undo`.
+Cards have **Hide** (drop from the board) and **Read** (keep, mark as seen). **Link** (or right-click **Copy link to card**) copies a URL with `?item=<id>` plus current desk filters; opening it scrolls to the card and opens **Read in place**. **Right-click** also offers **Display only** / **Add to display collection** (pins item IDs in `csmon.display-collection`), **Save to My desk…** (guessed title from place/topic/tags/title; filters include topics, tags, place, and source layer), and **Reclassify** (topic tags persisted in SQLite; the board, open reader, and topic chips update immediately). NVD / patch panels in the reader only run for CVEs mentioned in the item’s RSS title or summary (not unrelated CVEs buried in a page extract). **Shift+click** a topic chip on a card removes that tag (e.g. drop a wrong `conflict` on a weather warning). The board time range uses **article publication date** only (`published_at` from RSS/Atom or page meta)—not when the row was ingested. Items with no publish date are hidden outside **All**. **Read in place** can backfill `published_at` from the live page (JSON-LD, `article:published_time`, `<time datetime>`). Header **Sort** orders by newest, topic, tag, place, or source. **Tune** can set **Topics (any)** and **Tags (any)** on custom desks (`topics=` / `tags=` in the URL). **Briefing** (next to Filters) saves **My briefing** to the browser: desk, topic, place, range, rising, 2+ sources (`cross`), layer focus, and which layers were enabled; **Apply** restores that view and re-enables those layers. **Undo** in the header walks the last hide/read. Triage lives in `csmon.triage` / `csmon.triage-undo`.
 
 **Follow next** on the right is auto-explore: hosts that keep showing up in coverage, one click to add as a layer. Collapse the rail; it stays collapsed in `csmon.follow-open`.
 
@@ -117,13 +117,19 @@ NVD link opens in the reader pane. **KEV** button refreshes the catalog (cached 
 
 **Load world RSS** includes DW, France 24, and Sky News. Relief adds GDACS and OCHA. **Load security RSS** includes CISA, CISA ICS, Krebs, BleepingComputer, The Record, NCSC UK, Schneier, Bellingcat, CFR, CSIS, Brookings, Defense One, War on the Rocks, Breaking Defense, The War Zone, The Diplomat, Al-Monitor, DoD news, The Hacker News, Dark Reading, MSRC, CERT-EU. **Load tech RSS** includes Hacker News, Ars Technica, The Verge, MIT Tech Review, arXiv cs.AI, OpenAI news. **Load markets RSS** includes CNBC, MarketWatch, BBC Business, White House, Federal Reserve, SEC. **Load sports RSS** includes BBC Sport, BBC Football, Guardian Sport, ESPN, NYT Sports, and Sky Sports. **Load hazards** includes USGS (significant + M4.5+), NWS CAP alerts, NHC Atlantic, Met Éireann, Met Office UK, GDACS, Crisis Group.
 
-**Subreddits** are their own category (header, empty board, and Sources), not another World/Tech pack. The manager stores names in `csmon.subreddits` (default `worldnews`, `news`, `europe`) and loads them as **one** combined public RSS: `https://www.reddit.com/r/{a}+{b}/hot/.rss?limit=100`. Stable source key `rss:reddit:combined`. Origin reason `reddit`; items are tagged topic `reddit`. Cap 20 subs. Wait a minute between loads.
+**Subreddits** (until **13 Nov 2026**) are their own category. Names live in `csmon.subreddits` and load as one combined public RSS (`rss:reddit:combined`, origin `reddit`). After that date Reddit ends public RSS — csmon **disables** the layer on 404/410 or calendar sunset, shows a header banner, and offers **Import to GDELT** (keyword queries from saved sub names). Replacements: Bluesky, GDELT, wire RSS. **Reddit OAuth** — After RSS ends, add a Reddit **script/app** id and secret in **Options → Data** (or `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` on the server). **Load Reddit** uses `client_credentials` and `oauth.reddit.com` listings instead of RSS.
+
+**GDELT** (header **Intel → GDELT**) is the [GDELT Project](https://www.gdeltproject.org/) DOC 2.0 article API: a public news index, no key. Queries live in `csmon.gdelt`. **Load GDELT** registers each enabled row as a layer (`gdelt:{id}`, origin `gdelt`). First-time defaults enable **War** and **Unrest** keyword bundles (not Ireland-only). **Packs** (Conflict & unrest, Ireland & UK, …) add presets quickly. Avoid broken `theme:` / full-country `sourcecountry:` names — use keywords or FIPS (`UK`, `US`). Cap 8 saved / **4 enabled** per load; **one HTTP call every ~6s**; 429 → **90s cooldown**. Probe: `node scripts/test-gdelt.mjs`. Credit GDELT.
+
+**ACLED** (header **Intel → ACLED**) pulls structured conflict/protest events when `ACLED_USERNAME` and `ACLED_PASSWORD` (myACLED) are set in server `.env.local`. Profiles (country filter, days, limit) save in `csmon.acled` and register as `acled:{id}` layers (origin `acled`). See Options → Data for setup steps.
+
+**Other geopolitical APIs** from the [2026 comparison](https://www.worldmonitor.app/blog/posts/free-geopolitical-data-apis-2026/): USGS and GDACS are in **Load hazards**. UCDP, NASA FIRMS, and Cloudflare Radar still need separate keys.
 
 This is not an asset inventory. It tells you what is being exploited and how soon CISA expects a fix; you still map that to the software you actually run.
 
-Public APIs and RSS only. No recon scanners or unauthorized probing. Maps use Natural Earth country polygons, Esri World Street Map (light) or Dark Gray Canvas (dark) on Flights, geocoded places, USGS GeoJSON, weather warning feeds, and OpenSky ADS-B (cached ~20s, 100 km around home). Aircraft drill-in uses HexDb metadata plus public globe links. This is not Osiris RECON and not a targeting tool.
+Public APIs and RSS only. No recon scanners or unauthorized probing. Maps use Natural Earth country polygons, **OpenStreetMap** / CARTO tiles where enabled, geocoded places, USGS GeoJSON, weather warning feeds, and OpenSky ADS-B (cached ~20s, 100 km around home). Aircraft drill-in uses HexDb metadata plus public globe links. This is not Osiris RECON and not a targeting tool.
 
-**Reddit.** Unauthenticated `.json` is shut down (403). Public RSS (`/r/{sub}/.rss`) still works at about **one request per minute per IP**. The Subreddits manager combines the list into a single `/r/a+b/hot/.rss?limit=100` request. Paste a subreddit URL or `.rss` link in RSS still works for one-off layers. Account `user=`/`feed=` tokens are credentials — not used. Official API needs OAuth.
+**Reddit.** Public RSS ends **13 Nov 2026** ([announcement](https://techcrunch.com/2026/09/30/reddit-is-killing-rss-feeds-ending-public-api-access-because-of-ai-bots/)). Until then, combined `/r/a+b/hot/.rss` works at about **one request per minute per IP**. After sunset, refresh returns a clear message and disables the layer instead of repeated 502s. `.json` without auth remains 403. Paid/OAuth API access is out of scope unless you add your own app credentials later.
 
 **X / Twitter.** No public RSS. No free API for new apps (pay-per-use credits). Nitter and other scrape proxies are out of scope. Bluesky remains the public social layer.
 
@@ -139,11 +145,11 @@ We reuse the **upstream public sources** (CISA, USGS-style RSS, vendor advisorie
 
 Browser-local (`localStorage` `csmon.options`): start desk, time range, stack, compact cards, home language, auto-translate, **home location**, **palette** (`light` / `dark`, follows the OS until you toggle), auto-load security RSS, auto-load hazards, auto-load KEV, **board item limit** (how many recent items SQLite loads onto the board; default 500), optional **update manifest URL**. Shared links still override via the query string.
 
-**Options** uses tabs (Board / Data / Help). **Open manual** is one pop-out at `/help` (user guide, **Source & filter code map**, **Lexicon**, Docker/update checklists). `/help/maintainer` redirects into that manual.
+**Options** uses tabs (Board / Data / Help). **Open manual** is one pop-out at `/help` (user guide, **Source & filter code map**, **Lexicon**, Docker/update checklists). `/help/maintainer` redirects into that manual. **Data → Open analysis** opens `/stats`: SQLite size, outbound cache by kind, extract corpus bytes, layer counts by origin, and a **GDELT** panel (items in DB, cached article count, last fetch, latest headline, status badge). API: `GET /api/stats`.
 
 **Source library** (Options → Open source library, or `/sources/workbench`): every layer with last fetch, item counts, latest headline, stale/silent badges, and tips. **Add RSS layer**, **Edit** (inline row), **Save layer** / **Save & refresh layer**, **Delete layer**. **Apply** saves all rows marked ● (unsaved). Per-layer **retention (days)** plus Options **default item retention**; **Purge by age** or **Run retention policy** trim SQLite items (age uses published or fetched time; items in a report or watch hit are kept). **Export JSON** / **Import JSON** — move custom RSS layers between installs. **Save instance overrides** writes intel-linked layer edits to `CSMON_DATA_DIR/overrides/feeds.json` on the server; that file is merged over `lib/intel-feeds.ts` at runtime (volume survives rebuilds). API: `GET/POST/PATCH/DELETE /api/source-catalog` (`POST` `{ import: [...] }`, `PATCH` `{ saveFeedOverrides: true }`).
 
-Saved custom filters live in `csmon.saved-filters` (name + full `BoardFilters` snapshot). User desks live in `csmon.user-desks` (label, `view` desk, filters including `platform`). Compiled briefings live in SQLite `reports` (browser cache `csmon.reports`). Watchlists live in SQLite. Subreddit list lives in `csmon.subreddits`. Applying filters writes the URL the same way chips do (`?place=Ireland&platform=rss&qb=title.contains.Ireland`). Hide/read triage is `csmon.triage`; Follow next collapse is `csmon.follow-open`. Reader width is `csmon.reader-width`.
+Saved custom filters live in `csmon.saved-filters` (name + full `BoardFilters` snapshot). User desks live in `csmon.user-desks` (label, `view` desk, filters including `platform`, `topics[]`, `tags[]`). Display-only collections live in `csmon.display-collection`. Compiled briefings live in SQLite `reports` (browser cache `csmon.reports`). Watchlists live in SQLite. Subreddit list lives in `csmon.subreddits`. GDELT queries live in `csmon.gdelt`. Applying filters writes the URL the same way chips do (`?place=Ireland&platform=rss&topics=war,unrest&tags=gdelt&qb=title.contains.Ireland`). Hide/read triage is `csmon.triage`; Follow next collapse is `csmon.follow-open`. Reader width is `csmon.reader-width`.
 
 ## Caching
 
@@ -152,7 +158,7 @@ Outbound fetches go through SQLite `fetch_cache` so refresh does not hammer the 
 | kind | TTL |
 | --- | --- |
 | rss | 15 minutes |
-| json | 30 minutes |
+| json | 30 minutes (includes GDELT DOC article lists) |
 | kev | 1 hour |
 | html | 6 hours |
 | translate | 7 days |
@@ -164,7 +170,7 @@ Expired rows are deleted on read. The Sources desk shows live entry count and by
 
 ## Flow
 
-1. Open Home. Load world/hazard/security RSS, manage subreddits, scrape a Bluesky/RSS desk, or load KEV.
+1. Open Home. Load world/hazard/security RSS, manage subreddits, tune GDELT queries, scrape a Bluesky/RSS desk, or load KEV.
 2. Pick a desk. Filter topics, **Ireland** (or another place), RSS-only, vendors, stack, or a layer. **Tune** to edit the same fields, then save as a custom desk if you will reuse it.
 3. Open a story. Compare desks in the dossier, translate if needed, jump similar coverage, walk back.
 
@@ -175,6 +181,7 @@ Expired rows are deleted on read. The Sources desk shows live entry count and by
 - SQLite via Node `node:sqlite` (`$CSMON_DATA_DIR/csmon.sqlite`, default `data/csmon.sqlite`)
 - Bluesky public AppView
 - RSS/Atom, HTML article extract (`cheerio`)
+- GDELT DOC 2.0 article JSON (`https://api.gdeltproject.org/api/v2/doc/doc`, tuned queries, no key)
 - CISA KEV JSON catalog
 - USGS earthquake GeoJSON
 - NWS, Met Éireann, Met Office UK warnings + Open-Meteo local conditions
@@ -253,7 +260,7 @@ Copy `.env.example` to `.env.local`.
 | id | INTEGER PK | |
 | source_id | INTEGER NOT NULL | FK sources |
 | seed_user_id | INTEGER NOT NULL | FK seed_users |
-| reason | TEXT NOT NULL | `self` \| `follow` \| `mention` \| `link` \| `intel` \| `explore` \| `reddit` |
+| reason | TEXT NOT NULL | `self` \| `follow` \| `mention` \| `link` \| `intel` \| `explore` \| `reddit` \| `gdelt` |
 | weight | INTEGER NOT NULL | |
 | UNIQUE(source_id, seed_user_id, reason) | | |
 

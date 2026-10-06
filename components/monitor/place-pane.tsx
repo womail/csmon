@@ -132,7 +132,7 @@ export function PlacePane({
                 <span className="text-[10px] text-slate-400">
                   {sources.get(item.sourceId)?.name ?? "source"}
                   {item.topics[0] ? ` · ${item.topics[0]}` : ""} ·{" "}
-                  <Ago ts={item.publishedAt ?? item.fetchedAt} />
+                  <Ago ts={item.publishedAt} />
                 </span>
               </button>
             </Tip>

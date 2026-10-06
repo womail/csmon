@@ -1,10 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { ChevronLeft, ExternalLink, Languages, Printer, Rss, ScanSearch, X } from "lucide-react";
 import { SendToReportButton } from "@/components/monitor/send-to-report";
 import { Ago } from "@/components/monitor/ago";
-import { SituationMap, placeMarkers } from "@/components/monitor/map";
+import { placeMarkers } from "@/components/monitor/map";
+
+const SituationMap = dynamic(
+  () => import("@/components/monitor/situation-map").then((mod) => ({ default: mod.SituationMap })),
+  { ssr: false, loading: () => null },
+);
 import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
 import { tagStyle } from "@/lib/colors";
@@ -13,8 +19,12 @@ import type { Story } from "@/lib/cluster";
 import { buildDeepDive } from "@/lib/dive";
 import type { KevEntry } from "@/lib/kev";
 import { languageName } from "@/lib/lang";
+import { formatPublishDate, relTime } from "@/lib/time";
 import { relatedDocuments } from "@/lib/documents";
-import { matchItemByUrl, matchSourceByHost, storySignals } from "@/lib/link";
+import { itemTopicChips } from "@/lib/card-tags";
+import { matchItemByUrl, matchSourceByHost } from "@/lib/link";
+import { readerNvdCveKey, feedCvesForItem } from "@/lib/item-cves";
+import { mineItem } from "@/lib/mine";
 import { shortSourceName } from "@/lib/source-label";
 import { personName } from "@/lib/people";
 import { ArticleBody } from "@/components/monitor/article-body";
@@ -59,6 +69,8 @@ export function ReaderPane({
   onOpenReport,
   stack = "",
   onDesk,
+  onReclassifyItem,
+  onCopyCardLink,
   vulnResponse = true,
 }: {
   story: Story;
@@ -86,6 +98,8 @@ export function ReaderPane({
   onOpenReport?: (id: string) => void;
   stack?: string;
   onDesk?: (desk: BuiltinDesk) => void;
+  onReclassifyItem?: (item: Item, event: ReactMouseEvent) => void;
+  onCopyCardLink?: (item: Item) => void;
   vulnResponse?: boolean;
 }) {
   const [activeId, setActiveId] = useState(story.items[0].id);
@@ -104,17 +118,30 @@ export function ReaderPane({
   }, [story.id]);
   const active = story.items.find((item) => item.id === activeId) ?? story.items[0];
   const activeSource = sources.get(active.sourceId);
-  const signals = storySignals(story);
+  const activeSignals = useMemo(() => mineItem(active), [active.id, active.title, active.summary, active.topics, active.tags]);
 
-  const nvdCveKey = useMemo(() => {
-    const ids = new Set<string>();
-    for (const c of signals.cves) ids.add(c.toUpperCase());
-    for (const c of article?.cveIds ?? []) ids.add(c.toUpperCase());
-    return [...ids].sort().slice(0, 5).join(",");
-  }, [story.id, active.url, signals.cves.slice().sort().join(","), (article?.cveIds ?? []).slice().sort().join(",")]);
+  const published = useMemo(() => {
+    const feed = active.publishedAt;
+    const page = article?.publishedAt ?? null;
+    const ms = page ?? feed ?? null;
+    if (!ms) {
+      return { ms: null as number | null, source: null as null, label: null, ago: "" };
+    }
+    let source: "feed" | "page" | "both" | null = feed && page ? (feed === page ? "both" : "page") : page ? "page" : "feed";
+    return {
+      ms,
+      source,
+      label: formatPublishDate(ms),
+      ago: relTime(ms),
+    };
+  }, [active.id, active.publishedAt, article?.publishedAt]);
 
-  const showVulnResponse =
-    vulnResponse && (signals.cves.length > 0 || kevHits.length > 0 || nvdCveKey.length > 0);
+  const nvdCveKey = useMemo(
+    () => readerNvdCveKey(active, article, kevHits),
+    [active.id, active.title, active.summary, article?.cveIds?.join(","), kevHits.map((r) => r.cveId).join(",")],
+  );
+
+  const showVulnResponse = vulnResponse && nvdCveKey.length > 0;
 
   useEffect(() => {
     setActiveId(story.items[0].id);
@@ -297,6 +324,27 @@ export function ReaderPane({
             {articleLang ? ` · ${languageName(articleLang)}` : ""}
           </div>
           <div className="text-[14px] leading-snug font-semibold text-slate-900">{shownTitle}</div>
+          {published.label ? (
+            <p className="reader-published mt-1.5 text-[13px] font-semibold leading-snug text-slate-800">
+              <span className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">Published</span>
+              <time dateTime={published.ms ? new Date(published.ms).toISOString() : undefined} className="ml-1.5">
+                {published.label}
+              </time>
+              {published.ago ? (
+                <span className="ml-1.5 text-[12px] font-normal text-slate-500">({published.ago} ago)</span>
+              ) : null}
+              {published.source === "page" ? (
+                <span className="ml-1.5 text-[10px] font-medium text-slate-400">· from page</span>
+              ) : published.source === "both" ? (
+                <span className="ml-1.5 text-[10px] font-medium text-slate-400">· feed & page</span>
+              ) : null}
+            </p>
+          ) : (
+            <p className="mt-1.5 text-[12px] font-medium text-amber-800">
+              Publication date unknown
+              {loading ? " · checking page…" : ""}
+            </p>
+          )}
         </div>
         {onReportsChange ? (
           <SendToReportButton
@@ -317,10 +365,10 @@ export function ReaderPane({
       </div>
 
       <div className="flex flex-wrap gap-1 border-b border-slate-50 px-3 py-2">
-        {story.topics.map((topic) => {
+        {itemTopicChips(active).map((topic) => {
           const style = tagStyle(topic);
           return (
-            <Tip key={topic} text={`Filter board to ${topic}`}>
+            <Tip key={topic} text={`Filter board to ${topic} · right-click coverage below to reclassify`}>
               <button
                 type="button"
                 className="tag"
@@ -344,7 +392,7 @@ export function ReaderPane({
             </button>
           </Tip>
         ))}
-        {signals.vendors.map((name) => (
+        {activeSignals.vendors.map((name) => (
           <Tip key={name} text={`Filter to vendor ${name}`}>
             <button
               type="button"
@@ -356,8 +404,8 @@ export function ReaderPane({
             </button>
           </Tip>
         ))}
-        {signals.cves.map((cve) => (
-          <Tip key={cve} text={`Open ${cve} on the patch desk`}>
+        {feedCvesForItem(active).map((cve) => (
+          <Tip key={cve} text={`Filter board to ${cve}`}>
             <button
               type="button"
               className="tag font-mono"
@@ -368,7 +416,7 @@ export function ReaderPane({
             </button>
           </Tip>
         ))}
-        {signals.ransomware ? (
+        {activeSignals.ransomware ? (
           <span className="tag" style={{ background: "#fee2e2", color: "#9f1239" }}>
             ransomware
           </span>
@@ -396,6 +444,7 @@ export function ReaderPane({
           markers={mapMarkers}
           onSelect={onPlace}
           empty="No mapped place on this story."
+          resizeKey="csmon.map-height.reader"
         />
 
         <div className="mt-4 text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
@@ -411,6 +460,11 @@ export function ReaderPane({
                 className={`rounded-md border px-2 py-1.5 ${
                   selected ? "border-slate-800 bg-slate-50" : "border-slate-100 hover:bg-slate-50"
                 }`}
+                onContextMenu={(event) => {
+                  if (!onReclassifyItem) return;
+                  event.preventDefault();
+                  onReclassifyItem(item, event);
+                }}
               >
                 <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
                   <span
@@ -464,7 +518,35 @@ export function ReaderPane({
                       </a>
                     </Tip>
                   ) : null}
-                  <Ago ts={item.publishedAt ?? item.fetchedAt} className="ml-auto" />
+                  {onCopyCardLink ? (
+                    <Tip text="Copy link to this card">
+                      <button
+                        type="button"
+                        className="shrink-0 text-[10px] text-slate-500 hover:text-slate-800"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onCopyCardLink(item);
+                        }}
+                      >
+                        Link
+                      </button>
+                    </Tip>
+                  ) : null}
+                  <Ago ts={item.publishedAt} className="ml-auto" />
+                </div>
+                <div className="mt-0.5 flex flex-wrap gap-1">
+                  {itemTopicChips(item).map((chip) => {
+                    const style = tagStyle(chip);
+                    return (
+                      <span
+                        key={`${item.id}-${chip}`}
+                        className="tag"
+                        style={{ background: style.bg, color: style.fg }}
+                      >
+                        {chip}
+                      </span>
+                    );
+                  })}
                 </div>
                 <button
                   type="button"

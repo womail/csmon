@@ -15,7 +15,11 @@ export type BoardFilters = {
   desk: Desk;
   q: string;
   topic: string | null;
+  /** Extra topics (any match) for custom desks. */
+  topics: string[];
   place: string | null;
+  /** Tag chips (any match) for custom desks. */
+  tags: string[];
   range: TimeRange;
   cross: boolean;
   stack: string;
@@ -28,7 +32,17 @@ export type BoardFilters = {
   person: string | null;
   rising: boolean;
   qb: QueryTree;
+  /** Deep-link to open a specific item card / reader. */
+  focusItem: number | null;
 };
+
+function parseListParam(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+    .slice(0, 8);
+}
 
 export const DESKS: { id: Desk; label: string; hint: string }[] = [
   { id: "home", label: "Home", hint: "Situation dashboard" },
@@ -47,7 +61,7 @@ export const DESKS: { id: Desk; label: string; hint: string }[] = [
 
 const RANGES = new Set<TimeRange>(["1h", "6h", "24h", "7d", "all"]);
 const RISKS = new Set(["all", "p0", "p1", "p2"]);
-const ORIGINS = new Set<OriginReason>(["self", "follow", "mention", "link", "intel", "explore", "reddit"]);
+const ORIGINS = new Set<OriginReason>(["self", "follow", "mention", "link", "intel", "explore", "reddit", "gdelt", "acled"]);
 const PLATFORMS = new Set<Platform>(["rss", "bluesky", "web"]);
 
 function one(value: string | string[] | undefined) {
@@ -60,7 +74,9 @@ export function defaultBoardFilters(stack = ""): BoardFilters {
     desk: "home",
     q: "",
     topic: null,
+    topics: [],
     place: null,
+    tags: [],
     range: "24h",
     cross: false,
     stack,
@@ -73,6 +89,7 @@ export function defaultBoardFilters(stack = ""): BoardFilters {
     person: null,
     rising: false,
     qb: emptyQuery(),
+    focusItem: null,
   };
 }
 
@@ -88,9 +105,15 @@ export function normalizeBoardFilters(filters: BoardFilters): BoardFilters {
     ...filters,
     q: filters.q.trim(),
     topic: nextTopic,
+    topics: Array.isArray(filters.topics) ? filters.topics.map((t) => t.trim().toLowerCase()).filter(Boolean).slice(0, 8) : [],
+    tags: Array.isArray(filters.tags) ? filters.tags.map((t) => t.trim().toLowerCase()).filter(Boolean).slice(0, 8) : [],
     place: place ? resolvePlace(place) : null,
     platform: filters.platform && PLATFORMS.has(filters.platform) ? filters.platform : null,
     qb: { rules: activeQueryRules(filters.qb).slice(0, 8) },
+    focusItem:
+      typeof filters.focusItem === "number" && filters.focusItem > 0
+        ? Math.round(filters.focusItem)
+        : null,
   };
 }
 
@@ -107,7 +130,9 @@ export function parseBoardFilters(
     desk: isDeskId(deskRaw) ? deskRaw : "home",
     q: one(params.q),
     topic: one(params.topic) || null,
+    topics: parseListParam(one(params.topics)),
     place: one(params.place) || null,
+    tags: parseListParam(one(params.tags)),
     range: RANGES.has(rangeRaw) ? rangeRaw : "24h",
     cross: one(params.cross) === "1",
     stack: one(params.stack) || fallbackStack,
@@ -120,6 +145,10 @@ export function parseBoardFilters(
     person: one(params.person) || null,
     rising: one(params.rising) === "1",
     qb: parseQueryTree(one(params.qb)),
+    focusItem: (() => {
+      const n = Math.round(Number(one(params.item)));
+      return Number.isFinite(n) && n > 0 ? n : null;
+    })(),
   });
 }
 
@@ -128,7 +157,9 @@ export function boardQueryString(filters: BoardFilters) {
   if (filters.desk !== "home") p.set("desk", filters.desk);
   if (filters.q) p.set("q", filters.q);
   if (filters.topic) p.set("topic", filters.topic);
+  if (filters.topics.length) p.set("topics", filters.topics.join(","));
   if (filters.place) p.set("place", filters.place);
+  if (filters.tags.length) p.set("tags", filters.tags.join(","));
   if (filters.range !== "24h") p.set("range", filters.range);
   if (filters.cross) p.set("cross", "1");
   if (filters.stack) p.set("stack", filters.stack);
@@ -140,6 +171,7 @@ export function boardQueryString(filters: BoardFilters) {
   if (filters.platform) p.set("platform", filters.platform);
   if (filters.person) p.set("person", filters.person);
   if (filters.rising) p.set("rising", "1");
+  if (filters.focusItem) p.set("item", String(filters.focusItem));
   if (hasQuery(filters.qb)) p.set("qb", encodeQueryTree(filters.qb));
   const qs = p.toString();
   return qs ? `?${qs}` : "";

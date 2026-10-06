@@ -79,9 +79,131 @@ const TOPICS: { tag: string; re: RegExp }[] = [
   },
   {
     tag: "sports",
-    re: /\b(premier league|champions league|world cup|six nations|super bowl|formula 1|\bf1\b|grand slam|wimbledon|olympics|transfer window|match report|\bnfl\b|\bnba\b|\bmlb\b|\bnhl\b|\bfifa\b|\buefa\b|\bgaa\b|football|soccer|rugby|cricket|tennis|golf)\b/i,
+    re: /\b(premier league|champions league|world cup|six nations|super bowl|formula 1|\bf1\b|grand slam|wimbledon|olympics|paralympics|transfer window|match report|full[- ]time|half[- ]time|penalty shoot|\bnfl\b|\bnba\b|\bmlb\b|\bnhl\b|\bmls\b|\bfifa\b|\buefa\b|\bgaa\b|football|soccer|rugby|cricket|tennis|golf|hurling|camogie|athletics|marathon|cycling|tour de france|motogp|\bucl\b|\bepl\b|la liga|serie a|bundesliga|ligue 1|eredivisie|fa cup|carabao cup|europa league|conference league|all[- ]ireland|heineken cup|six nations|ashes series|test match|odi\b|t20\b|ipl\b|pga tour|masters tournament|ryder cup|open championship|stanley cup|world series|march madness|college football|touchdown|quarterback|striker|goalkeeper|midfielder|defender|hat[- ]trick|see off|back-to-back wins)\b/i,
   },
 ];
+
+/** Extra chips on cards (filterable via `topic:` / tag click when present in tags). */
+const SPORT_SUBTAGS: { tag: string; re: RegExp }[] = [
+  {
+    tag: "soccer",
+    re: /\b(soccer|premier league|champions league|la liga|serie a|bundesliga|ligue 1|eredivisie|mls|\buefa\b|\bfifa\b|world cup|euro 202|euros 202|fa cup|carabao cup|europa league|conference league|\bucl\b|\bepl\b|penalty shoot|offside|striker|goalkeeper|midfielder|manchester united|manchester city|liverpool|arsenal|chelsea|tottenham|real madrid|barcelona|bayern|psg|juventus|inter milan|ac milan|messi|ronaldo|haaland|salah|var decision)\b/i,
+  },
+  {
+    tag: "nfl",
+    re: /\b(\bnfl\b|super bowl|touchdown|quarterback|\bqb\b|linebacker|wide receiver|tight end|field goal|draft pick|wild[- ]card|pro bowl|nfc\b|afc\b|patriots|cowboys|chiefs|eagles|49ers|niners|packers|ravens|bills|dolphins|steelers|giants|jets|browns|bengals|lions|vikings|texans|colts|jaguars|titans|broncos|raiders|chargers|rams|seahawks|cardinals|saints|falcons|panthers|buccaneers|commanders|bears)\b/i,
+  },
+  {
+    tag: "rugby",
+    re: /\b(rugby|six nations|rugby world cup|premiership rugby|urc\b|gallagher premiership|scrum|lineout|try scorer|all blacks|springboks|wales rugby|ireland rugby|england rugby|france rugby)\b/i,
+  },
+  {
+    tag: "cricket",
+    re: /\b(cricket|ashes|test match|odi\b|t20\b|ipl\b|wicket|century|bowler|batsman|the hundred|county championship)\b/i,
+  },
+  {
+    tag: "tennis",
+    re: /\b(tennis|wimbledon|roland garros|french open|us open|australian open|grand slam|atp\b|wta\b|davis cup|billie jean king cup)\b/i,
+  },
+  {
+    tag: "golf",
+    re: /\b(golf|pga tour|masters tournament|ryder cup|open championship|british open|lpga|birdie|eagle|bogey)\b/i,
+  },
+  {
+    tag: "f1",
+    re: /\b(formula 1|\bf1\b|grand prix|qualifying|pole position|motogp|moto gp)\b/i,
+  },
+  {
+    tag: "basketball",
+    re: /\b(\bnba\b|basketball|march madness|ncaa basketball|wnba\b|lakers|celtics|warriors|knicks|nets|bulls|heat|bucks|nuggets|suns|mavericks)\b/i,
+  },
+  {
+    tag: "baseball",
+    re: /\b(\bmlb\b|baseball|world series|home run|pitcher|yankees|dodgers|red sox|mets|cubs|astros|braves|phillies|padres|mariners)\b/i,
+  },
+  {
+    tag: "hockey",
+    re: /\b(\bnhl\b|hockey|stanley cup|ice hockey|power play|hat trick)\b/i,
+  },
+  {
+    tag: "gaa",
+    re: /\b(\bgaa\b|hurling|camogie|all[- ]ireland|gaelic football|senior championship|croke park)\b/i,
+  },
+];
+
+export function sportSubtags(text: string): string[] {
+  return SPORT_SUBTAGS.filter(({ re }) => re.test(text)).map(({ tag }) => tag);
+}
+
+export function textLooksLikeSports(text: string) {
+  const sportsTopic = TOPICS.find((entry) => entry.tag === "sports");
+  return Boolean(sportsTopic?.re.test(text)) || sportSubtags(text).length > 0;
+}
+
+/** Intel RSS layers in the sports pack (`lib/intel-feeds.ts`). */
+export const SPORTS_INTEL_HANDLES = new Set([
+  "bbc-sport",
+  "bbc-football",
+  "guardian-sport",
+  "espn",
+  "nyt-sports",
+  "sky-sports",
+]);
+
+const SPORTS_FEED_RE =
+  /feeds\.bbci\.co\.uk\/sport|theguardian\.com\/sport|espn\.com\/espn|skysports\.com|nyt.*Sports\.xml|\/sport\/.*rss|\/sport\.xml/i;
+
+export function isSportsFeedUrl(feedUrl: string | null | undefined) {
+  if (!feedUrl) return false;
+  return SPORTS_FEED_RE.test(feedUrl);
+}
+
+export function isSportsSource(hint: { handle?: string | null; feedUrl?: string | null }) {
+  if (hint.handle && SPORTS_INTEL_HANDLES.has(hint.handle)) return true;
+  return isSportsFeedUrl(hint.feedUrl);
+}
+
+function defaultSportSubtag(hint: { handle?: string | null; feedUrl?: string | null }) {
+  if (hint.handle === "bbc-football") return "soccer";
+  const feed = hint.feedUrl ?? "";
+  if (/\/sport\/football|football\/rss/i.test(feed)) return "soccer";
+  if (/\/nfl\b|\/nfl\//i.test(feed)) return "nfl";
+  if (/\/nba\b|\/nba\//i.test(feed)) return "basketball";
+  if (/\/mlb\b|\/mlb\//i.test(feed)) return "baseball";
+  if (/\/nhl\b|\/nhl\//i.test(feed)) return "hockey";
+  return null;
+}
+
+/** Sport RSS layers should carry topic sports, not the generic world fallback. */
+export function applySourceTopics(
+  classified: Classification,
+  hint: { handle?: string | null; feedUrl?: string | null },
+): Classification {
+  if (!isSportsSource(hint)) return classified;
+  const topics = [
+    "sports",
+    ...classified.topics.filter((topic) => topic !== "sports" && topic !== "world"),
+  ].slice(0, 6);
+  const inferred = defaultSportSubtag(hint);
+  const tags = [
+    ...new Set([
+      "sports",
+      ...classified.tags.filter((tag) => tag !== "world"),
+      ...(inferred ? [inferred] : []),
+    ]),
+  ].slice(0, 8);
+  return { ...classified, topics, tags };
+}
+
+export function sortStoryTopics(topics: string[]) {
+  return [...new Set(topics)].sort((a, b) => {
+    if (a === "world") return 1;
+    if (b === "world") return -1;
+    if (a === "sports") return -1;
+    if (b === "sports") return 1;
+    return a.localeCompare(b);
+  });
+}
 
 const PLACES: { name: string; re: RegExp }[] = [
   { name: "Ukraine", re: /\b(ukraine|ukrainian|kyiv|kiev|kharkiv|odesa|zaporizhzhia)\b/i },
@@ -156,13 +278,15 @@ const PLACES: { name: string; re: RegExp }[] = [
 
 export function classify(text: string): Classification {
   const topics = TOPICS.filter(({ re }) => re.test(text)).map(({ tag }) => tag);
+  const subs = sportSubtags(text);
+  if (subs.length && !topics.includes("sports")) topics.push("sports");
   if (topics.length === 0) topics.push("world");
   const locations = PLACES.filter(({ re }) => re.test(text)).map(({ name }) => name);
-  const tags = [...new Set([...topics, ...locations.map((n) => n.toLowerCase())])];
+  const tags = [...new Set([...topics, ...subs])];
   return {
     topics: [...new Set(topics)].slice(0, 6),
     locations: [...new Set(locations)].slice(0, 6),
-    tags: tags.slice(0, 5),
+    tags: tags.slice(0, 8),
   };
 }
 
@@ -179,6 +303,8 @@ export function textHasTopic(text: string, topic: string) {
   if (!needle) return true;
   const def = TOPICS.find((entry) => entry.tag === needle);
   if (def) return def.re.test(text);
+  const sport = SPORT_SUBTAGS.find((entry) => entry.tag === needle);
+  if (sport) return sport.re.test(text);
   const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`\\b${escaped}\\b`, "i").test(text);
 }
@@ -192,6 +318,11 @@ export function isKnownTopic(name: string) {
 
 export function knownTopicTags() {
   return [...TOPICS.map((entry) => entry.tag), ...EXTRA_TOPICS];
+}
+
+/** Topic tags available in the reclassify menu (stable order). */
+export function listClassifyTopics() {
+  return knownTopicTags();
 }
 
 export function itemHasTopic(

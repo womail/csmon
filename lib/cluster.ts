@@ -1,3 +1,4 @@
+import { sortStoryTopics } from "./classify";
 import { mineItem } from "./mine";
 import type { Item, Source } from "./types";
 
@@ -69,7 +70,7 @@ export function itemAsStory(item: Item): Story {
     title: item.title,
     summary: item.summary,
     url: item.url,
-    latestAt: item.publishedAt ?? item.fetchedAt,
+    latestAt: item.publishedAt ?? 0,
     topics: item.topics,
     locations: item.locations,
     tags: item.tags,
@@ -167,11 +168,11 @@ export function clusterItems(items: Item[]): Story[] {
   return groups
     .map((group) => {
       const sorted = [...group.items].sort(
-        (a, b) => (b.publishedAt ?? b.fetchedAt) - (a.publishedAt ?? a.fetchedAt),
+        (a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0),
       );
       const head =
         sorted.find((item) => (item.summary ?? "").length > 80) ?? sorted[0];
-      const topics = [...new Set(sorted.flatMap((i) => i.topics))];
+      const topics = sortStoryTopics(sorted.flatMap((i) => i.topics));
       const locations = [...new Set(sorted.flatMap((i) => i.locations))];
       const summaries = [
         ...new Set(sorted.map((item) => item.summary).filter(Boolean) as string[]),
@@ -181,7 +182,7 @@ export function clusterItems(items: Item[]): Story[] {
         title: head.title,
         summary: summaries[0] ?? head.summary,
         url: head.url,
-        latestAt: sorted[0].publishedAt ?? sorted[0].fetchedAt,
+        latestAt: sorted[0].publishedAt ?? 0,
         topics,
         locations,
         tags: [...new Set(sorted.flatMap((i) => i.tags))],
@@ -217,7 +218,7 @@ export function storiesFromPool(pool: Story[], allowedIds: Set<number>, cross: b
           ...story,
           items: kept,
           sourceIds: [...new Set(kept.map((item) => item.sourceId))],
-          topics: [...new Set(kept.flatMap((item) => item.topics))],
+          topics: sortStoryTopics(kept.flatMap((item) => item.topics)),
           locations: [...new Set(kept.flatMap((item) => item.locations))],
         };
     if (cross && next.sourceIds.length < 2) continue;
@@ -229,6 +230,29 @@ export function storiesFromPool(pool: Story[], allowedIds: Set<number>, cross: b
 
 export function storyContaining(item: Item, stories: Story[]) {
   return stories.find((story) => story.items.some((entry) => entry.id === item.id));
+}
+
+/** Re-resolve a story from fresh board items after reclassify or refresh. */
+export function refreshStory(story: Story, boardItems: Item[], pool: Story[]): Story | null {
+  const byId = new Map(boardItems.map((item) => [item.id, item]));
+  const items = story.items.map((row) => byId.get(row.id)).filter(Boolean) as Item[];
+  if (!items.length) return null;
+  const want = new Set(items.map((item) => item.id));
+  const fromPool = pool.find(
+    (candidate) =>
+      candidate.items.length === items.length &&
+      candidate.items.every((row) => want.has(row.id)),
+  );
+  if (fromPool) return fromPool;
+  if (items.length === 1) return itemAsStory(items[0]);
+  const clustered = clusterItems(items);
+  return (
+    clustered.find(
+      (candidate) =>
+        candidate.items.length === items.length &&
+        candidate.items.every((row) => want.has(row.id)),
+    ) ?? itemAsStory(items[0])
+  );
 }
 
 export function situationLine(stories: Story[], sources: Source[]) {

@@ -1,7 +1,9 @@
 "use client";
 
+import type { MouseEvent } from "react";
 import { Ago } from "@/components/monitor/ago";
 import { Tip } from "@/components/monitor/tip";
+import { itemTopicChips, storyTopicChips, uniquePlaces } from "@/lib/card-tags";
 import { tagStyle } from "@/lib/colors";
 import type { Story } from "@/lib/cluster";
 import { personName } from "@/lib/people";
@@ -60,6 +62,8 @@ const ORIGIN_LABEL: Record<OriginReason, string> = {
   intel: "Security intel",
   explore: "Auto-explored",
   reddit: "Reddit",
+  gdelt: "GDELT",
+  acled: "ACLED",
 };
 
 const KIND_LABEL: Record<Source["kind"], string> = {
@@ -81,29 +85,33 @@ function CardActions({
   read,
   onHide,
   onRead,
+  onCopyLink,
 }: {
   read?: boolean;
   onHide?: () => void;
   onRead?: () => void;
+  onCopyLink?: () => void;
 }) {
-  if (!onHide && !onRead) return null;
+  if (!onHide && !onRead && !onCopyLink) return null;
   return (
-    <div className="mt-2 flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+    <div className="mt-1.5 flex items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
+      {onCopyLink ? (
+        <Tip text="Copy a URL that opens this card">
+          <button type="button" className="card-action" onClick={onCopyLink}>
+            Link
+          </button>
+        </Tip>
+      ) : null}
       {onHide ? (
         <Tip text="Hide this card from the board">
-          <button type="button" className="text-[10px] text-slate-500 hover:text-slate-800" onClick={onHide}>
+          <button type="button" className="card-action" onClick={onHide}>
             Hide
           </button>
         </Tip>
       ) : null}
       {onRead ? (
         <Tip text={read ? "Already marked read" : "Mark as read without opening"}>
-          <button
-            type="button"
-            className="text-[10px] text-slate-500 hover:text-slate-800"
-            onClick={onRead}
-            disabled={read}
-          >
+          <button type="button" className="card-action" onClick={onRead} disabled={read}>
             {read ? "Read ✓" : "Read"}
           </button>
         </Tip>
@@ -122,8 +130,11 @@ export function StoryCard({
   onSource,
   onHide,
   onRead,
+  onReclassify,
+  onCopyLink,
   read,
   focused,
+  cardAnchorId,
 }: {
   story: Story;
   sources: Map<number, Source>;
@@ -134,18 +145,30 @@ export function StoryCard({
   onSource?: (sourceId: number) => void;
   onHide?: () => void;
   onRead?: () => void;
+  onReclassify?: (event: MouseEvent) => void;
+  onCopyLink?: () => void;
   read?: boolean;
   focused?: boolean;
+  cardAnchorId?: string;
 }) {
   const shownIds = story.sourceIds.slice(0, 3);
   const extra = story.sourceIds.length - shownIds.length;
   const vendors = [...new Set(story.items.flatMap((item) => mineItem(item).vendors))].slice(0, 4);
 
   return (
-    <article className={`card-tile cursor-pointer ${read ? "opacity-55" : ""} ${focused ? "card-tile-focus" : ""}`} onClick={onOpen}>
+    <article
+      id={cardAnchorId}
+      className={`card-tile cursor-pointer ${read ? "opacity-55" : ""} ${focused ? "card-tile-focus" : ""}`}
+      onClick={onOpen}
+      onContextMenu={(event) => {
+        if (!onReclassify) return;
+        event.preventDefault();
+        onReclassify(event);
+      }}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-wrap gap-1">
-          {story.topics.slice(0, 3).map((topic) => {
+          {storyTopicChips(story).slice(0, 4).map((topic) => {
             const style = tagStyle(topic);
             return (
               <Tip key={topic} text={`Filter to topic ${topic}`}>
@@ -163,7 +186,7 @@ export function StoryCard({
               </Tip>
             );
           })}
-          {story.locations.slice(0, 2).map((place) => (
+          {uniquePlaces(story.locations).slice(0, 2).map((place) => (
             <Tip key={place} text={`Filter to ${place}`}>
             <button
               type="button"
@@ -196,11 +219,11 @@ export function StoryCard({
         </div>
         <Ago ts={story.latestAt} className="shrink-0 text-[10px] text-slate-400" />
       </div>
-      <p className="mt-2 line-clamp-4 text-[13px] leading-snug font-medium text-slate-800">
+      <p className="mt-1.5 line-clamp-4 text-[12px] leading-snug font-medium text-foreground">
         {story.title}
       </p>
       {story.summary ? (
-        <p className="mt-1.5 line-clamp-2 text-[11.5px] leading-relaxed text-slate-500">
+        <p className="mt-1 line-clamp-2 text-[10.5px] leading-snug text-muted-foreground">
           {story.summary}
         </p>
       ) : null}
@@ -220,7 +243,7 @@ export function StoryCard({
           <span className="text-[10px] text-slate-400">+{extra} more</span>
         ) : null}
       </div>
-      <CardActions read={read} onHide={onHide} onRead={onRead} />
+      <CardActions read={read} onHide={onHide} onRead={onRead} onCopyLink={onCopyLink} />
     </article>
   );
 }
@@ -235,42 +258,54 @@ export function ItemCard({
   onSource,
   onHide,
   onRead,
+  onReclassify,
+  onCopyLink,
   read,
   focused,
+  cardAnchorId,
 }: {
   item: Item;
   source?: Source;
-  onTag: (tag: string) => void;
+  onTag: (tag: string, event: MouseEvent) => void;
   onPlace?: (place: string) => void;
   onVendor?: (vendor: string) => void;
   onOpen?: () => void;
   onSource?: (sourceId: number) => void;
   onHide?: () => void;
   onRead?: () => void;
+  onReclassify?: (event: MouseEvent) => void;
+  onCopyLink?: () => void;
   read?: boolean;
   focused?: boolean;
+  cardAnchorId?: string;
 }) {
   const author = personName(item, source) ?? undefined;
   const vendors = mineItem(item).vendors.slice(0, 4);
 
   return (
     <article
+      id={cardAnchorId}
       className={`card-tile ${onOpen ? "cursor-pointer" : ""} ${read ? "opacity-55" : ""} ${focused ? "card-tile-focus" : ""}`}
       onClick={onOpen}
+      onContextMenu={(event) => {
+        if (!onReclassify) return;
+        event.preventDefault();
+        onReclassify(event);
+      }}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-wrap gap-1">
-          {item.topics.concat(item.tags.filter((tag) => !item.topics.includes(tag))).map((tag) => {
+          {itemTopicChips(item).map((tag) => {
             const style = tagStyle(tag);
             return (
-              <Tip key={tag} text={`Filter to ${tag}`}>
+              <Tip key={tag} text={`Filter to ${tag} · Shift+click to remove from this card`}>
               <button
                 type="button"
                 className="tag"
                 style={{ background: style.bg, color: style.fg }}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onTag(tag);
+                  onTag(tag, event);
                 }}
               >
                 {tag}
@@ -278,7 +313,7 @@ export function ItemCard({
               </Tip>
             );
           })}
-          {item.locations.slice(0, 3).map((place) => (
+          {uniquePlaces(item.locations).slice(0, 3).map((place) => (
             <Tip key={place} text={`Filter to ${place}`}>
               <button
                 type="button"
@@ -310,16 +345,16 @@ export function ItemCard({
           ))}
         </div>
         <Ago
-          ts={item.publishedAt ?? item.fetchedAt}
+          ts={item.publishedAt}
           className="shrink-0 text-[10px] text-slate-400"
         />
       </div>
-      <div className="mt-2">
-        <p className="line-clamp-4 text-[13px] leading-snug font-medium text-slate-800">
+      <div className="mt-1.5">
+        <p className="line-clamp-4 text-[12px] leading-snug font-medium text-foreground">
           {item.title}
         </p>
         {item.summary ? (
-          <p className="mt-1.5 line-clamp-2 text-[11.5px] leading-relaxed text-slate-500">
+          <p className="mt-1 line-clamp-2 text-[10.5px] leading-snug text-muted-foreground">
             {item.summary}
           </p>
         ) : null}
@@ -334,7 +369,7 @@ export function ItemCard({
           }}
         />
       </div>
-      <CardActions read={read} onHide={onHide} onRead={onRead} />
+      <CardActions read={read} onHide={onHide} onRead={onRead} onCopyLink={onCopyLink} />
     </article>
   );
 }

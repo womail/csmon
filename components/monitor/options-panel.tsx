@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { BookOpen, Database, Settings, SlidersHorizontal } from "lucide-react";
+import { BarChart3, BookOpen, Database, Settings, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -26,6 +26,13 @@ import { SourceWorkbench } from "@/components/monitor/source-workbench";
 import { AppVersionLine } from "@/components/monitor/app-version";
 import { UpdateChecker } from "@/components/monitor/update-checker";
 import { MAX_BOARD_ITEM_LIMIT, MIN_BOARD_ITEM_LIMIT } from "@/lib/board-limit";
+import {
+  REDDIT_RSS_REPLACEMENTS,
+  REDDIT_RSS_SUNSET_BANNER,
+  REDDIT_RSS_SUNSET_LABEL,
+  isRedditRssSunset,
+  redditRssDaysUntilSunset,
+} from "@/lib/reddit";
 import type { MonitorState } from "@/lib/types";
 
 const RANGES: TimeRange[] = ["1h", "6h", "24h", "7d", "all"];
@@ -92,6 +99,10 @@ export function OptionsButton({
 
   function openManual() {
     window.open("/help", "_blank", "noopener,noreferrer,width=980,height=860");
+  }
+
+  function openStats() {
+    window.open("/stats", "_blank", "noopener,noreferrer,width=980,height=820");
   }
 
   return (
@@ -278,6 +289,75 @@ export function OptionsButton({
 
             {tab === "data" ? (
               <div className="space-y-3">
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5">
+                  <p className="text-[11px] font-medium text-slate-900">ACLED (server)</p>
+                  <p className="mt-1 text-[10px] leading-snug text-slate-600">
+                    Register at{" "}
+                    <a
+                      href="https://acleddata.com/data-exploration/access"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 underline"
+                    >
+                      myACLED
+                    </a>
+                    , then set <code className="text-[10px]">ACLED_USERNAME</code> and{" "}
+                    <code className="text-[10px]">ACLED_PASSWORD</code> in{" "}
+                    <code className="text-[10px]">.env.local</code> and restart. Load layers from header{" "}
+                    <strong>ACLED</strong>.
+                  </p>
+                </div>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={options.autoRefreshMinutes === 30}
+                    onChange={(e) =>
+                      setOptions((o) => ({ ...o, autoRefreshMinutes: e.target.checked ? 30 : 0 }))
+                    }
+                  />
+                  Auto-refresh every 30 minutes (visible tab only; skips GDELT, Reddit, ACLED)
+                </label>
+                <div
+                  className={`rounded-md border p-2.5 ${
+                    isRedditRssSunset()
+                      ? "border-amber-300 bg-amber-50"
+                      : "border-orange-200 bg-orange-50"
+                  }`}
+                >
+                  <p className="text-[11px] font-medium text-slate-900">Reddit RSS</p>
+                  <p className="mt-1 text-[10px] leading-snug text-slate-700">{REDDIT_RSS_SUNSET_BANNER}</p>
+                  {!isRedditRssSunset() ? (
+                    <p className="mt-1 text-[10px] text-slate-600">
+                      Shutdown date: {REDDIT_RSS_SUNSET_LABEL} (about {redditRssDaysUntilSunset()} days).
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-[10px] font-medium text-amber-900">
+                      Public RSS has ended. Use header <strong>Reddit → GDELT</strong> to import keyword queries.
+                    </p>
+                  )}
+                  <p className="mt-1 text-[10px] leading-snug text-slate-600">{REDDIT_RSS_REPLACEMENTS}</p>
+                </div>
+                <label className="block">
+                  <FieldLabel>Reddit OAuth app id (script/app — sent to server on Load Reddit)</FieldLabel>
+                  <Input
+                    className="mt-1 h-8 text-[12px]"
+                    value={options.redditOAuthClientId}
+                    onChange={(e) => setOptions((o) => ({ ...o, redditOAuthClientId: e.target.value }))}
+                    placeholder="Reddit app client id"
+                    autoComplete="off"
+                  />
+                </label>
+                <label className="block">
+                  <FieldLabel>Reddit OAuth secret (optional, stored in this browser only)</FieldLabel>
+                  <Input
+                    type="password"
+                    className="mt-1 h-8 text-[12px]"
+                    value={options.redditOAuthClientSecret}
+                    onChange={(e) => setOptions((o) => ({ ...o, redditOAuthClientSecret: e.target.value }))}
+                    placeholder="Reddit app secret (server session only, not stored in DB)"
+                    autoComplete="off"
+                  />
+                </label>
                 <label className="block">
                   <FieldLabel>Board item limit</FieldLabel>
                   <Input
@@ -336,6 +416,17 @@ export function OptionsButton({
                     }}
                   >
                     Open source library…
+                  </Button>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5">
+                  <p className="text-[11px] font-medium text-slate-800">Statistical analysis</p>
+                  <p className="mt-1 text-[10px] leading-snug text-slate-600">
+                    Storage size, cache breakdown, layer counts by origin, and per-query GDELT ingest status (items
+                    stored vs cached JSON vs empty).
+                  </p>
+                  <Button size="sm" variant="outline" className="mt-2 w-full" onClick={openStats}>
+                    <BarChart3 className="size-3" />
+                    Open analysis…
                   </Button>
                 </div>
               </div>

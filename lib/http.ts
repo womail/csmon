@@ -1,6 +1,7 @@
 import "server-only";
 
 import { cacheGet, cacheSet, TTL, type CacheKind } from "./cache";
+import { isRedditFeedUrl, isRedditRssSunset, redditRssHttpError, redditRssSunsetError } from "./reddit";
 import { APP_UA } from "./version";
 import { fetchOutbound, readLimited } from "./safe-url";
 
@@ -16,6 +17,9 @@ async function cachedGet(
 ): Promise<string> {
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
+  if (isRedditFeedUrl(url)) {
+    if (isRedditRssSunset()) throw redditRssSunsetError();
+  }
   const res = await fetchOutbound(url, {
     headers: { "User-Agent": UA, Accept: accept },
     timeoutMs,
@@ -33,6 +37,9 @@ async function cachedGet(
       throw new Error(
         "Reddit public RSS allows about one request per minute per IP. Wait a minute, then load again.",
       );
+    }
+    if (isRedditFeedUrl(url) && (res.status === 404 || res.status === 410)) {
+      throw redditRssHttpError(res.status);
     }
     throw new Error(`Upstream ${res.status}`);
   }

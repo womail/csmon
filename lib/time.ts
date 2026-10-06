@@ -9,6 +9,23 @@ export function relTime(ts: number | null | undefined) {
   return `${Math.floor(s / 86400)}d`;
 }
 
+/** Absolute publication time for reader / reports. */
+export function formatPublishDate(ts: number | null | undefined) {
+  if (ts == null || !Number.isFinite(ts)) return null;
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(ts));
+  } catch {
+    return new Date(ts).toISOString().replace("T", " ").slice(0, 16);
+  }
+}
+
 export function rangeStart(range: TimeRange) {
   const now = Date.now();
   switch (range) {

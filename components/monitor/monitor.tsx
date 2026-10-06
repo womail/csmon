@@ -1,8 +1,18 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Layers, Plus, RefreshCw, Search, Shield, ChevronDown, ChevronRight, Undo2, SlidersHorizontal } from "lucide-react";
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { Layers, ChevronDown, ChevronRight, Undo2 } from "lucide-react";
+import { CardContextMenu, type CardMenuAction } from "@/components/monitor/card-context-menu";
+import { MonitorToolbar } from "@/components/monitor/monitor-toolbar";
 import { Ago } from "@/components/monitor/ago";
 import {
   CacheCard,
@@ -20,12 +30,16 @@ import { WatchButton } from "@/components/monitor/watch-panel";
 import { EntityDesk, HomeDashboard } from "@/components/monitor/dashboard";
 import { PlacePane } from "@/components/monitor/place-pane";
 import { SourcePane } from "@/components/monitor/source-pane";
-import { SituationMap, placeMarkers } from "@/components/monitor/map";
+import { placeMarkers } from "@/components/monitor/map";
+
+const SituationMap = dynamic(
+  () => import("@/components/monitor/situation-map").then((mod) => ({ default: mod.SituationMap })),
+  { ssr: false, loading: () => null },
+);
 import { DeskRail, DeskTabs } from "@/components/monitor/nav";
-import { OptionsButton } from "@/components/monitor/options-panel";
+import { GdeltButton } from "@/components/monitor/gdelt-panel";
 import { RedditButton } from "@/components/monitor/reddit-panel";
-import { SavedFilters } from "@/components/monitor/saved-filters";
-import { ThemeToggle } from "@/components/monitor/theme-toggle";
+import { RedditRssBanner } from "@/components/monitor/reddit-rss-banner";
 import { DismissFilterChip, ToggleFilterChip } from "@/components/monitor/filter-chip";
 import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
@@ -37,11 +51,13 @@ import { isKnownTopic, itemHasTopic } from "@/lib/classify";
 import {
   clusterItems,
   itemAsStory,
+  refreshStory,
   situationLine,
   storiesFromPool,
   storyContaining,
   type Story,
 } from "@/lib/cluster";
+import { copyCardLink } from "@/lib/card-link";
 import { tagStyle } from "@/lib/colors";
 import { documentsFromItems, isDocumentItem } from "@/lib/documents";
 import type { AircraftProfile, Flight } from "@/lib/flights";
@@ -51,8 +67,32 @@ import { matchesLane, type SituationLane } from "@/lib/lanes";
 import { kevForStory, itemsForCve, relatedStories, similarStories } from "@/lib/link";
 import { isAdvisoryItem, itemHasVendor, matchVendorName, mineItem, vendorFamily } from "@/lib/mine";
 import { withItemLimitQuery } from "@/lib/board-limit";
+import {
+  groupItemsByTag,
+  groupItemsByTopic,
+  loadBoardSort,
+  saveBoardSort,
+  sortItems,
+  sortStories,
+  type BoardSort,
+} from "@/lib/board-sort";
+import { applyTopicOverride, loadItemTopicOverrides, saveItemTopicOverride } from "@/lib/item-overrides";
 import { loadOptions, saveOptions } from "@/lib/options";
-import { loadSubreddits, DEFAULT_SUBREDDITS } from "@/lib/reddit";
+import type { AcledProfile } from "@/lib/acled";
+import {
+  DEFAULT_GDELT_QUERIES,
+  loadGdeltQueries,
+  mergeGdeltFromSubredditSuggestions,
+  saveGdeltQueries,
+  type GdeltQuery,
+} from "@/lib/gdelt";
+import {
+  DEFAULT_SUBREDDITS,
+  gdeltSuggestionsFromSubreddits,
+  isRedditRssSunset,
+  loadSubreddits,
+  REDDIT_RSS_SUNSET_LABEL,
+} from "@/lib/reddit";
 import { applyPalette } from "@/lib/theme";
 import { shortSourceName } from "@/lib/source-label";
 import { itemHasPerson, peopleFromItems } from "@/lib/people";
@@ -107,6 +147,18 @@ import {
 } from "@/lib/reports";
 import type { WeatherEvent } from "@/lib/weather";
 import {
+  clearDisplayCollection,
+  loadDisplayCollection,
+  saveDisplayCollection,
+  type DisplayCollection,
+} from "@/lib/display-collection";
+import {
+  displayOnlyIdsFromStory,
+  filtersFromItem,
+  guessDeskTitleFromItem,
+} from "@/lib/desk-from-item";
+import { itemInTimeRange } from "@/lib/item-freshness";
+import {
   createUserDesk,
   deleteUserDesk,
   findUserDesk,
@@ -144,6 +196,10 @@ const STACK_CHIPS = [
   { label: "macOS", kind: "vendor" as const, value: "Apple" },
   { label: "Mac", kind: "vendor" as const, value: "Apple" },
 ];
+const STACK_TOPIC_VALUES = new Set(["ai", "sports", "reddit"]);
+const STACK_VENDOR_VALUES = new Set(
+  STACK_CHIPS.filter((chip) => chip.kind === "vendor").map((chip) => chip.value),
+);
 const RANGES: TimeRange[] = ["1h", "6h", "24h", "7d", "all"];
 const RISK_LABEL: Record<PatchRisk, string> = {
   p0: "Patch now",
@@ -176,7 +232,8 @@ function buckets(items: { publishedAt: number | null; fetchedAt: number }[], ran
   const width = Math.max(1, (Date.now() - start) / n);
   const counts = Array.from({ length: n }, () => 0);
   for (const item of items) {
-    const ts = item.publishedAt ?? item.fetchedAt;
+    const ts = item.publishedAt;
+    if (!ts) continue;
     const i = Math.min(n - 1, Math.max(0, Math.floor((ts - start) / width)));
     counts[i] += 1;
   }
@@ -212,6 +269,8 @@ export function Monitor({
   const deferredQuery = useDeferredValue(query);
   const [boardCap, setBoardCap] = useState(BOARD_PAGE);
   const [topic, setTopic] = useState<string | null>(seed.topic);
+  const [filterTopics, setFilterTopics] = useState<string[]>(seed.topics ?? []);
+  const [filterTags, setFilterTags] = useState<string[]>(seed.tags ?? []);
   const [place, setPlace] = useState<string | null>(seed.place);
   const [range, setRange] = useState<TimeRange>(seed.range);
   const [desk, setDesk] = useState<Desk>(seed.desk);
@@ -253,9 +312,26 @@ export function Monitor({
   const [triage, setTriage] = useState<TriageState>({ hidden: [], read: [] });
   const [triageUndo, setTriageUndo] = useState<TriageUndo[]>([]);
   const [subreddits, setSubreddits] = useState<string[]>(DEFAULT_SUBREDDITS);
+  const [redditDialogOpen, setRedditDialogOpen] = useState(false);
+  const [gdeltQueries, setGdeltQueries] = useState<GdeltQuery[]>(DEFAULT_GDELT_QUERIES);
   const [reports, setReports] = useState<Report[]>([]);
   const [openReportId, setOpenReportId] = useState<string | null>(null);
   const [readerWidth, setReaderWidth] = useState(READER_WIDTH_DEFAULT);
+  const [boardSort, setBoardSort] = useState<BoardSort>("newest");
+  const [topicOverrides, setTopicOverrides] = useState<Record<string, { topics: string[]; updatedAt: number }>>(
+    {},
+  );
+  const [cardMenu, setCardMenu] = useState<{
+    item: Item;
+    story: Story | null;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [displayCollection, setDisplayCollection] = useState<DisplayCollection | null>(null);
+  const [focusItem, setFocusItem] = useState<number | null>(seed.focusItem ?? null);
+  const [linkCopied, setLinkCopied] = useState<number | null>(null);
+  const focusItemHandled = useRef<number | null>(null);
+  const [autoRefreshMinutes, setAutoRefreshMinutes] = useState(0);
 
   function setState(next: MonitorState) {
     setStateRaw({
@@ -270,6 +346,7 @@ export function Monitor({
   useEffect(() => {
     let cancelled = false;
     setCustomDesks(loadUserDesks());
+    setDisplayCollection(loadDisplayCollection());
     const opts = loadOptions();
     applyPalette(opts.palette);
     setCompact(opts.compact);
@@ -279,6 +356,10 @@ export function Monitor({
     setTriage(loadTriage());
     setTriageUndo(loadTriageUndo());
     setSubreddits(loadSubreddits());
+    setGdeltQueries(loadGdeltQueries());
+    setBoardSort(loadBoardSort());
+    setTopicOverrides(loadItemTopicOverrides());
+    setAutoRefreshMinutes(opts.autoRefreshMinutes);
     setReports(loadReports());
     void hydrateReports().then((rows) => {
       if (!cancelled) setReports(rows);
@@ -354,7 +435,9 @@ export function Monitor({
       desk,
       q: query,
       topic,
+      topics: filterTopics,
       place,
+      tags: filterTags,
       range,
       cross,
       stack,
@@ -367,8 +450,29 @@ export function Monitor({
       person,
       rising,
       qb,
+      focusItem,
     });
-  }, [cross, desk, layer, origin, person, place, platform, qb, query, range, ransomware, rising, riskFilter, stack, topic, vendor]);
+  }, [
+    cross,
+    desk,
+    filterTags,
+    filterTopics,
+    focusItem,
+    layer,
+    origin,
+    person,
+    place,
+    platform,
+    qb,
+    query,
+    range,
+    ransomware,
+    rising,
+    riskFilter,
+    stack,
+    topic,
+    vendor,
+  ]);
 
   const enabled = state.sources.filter((s) => s.enabled);
   const byId = useMemo(
@@ -377,29 +481,90 @@ export function Monitor({
   );
 
   const rangedItems = useMemo(() => {
-    const start = rangeStart(range);
     return state.items.filter((item) => {
       const source = byId.get(item.sourceId);
       if (!source?.enabled) return false;
-      const ts = item.publishedAt ?? item.fetchedAt;
-      if (start && ts < start) return false;
-      return true;
+      return itemInTimeRange(item, range);
     });
   }, [byId, range, state.items]);
 
-  const poolStories = useMemo(() => clusterItems(rangedItems), [rangedItems]);
+  const boardItems = useMemo(
+    () => rangedItems.map((item) => applyTopicOverride(item, topicOverrides)),
+    [rangedItems, topicOverrides],
+  );
+
+  const poolStories = useMemo(() => clusterItems(boardItems), [boardItems]);
+
+  const openStoryMeta = openStory
+    ? `${openStory.id}|${openStory.topics.join()}|${openStory.tags.join()}|${openStory.items
+        .map((row) => `${row.id}:${row.topics.join(".")}:${row.tags.join(".")}`)
+        .join(";")}`
+    : "";
+
+  useEffect(() => {
+    if (!openStory) return;
+    const next = refreshStory(openStory, boardItems, poolStories);
+    if (!next) {
+      setOpenStory(null);
+      return;
+    }
+    const nextMeta = `${next.id}|${next.topics.join()}|${next.tags.join()}|${next.items
+      .map((row) => `${row.id}:${row.topics.join(".")}:${row.tags.join(".")}`)
+      .join(";")}`;
+    if (nextMeta !== openStoryMeta) setOpenStory(next);
+  }, [boardItems, openStory, openStoryMeta, poolStories]);
+
+  useEffect(() => {
+    if (!focusItem || focusItemHandled.current === focusItem) return;
+    const raw = state.items.find((row) => row.id === focusItem);
+    if (!raw) return;
+    const item = applyTopicOverride(raw, topicOverrides);
+    focusItemHandled.current = focusItem;
+    const story = storyContaining(item, poolStories) ?? itemAsStory(item);
+    setOpenStory(story);
+    window.requestAnimationFrame(() =>
+      document.getElementById(`card-item-${focusItem}`)?.scrollIntoView({ block: "nearest" }),
+    );
+  }, [focusItem, poolStories, state.items, topicOverrides]);
   const activeCustom = findUserDesk(desk, customDesks);
   const viewDesk: Desk = activeCustom?.view ?? (isBuiltinDesk(desk) ? desk : "brief");
 
   useEffect(() => {
     setBoardCap(BOARD_PAGE);
-  }, [deferredQuery, layer, origin, person, place, platform, qb, range, rising, topic, vendor, viewDesk]);
+  }, [
+    boardSort,
+    deferredQuery,
+    displayCollection,
+    filterTags,
+    filterTopics,
+    layer,
+    origin,
+    person,
+    place,
+    platform,
+    qb,
+    range,
+    rising,
+    topic,
+    vendor,
+    viewDesk,
+  ]);
+
+  useEffect(() => {
+    if (!autoRefreshMinutes) return;
+    const ms = autoRefreshMinutes * 60_000;
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void refresh({ skipGdelt: true, skipReddit: true, skipAcled: true });
+    }, ms);
+    return () => window.clearInterval(id);
+  }, [autoRefreshMinutes, boardItemLimit]);
 
   const baseItems = useMemo(() => {
     const parsedLine = parseQueryLine(deferredQuery);
     const q = parsedLine.text.trim().toLowerCase();
     const needMine = ransomware || Boolean(q);
-    return rangedItems.filter((item) => {
+    return boardItems.filter((item) => {
       const source = byId.get(item.sourceId);
       if (layer && item.sourceId !== layer) return false;
       if (origin && !source?.origins.some((entry) => entry.reason === origin)) return false;
@@ -416,6 +581,14 @@ export function Monitor({
           return false;
         }
       }
+      if (filterTopics.length && !filterTopics.some((name) => itemHasTopic(item, name))) return false;
+      if (
+        filterTags.length &&
+        !filterTags.some((name) => item.tags.includes(name) || item.topics.includes(name))
+      ) {
+        return false;
+      }
+      if (displayCollection?.itemIds.length && !displayCollection.itemIds.includes(item.id)) return false;
       if (place && !itemHasPlace(item, place)) return false;
       if (person && !itemHasPerson(item, person, source)) return false;
       if (triage.hidden.includes(itemKey(item.id))) return false;
@@ -436,21 +609,41 @@ export function Monitor({
       if (!itemMatchesQuery(item, qb, source)) return false;
       return true;
     });
-  }, [byId, deferredQuery, layer, origin, person, place, platform, qb, rangedItems, ransomware, topic, triage.hidden, vendor, viewDesk]);
+  }, [
+    boardItems,
+    byId,
+    deferredQuery,
+    displayCollection,
+    filterTags,
+    filterTopics,
+    layer,
+    origin,
+    person,
+    place,
+    platform,
+    qb,
+    ransomware,
+    topic,
+    triage.hidden,
+    vendor,
+    viewDesk,
+  ]);
 
   const trends = useMemo(() => buildTrends(baseItems, range, byId), [baseItems, byId, range]);
   const hotKeys = useMemo(() => risingKeySet(trends), [trends]);
   const cveHits = useMemo(() => minedCves(baseItems).slice(0, 6), [baseItems]);
 
   const items = useMemo(() => {
-    if (!rising) return baseItems;
-    return baseItems.filter((item) => itemMatchesRising(item, hotKeys, byId.get(item.sourceId)));
-  }, [baseItems, byId, hotKeys, rising]);
+    const filtered = !rising
+      ? baseItems
+      : baseItems.filter((item) => itemMatchesRising(item, hotKeys, byId.get(item.sourceId)));
+    return sortItems(filtered, boardSort);
+  }, [baseItems, boardSort, byId, hotKeys, rising]);
 
   const stories = useMemo(() => {
     const allowed = new Set(items.map((item) => item.id));
-    return storiesFromPool(poolStories, allowed, cross, triage.hidden);
-  }, [cross, items, poolStories, triage.hidden]);
+    return sortStories(storiesFromPool(poolStories, allowed, cross, triage.hidden), boardSort);
+  }, [boardSort, cross, items, poolStories, triage.hidden]);
 
   const boardList = useMemo(() => {
     if (viewDesk === "scan") return items.slice(0, boardCap).map((item) => ({ kind: "item" as const, item }));
@@ -649,11 +842,24 @@ export function Monitor({
     );
   }
 
-  async function refresh() {
+  async function refresh(options?: { skipGdelt?: boolean; skipReddit?: boolean; skipAcled?: boolean }) {
     setRefreshing(true);
     setError(null);
     try {
-      setState(await json<MonitorState>(statePath("/api/refresh", boardItemLimit), { method: "POST" }));
+      const data = await json<MonitorState>(statePath("/api/refresh", boardItemLimit), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(options ?? {}),
+      });
+      const { refreshWarnings, ...state } = data;
+      setState(state);
+      if (refreshWarnings?.failed && refreshWarnings.errors.length) {
+        setError(
+          refreshWarnings.ok
+            ? `Some layers failed: ${refreshWarnings.errors.join(" · ")}`
+            : refreshWarnings.errors.join(" · "),
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Refresh failed");
     } finally {
@@ -661,7 +867,21 @@ export function Monitor({
     }
   }
 
+  function importSubredditsToGdelt(subs: string[]) {
+    const suggestions = gdeltSuggestionsFromSubreddits(subs);
+    const merged = mergeGdeltFromSubredditSuggestions(loadGdeltQueries(), suggestions);
+    saveGdeltQueries(merged);
+    setGdeltQueries(merged);
+    setError("GDELT query drafts added from your subreddit list. Open GDELT → Load GDELT when ready.");
+  }
+
   async function loadReddit(subs = subreddits) {
+    const opts = loadOptions();
+    const hasOAuth = Boolean(opts.redditOAuthClientId && opts.redditOAuthClientSecret);
+    if (isRedditRssSunset() && !hasOAuth) {
+      importSubredditsToGdelt(subs);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -669,13 +889,233 @@ export function Monitor({
         await json<MonitorState>(statePath("/api/reddit", boardItemLimit), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ subs, enable: true }),
+          body: JSON.stringify({
+            subs,
+            enable: true,
+            oauthClientId: opts.redditOAuthClientId,
+            oauthClientSecret: opts.redditOAuthClientSecret,
+          }),
         }),
       );
       setSubreddits(subs);
       setDesk("home");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Reddit feed failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadAcled(profiles: AcledProfile[]) {
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await json<MonitorState>(statePath("/api/acled", boardItemLimit), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profiles }),
+      });
+      setState(data);
+      setDesk("home");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ACLED load failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function cardAnchorId(itemId: number) {
+    return `card-item-${itemId}`;
+  }
+
+  async function copyCardLinkFor(item: Item) {
+    try {
+      await copyCardLink({ ...filtersSnapshot(), focusItem: item.id }, item.id);
+      setFocusItem(item.id);
+      setLinkCopied(item.id);
+      window.setTimeout(() => setLinkCopied((id) => (id === item.id ? null : id)), 2500);
+    } catch {
+      setError("Could not copy link");
+    }
+  }
+
+  function openCardMenu(item: Item, event: ReactMouseEvent, story: Story | null = null) {
+    event.preventDefault();
+    setCardMenu({
+      item,
+      story,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  }
+
+  function filtersSnapshot(): BoardFilters {
+    return normalizeBoardFilters({
+      desk,
+      q: query,
+      topic,
+      topics: filterTopics,
+      place,
+      tags: filterTags,
+      range,
+      cross,
+      stack,
+      risk: riskFilter,
+      vendor,
+      ransomware,
+      layer,
+      origin,
+      platform,
+      person,
+      rising,
+      qb,
+      focusItem,
+    });
+  }
+
+  async function handleCardMenuAction(action: CardMenuAction) {
+    if (action.kind === "close") {
+      setCardMenu(null);
+      return;
+    }
+    if (!cardMenu) return;
+    const { item, story } = cardMenu;
+    setCardMenu(null);
+
+    if (action.kind === "reclassify") {
+      await reclassifyItemTopics(item.id, action.topics);
+      return;
+    }
+    if (action.kind === "display-only") {
+      const itemIds = story ? displayOnlyIdsFromStory(story) : [item.id];
+      const label = (story?.title ?? item.title).trim().slice(0, 32) || guessDeskTitleFromItem(item);
+      const next: DisplayCollection = { itemIds, label, updatedAt: Date.now() };
+      saveDisplayCollection(next);
+      setDisplayCollection(next);
+      return;
+    }
+    if (action.kind === "add-display") {
+      const addIds = story ? displayOnlyIdsFromStory(story) : [item.id];
+      const prev = displayCollection ?? { itemIds: [], label: "Pinned cards", updatedAt: Date.now() };
+      const itemIds = [...new Set([...prev.itemIds, ...addIds])];
+      const next: DisplayCollection = { ...prev, itemIds, updatedAt: Date.now() };
+      saveDisplayCollection(next);
+      setDisplayCollection(next);
+      return;
+    }
+    if (action.kind === "save-desk") {
+      const filters = filtersFromItem(item, filtersSnapshot());
+      const label = guessDeskTitleFromItem(item);
+      const next = createUserDesk(label, filters, customDesks, "brief");
+      setCustomDesks(next);
+      const created = next[0];
+      if (created) applyFilters({ ...created.filters, desk: created.id });
+      return;
+    }
+    if (action.kind === "copy-link") {
+      await copyCardLinkFor(item);
+    }
+  }
+
+  async function reclassifyItemTopics(itemId: number, topics: string[]) {
+    const cleaned = [...new Set(topics.map((t) => t.trim().toLowerCase()).filter(Boolean))];
+    if (!cleaned.length) {
+      setError("Keep at least one topic on the card.");
+      return;
+    }
+    try {
+      const data = await json<MonitorState>(statePath("/api/items/reclassify", boardItemLimit), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId, topics: cleaned }),
+      });
+      setState(data);
+      const row = data.items.find((entry) => entry.id === itemId);
+      const overrides = saveItemTopicOverride(itemId, cleaned, row?.tags);
+      setTopicOverrides(overrides);
+      setOpenStory((prev) => {
+        if (!prev) return prev;
+        const items = data.items.map((entry) => applyTopicOverride(entry, overrides));
+        return refreshStory(prev, items, clusterItems(items));
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Reclassify failed");
+    }
+  }
+
+  async function applyMyBriefing(profile: import("@/lib/briefing-profile").MyBriefingProfile) {
+    applyFilters({
+      desk: profile.desk,
+      q: profile.q ?? "",
+      topic: profile.topic,
+      topics: [],
+      place: profile.place,
+      tags: [],
+      range: profile.range,
+      cross: profile.cross,
+      rising: profile.rising,
+      stack,
+      risk: riskFilter,
+      vendor: null,
+      ransomware,
+      layer: profile.layer,
+      origin: null,
+      platform: null,
+      person: null,
+      qb,
+      focusItem: null,
+    });
+    const keys = new Set(profile.enabledSourceKeys);
+    if (!keys.size) return;
+    const enable = state.sources.filter((s) => keys.has(s.key)).map((s) => s.id);
+    const disable = state.sources.filter((s) => s.enabled && !keys.has(s.key)).map((s) => s.id);
+    if (!enable.length && !disable.length) return;
+    try {
+      setState(
+        await json<MonitorState>(statePath("/api/sources", boardItemLimit), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enable, disable }),
+        }),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not restore briefing layers");
+    }
+  }
+
+  function clickItemTag(item: Item, tag: string, event: ReactMouseEvent) {
+    if (event.shiftKey) {
+      void reclassifyItemTopics(
+        item.id,
+        item.topics.filter((topic) => topic !== tag),
+      );
+      return;
+    }
+    clickChip(tag);
+  }
+
+  async function loadGdelt(queries = gdeltQueries) {
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await json<MonitorState>(statePath("/api/gdelt", boardItemLimit), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ queries }),
+      });
+      const { gdeltRefresh, ...state } = data;
+      setState(state);
+      setGdeltQueries(queries);
+      setDesk("home");
+      if (gdeltRefresh?.failed && gdeltRefresh.errors.length) {
+        setError(
+          gdeltRefresh.ok
+            ? `Some GDELT queries did not load: ${gdeltRefresh.errors.join(" · ")}`
+            : gdeltRefresh.errors.join(" · "),
+        );
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "GDELT feed failed");
     } finally {
       setBusy(false);
     }
@@ -705,6 +1145,8 @@ export function Monitor({
     setDesk(filters.desk);
     setQuery(filters.q);
     setTopic(filters.topic);
+    setFilterTopics(filters.topics);
+    setFilterTags(filters.tags);
     setPlace(filters.place);
     setRange(filters.range);
     setCross(filters.cross);
@@ -718,11 +1160,14 @@ export function Monitor({
     setPerson(filters.person);
     setRising(filters.rising);
     setQb(filters.qb ?? emptyQuery());
+    setFocusItem(filters.focusItem ?? null);
   }
 
   function clearBoardFilters() {
     setQuery("");
     setTopic(null);
+    setFilterTopics([]);
+    setFilterTags([]);
     setPlace(null);
     setCross(false);
     setVendor(null);
@@ -735,6 +1180,8 @@ export function Monitor({
     setRiskFilter("p0");
     setQb(emptyQuery());
     setOpenSourceId(null);
+    setFocusItem(null);
+    focusItemHandled.current = null;
   }
 
   const boardFiltersActive =
@@ -746,6 +1193,9 @@ export function Monitor({
     Boolean(person) ||
     Boolean(vendor) ||
     Boolean(topic) ||
+    filterTopics.length > 0 ||
+    filterTags.length > 0 ||
+    Boolean(displayCollection?.itemIds.length) ||
     Boolean(origin) ||
     cross ||
     Boolean(query.trim()) ||
@@ -916,10 +1366,13 @@ export function Monitor({
       setTrail((current) => [...current, openStory]);
     }
     setOpenStory(next);
+    setFocusItem(next.items[0]?.id ?? null);
   }
 
   function closeReader() {
     setOpenStory(null);
+    setFocusItem(null);
+    focusItemHandled.current = null;
     setTrail([]);
   }
 
@@ -1107,7 +1560,9 @@ export function Monitor({
     desk,
     q: query,
     topic,
+    topics: filterTopics,
     place,
+    tags: filterTags,
     range,
     cross,
     stack,
@@ -1120,6 +1575,7 @@ export function Monitor({
     person,
     rising,
     qb,
+    focusItem,
   };
 
   const catalogTopics = useMemo(() => {
@@ -1301,126 +1757,84 @@ export function Monitor({
         onClearFilters={clearBoardFilters}
       />
       <div className="flex min-w-0 flex-1 flex-col bg-slate-50">
-        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
-          <div className="flex flex-wrap items-center gap-3 px-3 py-2">
-            <Tip text="Home dashboard — click a topic or source to filter in place">
-              <button type="button" onClick={goHome} className="flex items-center gap-2">
-                <div className="grid size-7 place-items-center rounded-md bg-orange-500 text-[11px] font-bold text-white">
-                  cs
-                </div>
-                <div className="text-left">
-                  <div className="text-[13px] leading-none font-semibold tracking-wide">csmon</div>
-                  <div className="text-[10px] text-slate-400">home dashboard</div>
-                </div>
-              </button>
-            </Tip>
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute top-1.5 left-2 size-3.5 text-slate-400" />
-              <Input
-                id="board-search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={
-                  viewDesk === "patch"
-                    ? "CVE, vendor, product"
-                    : "source:cisa cve:2024- ireland   /"
-                }
-                className="h-7 bg-slate-50 pl-7 text-[12px]"
-              />
-            </div>
-            <div className="rounded-md bg-slate-100 p-0.5 lg:hidden">
-              <DeskTabs desk={desk} onChange={changeDesk} customDesks={customDesks} />
-            </div>
-            <div className="flex rounded-md bg-slate-100 p-0.5">
-              {RANGES.map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => setRange(r)}
-                  className={`rounded px-1.5 py-0.5 text-[11px] ${
-                    range === r ? "bg-background text-foreground shadow-sm" : "text-slate-500"
-                  }`}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
-            <Tip text="Re-fetch enabled layers from cache or origin">
-              <Button size="xs" variant="outline" onClick={() => refresh()} disabled={refreshing}>
-                <RefreshCw className={refreshing ? "animate-spin" : ""} />
-                Refresh
-              </Button>
-            </Tip>
-            <Tip text="Load the CISA Known Exploited Vulnerabilities catalog">
-              <Button size="xs" variant="outline" onClick={() => loadKev()} disabled={busy}>
-                <Shield className="size-3" />
-                KEV
-              </Button>
-            </Tip>
-            <SavedFilters current={currentFilters} onApply={applyFilters} />
-            <QueryBuilderButton value={qb} onChange={setQb} />
-            <WatchButton
-              query={[query.trim(), summarizeQuery(qb)].filter(Boolean).join(" ")}
-              desk={desk}
-              watches={state.watches ?? []}
-              onChange={(watches) => setStateRaw((current) => ({ ...current, watches }))}
-              onOpenWatch={(watch) => {
-                setQuery(watch.query);
-                if (watch.desk) setDesk(watch.desk as Desk);
-                void apiFetch("/api/watchlists", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ ack: watch.id }),
+        <header className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm">
+          <RedditRssBanner onMigrate={() => setRedditDialogOpen(true)} />
+          <MonitorToolbar
+            viewDesk={viewDesk}
+            query={query}
+            onQueryChange={setQuery}
+            desk={desk}
+            onDeskChange={changeDesk}
+            customDesks={customDesks}
+            range={range}
+            onRangeChange={setRange}
+            ranges={RANGES}
+            boardSort={boardSort}
+            onBoardSortChange={(sort) => {
+              setBoardSort(sort);
+              saveBoardSort(sort);
+            }}
+            refreshing={refreshing}
+            busy={busy}
+            onRefresh={() => void refresh()}
+            onLoadKev={() => void loadKev()}
+            onHome={goHome}
+            watchLine={[query.trim(), summarizeQuery(qb)].filter(Boolean).join(" ")}
+            onTune={() => {
+              setEditingDesk(findUserDesk(desk, customDesks));
+              setDeskEditorOpen(true);
+            }}
+            currentFilters={currentFilters}
+            onApplyFilters={applyFilters}
+            onApplyBriefing={applyMyBriefing}
+            enabledSourceKeys={enabled.map((s) => s.key)}
+            qb={qb}
+            onQbChange={setQb}
+            watches={state.watches ?? []}
+            onWatchesChange={(watches) => setStateRaw((current) => ({ ...current, watches }))}
+            onOpenWatch={(watch) => {
+              setQuery(watch.query);
+              if (watch.desk) setDesk(watch.desk as Desk);
+              void apiFetch("/api/watchlists", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ack: watch.id }),
+              })
+                .then((res) => res.json())
+                .then((data: { watches?: Watchlist[] }) => {
+                  if (data.watches) setStateRaw((current) => ({ ...current, watches: data.watches ?? [] }));
                 })
-                  .then((res) => res.json())
-                  .then((data: { watches?: Watchlist[] }) => {
-                    if (data.watches) setStateRaw((current) => ({ ...current, watches: data.watches ?? [] }));
-                  })
-                  .catch(() => {
-                    /* ignore */
-                  });
-              }}
-            />
-            <Tip text="Tune topic, place, RSS, and range, then apply or save as a desk">
-              <Button
-                size="xs"
-                variant="outline"
-                onClick={() => {
-                  setEditingDesk(findUserDesk(desk, customDesks));
-                  setDeskEditorOpen(true);
-                }}
-              >
-                <SlidersHorizontal className="size-3" />
-                Tune
-              </Button>
-            </Tip>
-            <ThemeToggle />
-            <RedditButton
-              busy={busy}
-              onListChange={setSubreddits}
-              onLoad={(subs) => loadReddit(subs)}
-            />
-            <OptionsButton
-              onSourcesApplied={(next) => setState(next)}
-              onApply={(options) => {
-                setCompact(options.compact);
-                if (options.stack) setStack(options.stack);
-                setDesk(options.defaultDesk);
-                setRange(options.defaultRange);
-                setHomeLanguage(options.homeLanguage);
-                setAutoTranslate(options.autoTranslate);
-                changeHomePlace(options.homePlace || "");
-                setBoardItemLimit(options.boardItemLimit);
-                void json<MonitorState>(statePath("/api/state", options.boardItemLimit)).then(setState);
-              }}
-            />
-            <Tip text="Add a public RSS feed or Bluesky handle">
-              <Button size="xs" onClick={() => setScrapeOpen(true)}>
-                <Plus />
-                RSS
-              </Button>
-            </Tip>
-          </div>
+                .catch(() => {
+                  /* ignore */
+                });
+            }}
+            subreddits={subreddits}
+            redditOpen={redditDialogOpen}
+            onRedditOpenChange={setRedditDialogOpen}
+            onSubredditsChange={setSubreddits}
+            onLoadReddit={(subs) => void loadReddit(subs)}
+            onImportGdelt={importSubredditsToGdelt}
+            onGdeltListChange={setGdeltQueries}
+            onLoadGdelt={(queries) => void loadGdelt(queries)}
+            onAcledListChange={() => {
+              /* profiles saved in dialog */
+            }}
+            onLoadAcled={(profiles) => void loadAcled(profiles)}
+            onSourcesApplied={(next) => setState(next)}
+            onOptionsApply={(options) => {
+              setCompact(options.compact);
+              if (options.stack) setStack(options.stack);
+              setDesk(options.defaultDesk);
+              setRange(options.defaultRange);
+              setHomeLanguage(options.homeLanguage);
+              setAutoTranslate(options.autoTranslate);
+              changeHomePlace(options.homePlace || "");
+              setBoardItemLimit(options.boardItemLimit);
+              setAutoRefreshMinutes(options.autoRefreshMinutes);
+              void json<MonitorState>(statePath("/api/state", options.boardItemLimit)).then(setState);
+            }}
+            onAddRss={() => setScrapeOpen(true)}
+          />
           <div className="flex items-center gap-2 overflow-x-auto px-3 pb-1 text-[11px] text-slate-500">
             {viewDesk === "patch"
               ? `${kev.length} in your stack · ${p0} patch now · ${ransomwareCount} ransomware`
@@ -1472,6 +1886,33 @@ export function Monitor({
             ) : null}
             {topic ? (
               <DismissFilterChip label={`Topic: ${topic}`} onDismiss={() => setTopic(null)} background="#0f172a" />
+            ) : null}
+            {filterTopics.map((name) => (
+              <DismissFilterChip
+                key={`ft-${name}`}
+                label={`Topic: ${name}`}
+                onDismiss={() => setFilterTopics((rows) => rows.filter((row) => row !== name))}
+                background="#0f172a"
+              />
+            ))}
+            {filterTags.map((name) => (
+              <DismissFilterChip
+                key={`fg-${name}`}
+                label={`Tag: ${name}`}
+                onDismiss={() => setFilterTags((rows) => rows.filter((row) => row !== name))}
+                background="#1e3a8a"
+              />
+            ))}
+            {displayCollection?.itemIds.length ? (
+              <DismissFilterChip
+                label={`Display only: ${displayCollection.label} (${displayCollection.itemIds.length})`}
+                tip="Show only pinned cards from the context menu"
+                onDismiss={() => {
+                  clearDisplayCollection();
+                  setDisplayCollection(null);
+                }}
+                background="#0369a1"
+              />
             ) : null}
             {layer ? (
               <DismissFilterChip
@@ -1607,7 +2048,7 @@ export function Monitor({
                 >
                   ransomware
                 </button>
-                {(["intel", "reddit", "explore", "self", "follow"] as const).map((id) => (
+                {(["intel", "reddit", "gdelt", "explore", "self", "follow"] as const).map((id) => (
                   <button
                     key={id}
                     type="button"
@@ -1627,11 +2068,11 @@ export function Monitor({
                     onClick={() => setPlatform((current) => (current === "rss" ? null : "rss"))}
                     className="tag"
                     style={{
-                      background: platform === "rss" ? "#0f172a" : "#f1f5f9",
-                      color: platform === "rss" ? "#fff" : "#475569",
+                      background: platform === "rss" ? "#334155" : "#f1f5f9",
+                      color: platform === "rss" ? "#f8fafc" : "#64748b",
                     }}
                   >
-                    RSS
+                    RSS{platform === "rss" ? " ✓" : ""}
                   </button>
                 </Tip>
                 <Tip text={`Keep coverage that is rising or new (${trends.compared})`}>
@@ -1692,7 +2133,10 @@ export function Monitor({
                     />
                   );
                 })}
-                {(viewDesk === "home" ? catalogTopics : topics).slice(0, 10).map(([name, count]) => {
+                {(viewDesk === "home" ? catalogTopics : topics)
+                  .filter(([name]) => !STACK_TOPIC_VALUES.has(name))
+                  .slice(0, 10)
+                  .map(([name, count]) => {
                   const style = tagStyle(name);
                   const active = topic === name;
                   return (
@@ -1750,7 +2194,10 @@ export function Monitor({
                       />
                     );
                   })}
-                {vendors.slice(0, 6).map(([name, count]) => {
+                {vendors
+                  .filter(([name]) => !STACK_VENDOR_VALUES.has(name))
+                  .slice(0, 6)
+                  .map(([name, count]) => {
                   const active = vendor === name;
                   return (
                     <ToggleFilterChip
@@ -1850,18 +2297,49 @@ export function Monitor({
                   })}
                   <RedditButton
                     busy={busy}
-                    label="Manage"
+                    label={isRedditRssSunset() ? "Migrate" : "Manage"}
+                    open={redditDialogOpen}
+                    onOpenChange={setRedditDialogOpen}
                     onListChange={setSubreddits}
                     onLoad={(subs) => loadReddit(subs)}
+                    onImportGdelt={importSubredditsToGdelt}
                   />
-                  <Tip text="Load the combined public Reddit RSS">
+                  {!isRedditRssSunset() ? (
+                    <Tip text="Load the combined public Reddit RSS">
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => void loadReddit()}
+                        disabled={busy || !subreddits.length}
+                      >
+                        Load Reddit
+                      </Button>
+                    </Tip>
+                  ) : null}
+                </div>
+                <div className="flex w-full basis-full flex-wrap items-center gap-1">
+                  <span className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+                    GDELT
+                  </span>
+                  {gdeltQueries.filter((query) => query.enabled).map((query) => (
+                    <span key={query.id} className="tag">
+                      {query.name}
+                    </span>
+                  ))}
+                  <GdeltButton
+                    busy={busy}
+                    label="Tune"
+                    onListChange={setGdeltQueries}
+                    onLoad={(queries) => loadGdelt(queries)}
+                  />
+                  <Tip text="Load the enabled GDELT queries">
                     <Button
                       size="xs"
                       variant="outline"
-                      onClick={() => void loadReddit()}
-                      disabled={busy || !subreddits.length}
+                      onClick={() => void loadGdelt()}
+                      disabled={busy || !gdeltQueries.some((query) => query.enabled)}
                     >
-                      Load Reddit
+                      Load GDELT
                     </Button>
                   </Tip>
                 </div>
@@ -1911,7 +2389,9 @@ export function Monitor({
                     Subreddits
                   </div>
                   <p className="mt-1 text-[12px] text-slate-500">
-                    One combined public RSS. Reddit allows about one request per minute.
+                    {isRedditRssSunset()
+                      ? `Public Reddit RSS ended ${REDDIT_RSS_SUNSET_LABEL}. Import names to GDELT keyword queries.`
+                      : "One combined public RSS until 13 Nov 2026. About one request per minute."}
                   </p>
                   <div className="mt-2 flex flex-wrap justify-center gap-1">
                     {subreddits.map((name) => {
@@ -1930,20 +2410,58 @@ export function Monitor({
                   <div className="mt-2 flex flex-wrap justify-center gap-2">
                     <RedditButton
                       busy={busy}
+                      open={redditDialogOpen}
+                      onOpenChange={setRedditDialogOpen}
                       onListChange={setSubreddits}
                       onLoad={(subs) => loadReddit(subs)}
+                      onImportGdelt={importSubredditsToGdelt}
+                    />
+                    {!isRedditRssSunset() ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void loadReddit()}
+                        disabled={busy || !subreddits.length}
+                      >
+                        Load Reddit
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="mt-4 border-t border-slate-200/80 pt-3">
+                  <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+                    GDELT
+                  </div>
+                  <p className="mt-1 text-[12px] text-slate-500">
+                    Tunable news queries. Four at a time, about one request every 5 seconds.
+                  </p>
+                  <div className="mt-2 flex flex-wrap justify-center gap-1">
+                    {gdeltQueries.filter((query) => query.enabled).map((query) => (
+                      <span key={query.id} className="tag">
+                        {query.name}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-2 flex flex-wrap justify-center gap-2">
+                    <GdeltButton
+                      busy={busy}
+                      onListChange={setGdeltQueries}
+                      onLoad={(queries) => loadGdelt(queries)}
                     />
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => void loadReddit()}
-                      disabled={busy || !subreddits.length}
+                      onClick={() => void loadGdelt()}
+                      disabled={busy || !gdeltQueries.some((query) => query.enabled)}
                     >
-                      Load Reddit
+                      Load GDELT
                     </Button>
                   </div>
                 </div>
                 {error ? <p className="mt-3 text-[12px] text-red-600">{error}</p> : null}
+                {linkCopied ? (
+                  <p className="mt-2 text-[12px] text-emerald-700">Card link copied (item {linkCopied}).</p>
+                ) : null}
               </div>
             ) : viewDesk === "patch" ? (
               <div className={`board p-2 ${compact ? "board-compact" : ""}`}>
@@ -2121,22 +2639,48 @@ export function Monitor({
                   </>
                 ) : null}
                 {viewDesk === "scan"
-                  ? items.slice(0, boardCap).map((item, index) => (
-                      <ItemCard
-                        key={item.id}
-                        item={item}
-                        source={byId.get(item.sourceId)}
-                        onTag={clickChip}
-                        onPlace={focusPlace}
-                        onVendor={toggleVendor}
-                        onSource={focusSource}
-                        onOpen={() => openItem(item)}
-                        onHide={() => hideItem(item)}
-                        onRead={() => readItem(item)}
-                        read={triage.read.includes(itemKey(item.id))}
-                        focused={focusIndex === index}
-                      />
-                    ))
+                  ? (() => {
+                      const slice = items.slice(0, boardCap);
+                      const grouped =
+                        boardSort === "topic"
+                          ? groupItemsByTopic(slice)
+                          : boardSort === "tag"
+                            ? groupItemsByTag(slice)
+                            : null;
+                      let index = 0;
+                      const renderItem = (item: Item) => {
+                        const cardIndex = index++;
+                        return (
+                          <ItemCard
+                            key={item.id}
+                            item={item}
+                            source={byId.get(item.sourceId)}
+                            onTag={(tag, event) => clickItemTag(item, tag, event)}
+                            onPlace={focusPlace}
+                            onVendor={toggleVendor}
+                            onSource={focusSource}
+                            onOpen={() => openItem(item)}
+                            onHide={() => hideItem(item)}
+                            onRead={() => readItem(item)}
+                            onReclassify={(event) => openCardMenu(item, event)}
+                            onCopyLink={() => void copyCardLinkFor(item)}
+                            cardAnchorId={cardAnchorId(item.id)}
+                            read={triage.read.includes(itemKey(item.id))}
+                            focused={focusIndex === cardIndex}
+                          />
+                        );
+                      };
+                      if (!grouped || grouped.length <= 1) return slice.map((item) => renderItem(item));
+                      return grouped.flatMap((group) => [
+                        <div
+                          key={`scan-head-${group.key}`}
+                          className="board-section-head sm:col-span-2 lg:col-span-3"
+                        >
+                          {group.key}
+                        </div>,
+                        ...group.items.map((item) => renderItem(item)),
+                      ]);
+                    })()
                   : viewDesk === "pulse"
                     ? stories.slice(0, 12).map((story, index) => (
                         <StoryCard
@@ -2150,6 +2694,17 @@ export function Monitor({
                           onSource={focusSource}
                           onHide={() => hideStory(story)}
                           onRead={() => readStory(story)}
+                          onReclassify={(event) => {
+                            const head = story.items[0];
+                            if (head) openCardMenu(head, event, story);
+                          }}
+                          onCopyLink={() => {
+                            const head = story.items[0];
+                            if (head) void copyCardLinkFor(head);
+                          }}
+                          cardAnchorId={
+                            story.items[0] ? cardAnchorId(story.items[0].id) : undefined
+                          }
                           read={triage.read.includes(`story:${story.id}`)}
                           focused={focusIndex === index}
                         />
@@ -2166,6 +2721,17 @@ export function Monitor({
                           onSource={focusSource}
                           onHide={() => hideStory(story)}
                           onRead={() => readStory(story)}
+                          onReclassify={(event) => {
+                            const head = story.items[0];
+                            if (head) openCardMenu(head, event, story);
+                          }}
+                          onCopyLink={() => {
+                            const head = story.items[0];
+                            if (head) void copyCardLinkFor(head);
+                          }}
+                          cardAnchorId={
+                            story.items[0] ? cardAnchorId(story.items[0].id) : undefined
+                          }
                           read={triage.read.includes(`story:${story.id}`)}
                           focused={focusIndex === index}
                         />
@@ -2232,6 +2798,8 @@ export function Monitor({
                   onOpenReport={openCompiledReport}
                   stack={stack}
                   onDesk={changeDesk}
+                  onReclassifyItem={(item, event) => openCardMenu(item, event, openStory)}
+                  onCopyCardLink={(item) => void copyCardLinkFor(item)}
                 />
               </div>
             </div>
@@ -2396,6 +2964,15 @@ export function Monitor({
         onScrape={scrape}
         onAdd={addLayers}
       />
+      {cardMenu ? (
+        <CardContextMenu
+          x={cardMenu.x}
+          y={cardMenu.y}
+          currentTopics={cardMenu.item.topics}
+          onAction={(action) => void handleCardMenuAction(action)}
+          onClose={() => setCardMenu(null)}
+        />
+      ) : null}
       <CommandPalette
         open={paletteOpen}
         mode={paletteMode}

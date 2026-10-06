@@ -24,6 +24,11 @@ export type UserOptions = {
   boardItemLimit: number;
   /** Optional HTTPS manifest URL (must match server allow suffix when set). */
   updateManifestUrl: string;
+  /** Reserved for post–Reddit-RSS OAuth (not wired yet). */
+  redditOAuthClientId: string;
+  redditOAuthClientSecret: string;
+  /** 0 = off. When set (e.g. 30), refresh enabled RSS layers while the tab is visible (skips GDELT/Reddit/ACLED). */
+  autoRefreshMinutes: number;
 };
 
 export const OPTIONS_KEY = "csmon.options";
@@ -43,6 +48,9 @@ export const DEFAULT_OPTIONS: UserOptions = {
   defaultRetentionDays: 30,
   boardItemLimit: DEFAULT_BOARD_ITEM_LIMIT,
   updateManifestUrl: "",
+  redditOAuthClientId: "",
+  redditOAuthClientSecret: "",
+  autoRefreshMinutes: 0,
 };
 
 export function loadOptions(): UserOptions {
@@ -66,6 +74,14 @@ export function loadOptions(): UserOptions {
     );
     merged.updateManifestUrl =
       typeof parsed.updateManifestUrl === "string" ? parsed.updateManifestUrl.trim() : "";
+    merged.redditOAuthClientId =
+      typeof parsed.redditOAuthClientId === "string" ? parsed.redditOAuthClientId.trim() : "";
+    merged.redditOAuthClientSecret =
+      typeof parsed.redditOAuthClientSecret === "string" ? parsed.redditOAuthClientSecret.trim() : "";
+    merged.autoRefreshMinutes = Math.max(
+      0,
+      Math.min(120, Math.round(Number(parsed.autoRefreshMinutes) || 0)),
+    );
     return merged;
   } catch {
     return DEFAULT_OPTIONS;

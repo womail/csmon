@@ -114,7 +114,13 @@ export function fail(error: unknown, fallback: string, status = 400) {
   let message = fallback;
   if (error instanceof OutboundBlockedError) message = error.message;
   else if (error instanceof Error) {
-    if (/reddit public rss/i.test(error.message)) message = error.message;
+    if (
+      /reddit public rss/i.test(error.message) ||
+      /^GDELT /.test(error.message) ||
+      /GDELT did not respond/i.test(error.message)
+    ) {
+      message = error.message;
+    }
     else if (/too large/i.test(error.message)) message = "Response too large.";
     else if (/token required/i.test(error.message)) message = error.message;
   }

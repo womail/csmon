@@ -1,9 +1,15 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { CloudLightning, Landmark, Siren, Waves } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
 import { SourceChip, StoryCard } from "@/components/monitor/cards";
-import { SituationMap, placeMarkers } from "@/components/monitor/map";
+import { placeMarkers } from "@/components/monitor/map";
+
+const SituationMap = dynamic(
+  () => import("@/components/monitor/situation-map").then((mod) => ({ default: mod.SituationMap })),
+  { ssr: false, loading: () => null },
+);
 import { Tip } from "@/components/monitor/tip";
 import type { MapMarker } from "@/lib/geo";
 import type { Story } from "@/lib/cluster";

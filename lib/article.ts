@@ -3,6 +3,8 @@ export type ArticleRead = {
   site: string;
   title: string;
   description: string | null;
+  /** When the piece was published (from page meta / JSON-LD / time), not when we fetched. */
+  publishedAt: number | null;
   paragraphs: string[];
   quotes: string[];
   language: string | null;

@@ -24,7 +24,7 @@ import { autoDeskLabel, resolveDeskLabel, summarizeDesk, type UserDesk } from "@
 
 const VIEW_DESKS: BuiltinDesk[] = ["home", "brief", "scan", "sources"];
 const RANGES: TimeRange[] = ["1h", "6h", "24h", "7d", "all"];
-const ORIGINS: (OriginReason | "")[] = ["", "intel", "reddit", "explore", "self", "follow"];
+const ORIGINS: (OriginReason | "")[] = ["", "intel", "reddit", "gdelt", "explore", "self", "follow"];
 const PLATFORMS: (Platform | "")[] = ["", "rss", "bluesky", "web"];
 
 export function FilterTuner({
@@ -181,6 +181,40 @@ function FilterFields({
             <option key={name} value={name} />
           ))}
         </datalist>
+      </label>
+      <label className="block text-[11px] font-medium text-slate-600">
+        Topics (any)
+        <Input
+          className="mt-1 h-8 text-[12px]"
+          value={value.topics.join(", ")}
+          onChange={(event) =>
+            patch({
+              topics: event.target.value
+                .split(",")
+                .map((t) => t.trim().toLowerCase())
+                .filter(Boolean)
+                .slice(0, 8),
+            })
+          }
+          placeholder="war, unrest, cyber"
+        />
+      </label>
+      <label className="block text-[11px] font-medium text-slate-600">
+        Tags (any)
+        <Input
+          className="mt-1 h-8 text-[12px]"
+          value={value.tags.join(", ")}
+          onChange={(event) =>
+            patch({
+              tags: event.target.value
+                .split(",")
+                .map((t) => t.trim().toLowerCase())
+                .filter(Boolean)
+                .slice(0, 8),
+            })
+          }
+          placeholder="soccer, gdelt, ireland"
+        />
       </label>
       <label className="block text-[11px] font-medium text-slate-600">
         Place

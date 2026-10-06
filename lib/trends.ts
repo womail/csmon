@@ -33,7 +33,8 @@ export type TrendReport = {
 type Bucket = { count: number; sources: Set<number>; sample: string };
 
 export function itemTs(item: Item) {
-  return item.publishedAt ?? item.fetchedAt;
+  const ts = item.publishedAt;
+  return ts && Number.isFinite(ts) ? ts : 0;
 }
 
 export function trendBounds(range: TimeRange, now = Date.now()) {

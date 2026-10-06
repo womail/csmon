@@ -302,6 +302,14 @@ export function getDb() {
   return globalForDb.csmonDb;
 }
 
+export function getDataDir() {
+  return DATA_DIR;
+}
+
+export function getDbPath() {
+  return DB_PATH;
+}
+
 export function withTransaction<T>(fn: () => T): T {
   const db = getDb();
   db.exec("BEGIN");

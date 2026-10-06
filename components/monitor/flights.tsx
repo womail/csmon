@@ -1,7 +1,12 @@
 "use client";
 
 import { ExternalLink, Plane } from "lucide-react";
-import { FlightMap } from "@/components/monitor/map";
+import dynamic from "next/dynamic";
+
+const FlightMap = dynamic(
+  () => import("@/components/monitor/flight-map").then((mod) => ({ default: mod.FlightMap })),
+  { ssr: false, loading: () => <div className="geo-map-skeleton min-h-[420px]">Loading map…</div> },
+);
 import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
 import { aircraftLinks, flightLabel, type AircraftProfile, type Flight } from "@/lib/flights";

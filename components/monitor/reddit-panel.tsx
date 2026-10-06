@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MessageSquare, Plus, X } from "lucide-react";
+import { MessageSquare, Plus, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -14,6 +14,11 @@ import { tagStyle } from "@/lib/colors";
 import {
   DEFAULT_SUBREDDITS,
   MAX_SUBREDDITS,
+  REDDIT_RSS_REPLACEMENTS,
+  REDDIT_RSS_SUNSET_BANNER,
+  REDDIT_RSS_SUNSET_LABEL,
+  gdeltSuggestionsFromSubreddits,
+  isRedditRssSunset,
   loadSubreddits,
   parseSubredditInput,
   saveSubreddits,
@@ -25,14 +30,27 @@ export function RedditButton({
   busy,
   onLoad,
   onListChange,
-  label = "Subreddits",
+  onImportGdelt,
+  label,
+  open: openControlled,
+  onOpenChange,
 }: {
   busy?: boolean;
   onLoad: (subs: string[]) => Promise<void> | void;
   onListChange?: (subs: string[]) => void;
+  onImportGdelt?: (subs: string[]) => void;
   label?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const sunset = isRedditRssSunset();
+  const defaultLabel = sunset ? "Reddit → GDELT" : "Subreddits";
+  const resolvedLabel = label ?? defaultLabel;
+
+  const [openInternal, setOpenInternal] = useState(false);
+  const open = openControlled ?? openInternal;
+  const setOpen = onOpenChange ?? setOpenInternal;
+
   const [subs, setSubs] = useState<string[]>(DEFAULT_SUBREDDITS);
   const [draft, setDraft] = useState("");
   const [hint, setHint] = useState<string | null>(null);
@@ -64,7 +82,7 @@ export function RedditButton({
       return;
     }
     if (subs.length + added.length > MAX_SUBREDDITS) {
-      setHint(`Kept the first ${MAX_SUBREDDITS}. Combined RSS stays one request.`);
+      setHint(`Kept the first ${MAX_SUBREDDITS}.`);
     } else {
       setHint(null);
     }
@@ -82,24 +100,62 @@ export function RedditButton({
     setOpen(false);
   }
 
+  function importGdelt() {
+    const names = commitList(subs);
+    if (!names.length) {
+      setHint("Add subreddit names to convert.");
+      return;
+    }
+    onImportGdelt?.(names);
+    setHint("Added GDELT query drafts from your sub list — open GDELT to review and Load.");
+    setOpen(false);
+  }
+
+  const suggestions = gdeltSuggestionsFromSubreddits(subs);
+
   return (
     <>
-      <Tip text="Manage subreddits as one combined public RSS">
+      <Tip
+        text={
+          sunset
+            ? "Reddit RSS ended — import sub names to GDELT keyword queries"
+            : "Manage subreddits as one combined public RSS"
+        }
+      >
         <Button size="xs" variant="outline" onClick={() => setOpen(true)}>
           <MessageSquare className="size-3" />
-          {label}
+          {resolvedLabel}
         </Button>
       </Tip>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-[15px]">Subreddits</DialogTitle>
+            <DialogTitle className="text-[15px]">
+              {sunset ? "Reddit RSS migration" : "Subreddits"}
+            </DialogTitle>
             <p className="text-[12px] text-slate-500">
-              Combined into one public RSS (hot, 100 items) so Reddit’s one-request-per-minute
-              cap is not blown.
+              {sunset ? (
+                <>
+                  Public Reddit RSS ended {REDDIT_RSS_SUNSET_LABEL}. csmon cannot fetch combined{" "}
+                  <code className="text-[10px]">/r/…/.rss</code> feeds anymore.
+                </>
+              ) : (
+                <>
+                  Combined into one public RSS (hot, 100 items). {REDDIT_RSS_SUNSET_BANNER}
+                </>
+              )}
             </p>
           </DialogHeader>
           <div className="space-y-3 px-1 pb-1">
+            {!sunset ? (
+              <p className="rounded-md border border-orange-200 bg-orange-50 px-2 py-1.5 text-[10px] leading-snug text-orange-950">
+                {REDDIT_RSS_REPLACEMENTS}
+              </p>
+            ) : (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] leading-snug text-amber-950">
+                {REDDIT_RSS_REPLACEMENTS}
+              </p>
+            )}
             <div className="flex flex-wrap gap-1">
               {subs.map((name) => {
                 const style = tagStyle("reddit");
@@ -122,7 +178,7 @@ export function RedditButton({
                 );
               })}
               {subs.length === 0 ? (
-                <p className="text-[12px] text-slate-400">No subreddits yet.</p>
+                <p className="text-[12px] text-slate-400">No subreddit names saved.</p>
               ) : null}
             </div>
             <form
@@ -143,17 +199,39 @@ export function RedditButton({
                 Add
               </Button>
             </form>
+            {sunset && suggestions.length ? (
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
+                <p className="text-[10px] font-medium text-slate-700">Suggested GDELT searches</p>
+                <ul className="mt-1 max-h-28 space-y-1 overflow-y-auto text-[10px] text-slate-600">
+                  {suggestions.map((row) => (
+                    <li key={row.id}>
+                      <span className="font-medium">{row.name}</span> →{" "}
+                      <span className="font-mono">{row.query}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {hint ? <p className="text-[11px] text-slate-500">{hint}</p> : null}
-            <p className="text-[11px] text-slate-400">
-              Public RSS only. No account tokens. Wait a minute between loads.
-            </p>
-            <div className="flex justify-end gap-2 pt-1">
+            {!sunset ? (
+              <p className="text-[11px] text-slate-400">
+                Public RSS only. Wait a minute between loads.
+              </p>
+            ) : null}
+            <div className="flex flex-wrap justify-end gap-2 pt-1">
               <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
                 Close
               </Button>
-              <Button size="sm" onClick={() => void load()} disabled={busy || !subs.length}>
-                Load Reddit
-              </Button>
+              {sunset ? (
+                <Button size="sm" onClick={() => importGdelt()} disabled={!subs.length}>
+                  <Sparkles className="size-3" />
+                  Import to GDELT
+                </Button>
+              ) : (
+                <Button size="sm" onClick={() => void load()} disabled={busy || !subs.length}>
+                  Load Reddit
+                </Button>
+              )}
             </div>
           </div>
         </DialogContent>

@@ -141,6 +141,16 @@
   column-gap: 8px;
 }
 
+.board-section-head {
+  grid-column: 1 / -1;
+  padding: 0.35rem 0.25rem 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
 .board > * {
   break-inside: avoid;
   margin-bottom: 10px;
@@ -155,13 +165,13 @@
   overflow: hidden;
   min-width: 0;
   overflow-wrap: break-word;
-  border-radius: 9px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--card);
-  padding: 10px 12px;
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
+  padding: 7px 9px;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
   content-visibility: auto;
-  contain-intrinsic-size: auto 148px;
+  contain-intrinsic-size: auto 120px;
 }
 
 .card-tile:hover {
@@ -184,14 +194,144 @@
   align-items: center;
   border: 0;
   border-radius: 3px;
-  padding: 2px 6px;
-  font-size: 9.5px;
+  padding: 1px 5px;
+  font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  line-height: 1.4;
+  letter-spacing: 0.03em;
+  line-height: 1.35;
   text-transform: uppercase;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.card-action {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: var(--background);
+  color: var(--muted-foreground);
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.card-action:hover:not(:disabled) {
+  border-color: color-mix(in oklch, var(--border), var(--foreground) 25%);
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+.card-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.monitor-toolbar [data-slot="button"] {
+  height: 1.5rem;
+  min-height: 1.5rem;
+  gap: 0.25rem;
+  padding-inline: 0.45rem;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  border-radius: calc(var(--radius-sm));
+  box-shadow: none;
+}
+
+.monitor-toolbar [data-slot="button"][data-variant="outline"] {
+  border-color: var(--border);
+  background: var(--card);
+  color: var(--foreground);
+}
+
+.monitor-toolbar [data-slot="button"][data-variant="outline"]:hover {
+  background: var(--muted);
+}
+
+.monitor-toolbar [data-slot="button"][data-variant="default"] {
+  background: var(--foreground);
+  color: var(--background);
+  border-color: transparent;
+}
+
+.monitor-toolbar [data-slot="button"][data-variant="default"]:hover {
+  opacity: 0.92;
+}
+
+.toolbar-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklch, var(--card), var(--muted) 35%);
+}
+
+.toolbar-group-label {
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.toolbar-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+}
+
+.toolbar-segment button {
+  border: 0;
+  border-radius: calc(var(--radius-sm));
+  padding: 3px 7px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.toolbar-segment button:hover {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+.toolbar-segment button[data-active="true"] {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.toolbar-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+
+.toolbar-sort select {
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 10px;
+  font-weight: 500;
+  outline: none;
 }
 
 .source-chip {
@@ -308,21 +448,104 @@
   transition: opacity 40ms ease 40ms, visibility 0s linear 40ms;
 }
 
+.board .map-panel-root {
+  column-span: all;
+  width: 100%;
+  min-width: min(100%, 320px);
+}
+
+.resizable-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: hidden;
+}
+
+.resizable-panel-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.resize-handle-h {
+  flex-shrink: 0;
+  height: 8px;
+  cursor: ns-resize;
+  border: 0;
+  background: linear-gradient(to bottom, transparent, color-mix(in oklch, var(--border), var(--muted) 40%));
+}
+
+.resize-handle-h:hover {
+  background: color-mix(in oklch, var(--border), var(--primary) 25%);
+}
+
+.geo-map-fast-bg {
+  fill: #cbd5e1;
+}
+
+.dark .geo-map-fast-bg {
+  fill: #0c1220;
+}
+
+.geo-map-fast-land {
+  fill: #94a3b8;
+  stroke: #64748b;
+  stroke-width: 0.35;
+  paint-order: stroke fill;
+}
+
+.dark .geo-map-fast-land {
+  fill: #334155;
+  stroke: #94a3b8;
+  stroke-width: 0.35;
+}
+
+.geo-map-fast-grid {
+  stroke: #cbd5e1;
+}
+
+.dark .geo-map-fast-grid {
+  stroke: #334155;
+}
+
+.geo-map-fast-count {
+  fill: #334155;
+}
+
+.dark .geo-map-fast-count {
+  fill: #e2e8f0;
+}
+
 .map-panel {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   background: var(--card);
 }
 
 .map-toolbar {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--border);
   background: var(--card);
+}
+
+.map-toolbar .min-w-0 {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.map-toolbar-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .map-tool {
@@ -376,6 +599,15 @@
 .country-name {
   background: none !important;
   border: none !important;
+}
+
+.country-name span {
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--foreground);
+  text-shadow: 0 0 3px var(--background), 0 0 6px var(--background);
+  pointer-events: none;
 }
 
 .country-name span {

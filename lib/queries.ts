@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cacheStats } from "./cache";
-import { classifyItem } from "./classify";
+import { applySourceTopics, classifyItem } from "./classify";
 import { colorFor } from "./colors";
 import { getDb, withTransaction } from "./db";
 import { entitiesForItemIds, indexItemEntities } from "./entities";
@@ -10,10 +10,14 @@ import { hintSources } from "./explore";
 import { parseQueryLine } from "./query-builder";
 import { listWatchlists, notifyWatchAlerts, recordWatchHits, type WatchAlert } from "./watchlists";
 import { type IntelFeed } from "./intel-feeds";
+import { repairRssFeedUrl } from "./feed-url-repair";
+import { acledFeedUrl, acledSourceKey, normalizeAcledProfiles, type AcledProfile } from "./acled";
+import { gdeltDocUrl, gdeltSearchText, gdeltSourceKey, normalizeGdeltQueries, type GdeltQuery } from "./gdelt";
 import {
   REDDIT_SOURCE_KEY,
   combinedRedditRssUrl,
   redditListingUrl,
+  redditOAuthFeedUrl,
   uniqueSubreddits,
 } from "./reddit";
 import { scoreKev, type KevEntry } from "./kev";
@@ -286,17 +290,24 @@ export function insertItems(sourceId: number, items: ScrapedItem[]): { ids: numb
        summary = excluded.summary,
        url = excluded.url,
        author = excluded.author,
-       published_at = excluded.published_at,
+       published_at = COALESCE(excluded.published_at, items.published_at),
        tags = excluded.tags,
        topics = excluded.topics,
        locations = excluded.locations,
        fetched_at = excluded.fetched_at
      RETURNING id`,
   );
+  const source = getSource(sourceId);
   const indexed: { id: number; scraped: ScrapedItem }[] = [];
   withTransaction(() => {
     for (const item of items) {
-      const classified = classifyItem(item.title, item.summary);
+      let classified = classifyItem(item.title, item.summary);
+      classified = applySourceTopics(classified, {
+        handle: source?.handle,
+        feedUrl: source?.feedUrl,
+      });
+      const topics = item.topics.length ? item.topics : classified.topics;
+      const tags = item.tags.length ? item.tags : classified.tags;
       const row = stmt.get(
         sourceId,
         item.externalId,
@@ -305,8 +316,8 @@ export function insertItems(sourceId: number, items: ScrapedItem[]): { ids: numb
         item.url,
         item.author,
         item.publishedAt,
-        JSON.stringify(item.tags.length ? item.tags : classified.tags),
-        JSON.stringify(item.topics.length ? item.topics : classified.topics),
+        JSON.stringify(tags),
+        JSON.stringify(topics),
         JSON.stringify(item.locations.length ? item.locations : classified.locations),
         now,
       ) as { id: number } | undefined;
@@ -319,7 +330,6 @@ export function insertItems(sourceId: number, items: ScrapedItem[]): { ids: numb
       indexed.push({ id: row.id, scraped: item });
     }
   });
-  const source = getSource(sourceId);
   const watches = listWatchlists();
   const alerts: WatchAlert[] = [];
   for (const row of indexed) {
@@ -340,6 +350,11 @@ export function insertItems(sourceId: number, items: ScrapedItem[]): { ids: numb
     alerts.push(...recordWatchHits(mapped, source ?? undefined, watches));
   }
   return { ids: indexed.map((row) => row.id), alerts };
+}
+
+export function retireRedditRssSource(sourceId: number, detail: string) {
+  const description = `Reddit RSS ended — layer disabled. ${detail}`.replace(/\s+/g, " ").slice(0, 240);
+  getDb().prepare("UPDATE sources SET enabled = 0, description = ? WHERE id = ?").run(description, sourceId);
 }
 
 export function setSourceEnabled(ids: number[], enabled: boolean) {
@@ -621,7 +636,8 @@ export function registerIntelFeeds(feeds: IntelFeed[], enable: boolean) {
   const seedId = intelSeedUserId();
   const ids: number[] = [];
   for (const feed of feeds) {
-    const key = `rss:${feed.feedUrl}`;
+    const feedUrl = repairRssFeedUrl(feed.feedUrl);
+    const key = `rss:${feedUrl}`;
     let current = db.prepare("SELECT id FROM sources WHERE key = ?").get(key) as
       | { id: number }
       | undefined;
@@ -637,7 +653,7 @@ export function registerIntelFeeds(feeds: IntelFeed[], enable: boolean) {
         `UPDATE sources SET key = ?, name = ?, handle = ?, url = ?, feed_url = ?, description = COALESCE(?, description)${
           enable ? ", enabled = 1" : ""
         } WHERE id = ?`,
-      ).run(key, feed.name, feed.id, feed.url, feed.feedUrl, feed.blurb, id);
+      ).run(key, feed.name, feed.id, feed.url, feedUrl, feed.blurb, id);
     } else {
       const inserted = db
         .prepare(
@@ -650,7 +666,7 @@ export function registerIntelFeeds(feeds: IntelFeed[], enable: boolean) {
           feed.name,
           feed.id,
           feed.url,
-          feed.feedUrl,
+          feedUrl,
           "rss",
           "feed",
           feed.blurb,
@@ -699,13 +715,17 @@ function redditSeedUserId() {
   return Number(inserted.lastInsertRowid);
 }
 
-export function registerRedditFeed(subs: string[], enable: boolean) {
+export function registerRedditFeed(subs: string[], enable: boolean, options?: { oauth?: boolean }) {
   const names = uniqueSubreddits(subs);
   const db = getDb();
   const now = Date.now();
   const seedId = redditSeedUserId();
   const key = REDDIT_SOURCE_KEY;
-  const feedUrl = names.length ? combinedRedditRssUrl(names) : null;
+  const feedUrl = names.length
+    ? options?.oauth
+      ? redditOAuthFeedUrl(names)
+      : combinedRedditRssUrl(names)
+    : null;
   const url = redditListingUrl(names);
   const label = names.length
     ? `Reddit r/${names.slice(0, 3).join("+")}${names.length > 3 ? ` +${names.length - 3}` : ""}`
@@ -753,6 +773,185 @@ export function registerRedditFeed(subs: string[], enable: boolean) {
      DO UPDATE SET weight = MAX(weight, excluded.weight)`,
   ).run(id, seedId, "reddit", 50);
   return [id];
+}
+
+function gdeltSeedUserId() {
+  const db = getDb();
+  const existing = db
+    .prepare("SELECT id FROM seed_users WHERE handle = ? AND platform = ?")
+    .get("gdelt", "rss") as { id: number } | undefined;
+  if (existing) return existing.id;
+  const now = Date.now();
+  const inserted = db
+    .prepare(
+      `INSERT INTO seed_users
+       (handle, platform, did, display_name, avatar_url, description, profile_url, last_scraped_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      "gdelt",
+      "rss",
+      null,
+      "GDELT Project",
+      null,
+      "DOC 2.0 article search",
+      "https://www.gdeltproject.org/",
+      now,
+      now,
+    );
+  return Number(inserted.lastInsertRowid);
+}
+
+export function registerGdeltQueries(queries: GdeltQuery[]) {
+  const normalized = normalizeGdeltQueries(queries);
+  const db = getDb();
+  const now = Date.now();
+  const seedId = gdeltSeedUserId();
+  const ids: number[] = [];
+  const keys = new Set<string>();
+  for (const query of normalized) {
+    const key = gdeltSourceKey(query.id);
+    keys.add(key);
+    const feedUrl = gdeltDocUrl(query);
+    const name = `GDELT ${query.name}`;
+    const description = `${query.timespan} · ${query.maxRecords} · ${gdeltSearchText(query)}`.slice(0, 240);
+    const current = db.prepare("SELECT id FROM sources WHERE key = ?").get(key) as { id: number } | undefined;
+    let id: number;
+    if (current) {
+      id = current.id;
+      db.prepare(
+        `UPDATE sources SET name = ?, handle = ?, url = ?, feed_url = ?, description = ?, enabled = ? WHERE id = ?`,
+      ).run(name, query.id, "https://www.gdeltproject.org/", feedUrl, description, query.enabled ? 1 : 0, id);
+    } else {
+      const inserted = db
+        .prepare(
+          `INSERT INTO sources
+           (key, name, handle, url, feed_url, platform, kind, description, avatar_url, color, enabled, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          key,
+          name,
+          query.id,
+          "https://www.gdeltproject.org/",
+          feedUrl,
+          "rss",
+          "feed",
+          description,
+          null,
+          colorFor(key),
+          query.enabled ? 1 : 0,
+          now,
+        );
+      id = Number(inserted.lastInsertRowid);
+    }
+    db.prepare(
+      `INSERT INTO source_origins (source_id, seed_user_id, reason, weight)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(source_id, seed_user_id, reason)
+       DO UPDATE SET weight = MAX(weight, excluded.weight)`,
+    ).run(id, seedId, "gdelt", 50);
+    if (query.enabled) ids.push(id);
+  }
+  const stale = db.prepare("SELECT id, key FROM sources WHERE key LIKE 'gdelt:%'").all() as {
+    id: number;
+    key: string;
+  }[];
+  for (const row of stale) {
+    if (!keys.has(row.key)) db.prepare("UPDATE sources SET enabled = 0 WHERE id = ?").run(row.id);
+  }
+  return ids;
+}
+
+function acledSeedUserId() {
+  const db = getDb();
+  const existing = db
+    .prepare("SELECT id FROM seed_users WHERE handle = ? AND platform = ?")
+    .get("acled", "rss") as { id: number } | undefined;
+  if (existing) return existing.id;
+  const now = Date.now();
+  const inserted = db
+    .prepare(
+      `INSERT INTO seed_users
+       (handle, platform, did, display_name, avatar_url, description, profile_url, last_scraped_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      "acled",
+      "rss",
+      null,
+      "ACLED",
+      null,
+      "Armed Conflict Location & Event Data",
+      "https://acleddata.com/",
+      now,
+      now,
+    );
+  return Number(inserted.lastInsertRowid);
+}
+
+export function registerAcledProfiles(profiles: AcledProfile[]) {
+  const normalized = normalizeAcledProfiles(profiles);
+  const db = getDb();
+  const now = Date.now();
+  const seedId = acledSeedUserId();
+  const ids: number[] = [];
+  const keys = new Set<string>();
+  for (const profile of normalized) {
+    const key = acledSourceKey(profile.id);
+    keys.add(key);
+    const feedUrl = acledFeedUrl(profile);
+    const name = `ACLED ${profile.name}`;
+    const description = `${profile.days}d · limit ${profile.limit}${profile.country ? ` · ${profile.country}` : ""}`.slice(
+      0,
+      240,
+    );
+    const current = db.prepare("SELECT id FROM sources WHERE key = ?").get(key) as { id: number } | undefined;
+    let id: number;
+    if (current) {
+      id = current.id;
+      db.prepare(
+        `UPDATE sources SET name = ?, handle = ?, url = ?, feed_url = ?, description = ?, enabled = ? WHERE id = ?`,
+      ).run(name, profile.id, "https://acleddata.com/", feedUrl, description, profile.enabled ? 1 : 0, id);
+    } else {
+      const inserted = db
+        .prepare(
+          `INSERT INTO sources
+           (key, name, handle, url, feed_url, platform, kind, description, avatar_url, color, enabled, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          key,
+          name,
+          profile.id,
+          "https://acleddata.com/",
+          feedUrl,
+          "rss",
+          "feed",
+          description,
+          null,
+          colorFor(key),
+          profile.enabled ? 1 : 0,
+          now,
+        );
+      id = Number(inserted.lastInsertRowid);
+    }
+    db.prepare(
+      `INSERT INTO source_origins (source_id, seed_user_id, reason, weight)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(source_id, seed_user_id, reason)
+       DO UPDATE SET weight = MAX(weight, excluded.weight)`,
+    ).run(id, seedId, "acled", 55);
+    if (profile.enabled) ids.push(id);
+  }
+  const stale = db.prepare("SELECT id, key FROM sources WHERE key LIKE 'acled:%'").all() as {
+    id: number;
+    key: string;
+  }[];
+  for (const row of stale) {
+    if (!keys.has(row.key)) db.prepare("UPDATE sources SET enabled = 0 WHERE id = ?").run(row.id);
+  }
+  return ids;
 }
 
 export function registerExploredSource(input: {

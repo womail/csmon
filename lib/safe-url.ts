@@ -2,6 +2,7 @@ import "server-only";
 
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { Agent } from "undici";
 import {
   isBlockedIp,
   OutboundBlockedError,
@@ -34,11 +35,27 @@ export async function assertOutboundUrl(raw: string): Promise<URL> {
   return parsed;
 }
 
+const outboundAgents = new Map<number, Agent>();
+
+function outboundAgent(connectTimeoutMs: number) {
+  let agent = outboundAgents.get(connectTimeoutMs);
+  if (!agent) {
+    agent = new Agent({
+      connectTimeout: connectTimeoutMs,
+      headersTimeout: connectTimeoutMs * 2,
+      bodyTimeout: connectTimeoutMs * 2,
+    });
+    outboundAgents.set(connectTimeoutMs, agent);
+  }
+  return agent;
+}
+
 export async function fetchOutbound(
   raw: string,
-  init: RequestInit & { timeoutMs?: number; maxBytes?: number } = {},
+  init: RequestInit & { timeoutMs?: number; maxBytes?: number; connectTimeoutMs?: number } = {},
 ): Promise<Response> {
-  const { timeoutMs = 12000, maxBytes = 2_000_000, ...rest } = init;
+  const { timeoutMs = 12000, maxBytes = 2_000_000, connectTimeoutMs, ...rest } = init;
+  const dispatcher = connectTimeoutMs ? outboundAgent(connectTimeoutMs) : undefined;
   let current = await assertOutboundUrl(raw);
   let redirect = 0;
   while (redirect <= 5) {
@@ -47,6 +64,7 @@ export async function fetchOutbound(
       ...rest,
       redirect: "manual",
       signal,
+      ...(dispatcher ? { dispatcher } : {}),
     });
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get("location");

@@ -1,8 +1,10 @@
 import * as cheerio from "cheerio";
 import Parser from "rss-parser";
-import { classifyItem } from "../classify";
+import { applySourceTopics, classifyItem } from "../classify";
+import { repairRssFeedUrl } from "../feed-url-repair";
 import { fetchRssXml, fetchText, UA } from "../http";
 import type { DiscoveredSource, ScrapeResult, ScrapedItem } from "../types";
+import { publishDateFromRssEntry } from "../publish-date";
 import { prepareRssXml } from "./rss-xml";
 
 const parser = new Parser({
@@ -28,7 +30,8 @@ function asItems(feed: Parser.Output<Parser.Item>, fallbackUrl: string): Scraped
     const title = (item.title || item.contentSnippet || "Untitled").replace(/\s+/g, " ").slice(0, 220);
     const summary = (item.contentSnippet || item.content || "").replace(/<[^>]+>/g, "").slice(0, 280) || null;
     const url = item.link || fallbackUrl;
-    const classified = classifyItem(title, summary);
+    let classified = classifyItem(title, summary);
+    classified = applySourceTopics(classified, { feedUrl: fallbackUrl });
     if (isRedditUrl(url) || isRedditUrl(fallbackUrl)) {
       classified.topics = ["reddit", ...classified.topics.filter((topic) => topic !== "reddit")].slice(0, 6);
       classified.tags = ["reddit", ...classified.tags.filter((tag) => tag !== "reddit")].slice(0, 5);
@@ -39,7 +42,7 @@ function asItems(feed: Parser.Output<Parser.Item>, fallbackUrl: string): Scraped
       summary,
       url,
       author: item.creator || feed.title || null,
-      publishedAt: item.isoDate ? Date.parse(item.isoDate) : item.pubDate ? Date.parse(item.pubDate) : null,
+      publishedAt: publishDateFromRssEntry(item as unknown as Record<string, unknown>),
       tags: classified.tags,
       topics: classified.topics,
       locations: classified.locations,
@@ -83,6 +86,7 @@ async function parseFeedXml(xml: string) {
 }
 
 export async function fetchRss(feedUrl: string): Promise<ScrapedItem[]> {
+  feedUrl = repairRssFeedUrl(feedUrl);
   const xml = await fetchRssXml(feedUrl);
   const feed = await parseFeedXml(xml);
   return asItems(feed, feedUrl);

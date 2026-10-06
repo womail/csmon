@@ -246,7 +246,7 @@ export const INTEL_FEEDS: IntelFeed[] = [
     id: "nws-alerts",
     name: "NWS alerts",
     url: "https://alerts.weather.gov",
-    feedUrl: "https://api.weather.gov/alerts/active.atom",
+    feedUrl: "https://api.weather.gov/alerts.atom?active=1",
     pack: "hazard",
     blurb: "US weather warnings",
   },

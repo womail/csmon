@@ -1,6 +1,6 @@
 export type Platform = "bluesky" | "rss" | "web";
 export type SourceKind = "account" | "feed" | "site";
-export type OriginReason = "self" | "follow" | "mention" | "link" | "intel" | "explore" | "reddit";
+export type OriginReason = "self" | "follow" | "mention" | "link" | "intel" | "explore" | "reddit" | "gdelt" | "acled";
 
 export type SeedUser = {
   id: number;
@@ -132,6 +132,12 @@ export type CacheStats = {
   bytes: number;
 };
 
+export type RefreshBatchSummary = {
+  ok: number;
+  failed: number;
+  errors: string[];
+};
+
 export type MonitorState = {
   users: SeedUser[];
   sources: Source[];
@@ -140,6 +146,8 @@ export type MonitorState = {
   kev: KevEntry[];
   cache: CacheStats;
   watches: Watchlist[];
+  gdeltRefresh?: RefreshBatchSummary;
+  refreshWarnings?: RefreshBatchSummary;
 };
 
 export type TimeRange = "1h" | "6h" | "24h" | "7d" | "all";

@@ -45,7 +45,9 @@ function hydrate(raw: Partial<SavedFilter>, fallback: BoardFilters): SavedFilter
       desk: asDesk(filters.desk, fallback.desk),
       q: typeof filters.q === "string" ? filters.q : "",
       topic: filters.topic ?? null,
+      topics: Array.isArray(filters.topics) ? filters.topics : fallback.topics,
       place: filters.place ?? null,
+      tags: Array.isArray(filters.tags) ? filters.tags : fallback.tags,
       range: (filters.range as TimeRange) || fallback.range,
       cross: Boolean(filters.cross),
       stack: typeof filters.stack === "string" ? filters.stack : "",
@@ -60,6 +62,7 @@ function hydrate(raw: Partial<SavedFilter>, fallback: BoardFilters): SavedFilter
           : null,
       person: filters.person ?? null,
       rising: Boolean(filters.rising),
+      focusItem: null,
       qb: parseQueryTree(
         typeof filters.qb === "string"
           ? filters.qb

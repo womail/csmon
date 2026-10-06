@@ -6,6 +6,7 @@ import { getDb } from "./db";
 import { indexItemEntities } from "./entities";
 import { canonUrl } from "./link";
 import { cveIdsFromText } from "./nvd";
+import { normalizePublishMs } from "./publish-date";
 
 export const EXTRACT_SNIPPET_MAX = 2500;
 
@@ -135,6 +136,13 @@ export function saveExtract(itemId: number, article: ArticleRead) {
     JSON.stringify(locations),
     itemId,
   );
+  const pageDate = normalizePublishMs(article.publishedAt);
+  if (pageDate) {
+    db.prepare(
+      `UPDATE items SET published_at = ?
+       WHERE id = ? AND (published_at IS NULL OR published_at > ?)`,
+    ).run(pageDate, itemId, pageDate);
+  }
   indexItemEntities(itemId, `${item.title}\n${item.summary ?? ""}\n${body}`, {
     title: item.title,
     summary: item.summary,

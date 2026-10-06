@@ -13,6 +13,14 @@ export function cacheGet(key: string): string | null {
   return row?.body ?? null;
 }
 
+/** Last stored body even when TTL expired — used when GDELT rate-limits a refresh. */
+export function cacheGetStale(key: string): string | null {
+  const row = getDb()
+    .prepare("SELECT body FROM fetch_cache WHERE cache_key = ?")
+    .get(key) as { body: string } | undefined;
+  return row?.body ?? null;
+}
+
 export function cacheSet(key: string, kind: CacheKind, body: string, ttlMs: number) {
   const now = Date.now();
   getDb()
@@ -47,9 +55,14 @@ export const TTL = {
   live: 20 * 1000,
 };
 
-/** Drop outbound cache so Refresh re-fetches RSS/JSON/KEV/HTML (not translate). */
+/** Drop outbound cache so Refresh re-fetches RSS/JSON/KEV/HTML (not translate). GDELT DOC lists stay cached. */
 export function cacheClearForRefresh() {
   getDb()
-    .prepare("DELETE FROM fetch_cache WHERE kind IN ('rss', 'json', 'kev', 'html', 'live')")
+    .prepare(
+      `DELETE FROM fetch_cache
+       WHERE kind IN ('rss', 'json', 'kev', 'html', 'live')
+         AND cache_key NOT LIKE 'json:https://api.gdeltproject.org/%'
+         AND cache_key NOT LIKE 'meta:%'`,
+    )
     .run();
 }

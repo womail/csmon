@@ -27,9 +27,16 @@ function looksLikeQueryDump(label: string) {
 
 export function autoDeskLabel(filters: BoardFilters): string {
   const first = activeQueryRules(filters.qb)[0]?.value.trim() ?? "";
-  const bits = [filters.place, filters.topic, filters.vendor, filters.person, filters.q.trim(), first].filter(
-    Boolean,
-  );
+  const bits = [
+    filters.place,
+    filters.topic,
+    ...filters.topics,
+    ...filters.tags.slice(0, 2),
+    filters.vendor,
+    filters.person,
+    filters.q.trim(),
+    first,
+  ].filter(Boolean);
   return String(bits[0] ?? "Custom desk").slice(0, LABEL_MAX);
 }
 
@@ -49,6 +56,8 @@ export function summarizeDesk(filters: BoardFilters) {
   const bits = [
     filters.platform,
     filters.topic,
+    ...filters.topics,
+    ...filters.tags,
     filters.place,
     filters.origin,
     filters.vendor,

@@ -140,7 +140,7 @@ See **Source & filter code map** for the full file list.`,
 | Story | Cluster of items about the same event (Brief/reader). |
 | Item | Single headline row from one layer (Scan). |
 | Pack | Intel group in \`intel-feeds.ts\` (core, security, hazard). |
-| Origin | Why a layer exists: intel, self, follow, explore, reddit. |
+| Origin | Why a layer exists: intel, self, follow, explore, reddit, gdelt. |
 | KEV | CISA Known Exploited Vulnerabilities catalog (Patch desk). |
 | Cross / 2+ sources | Only stories cited by at least two layers. |
 | Rising | Topic/place/vendor/person volume up vs prior half-window. |
