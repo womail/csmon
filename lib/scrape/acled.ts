@@ -7,11 +7,18 @@ import { getDb } from "../db";
 import { fetchOutbound, readLimited } from "../safe-url";
 import { UA } from "../http";
 import type { ScrapedItem } from "../types";
+import {
+  acledDebugLog,
+  parseAcledReadError,
+  runAcledProbe,
+  storeAcledLastError,
+} from "./acled-probe";
 
 const TOKEN_KEY = "meta:acled:token";
 const TOKEN_EXP_KEY = "meta:acled:token_exp";
+const REFRESH_KEY = "meta:acled:refresh_token";
 
-type AcledToken = { access_token: string; expires_in?: number };
+type AcledToken = { access_token: string; expires_in?: number; refresh_token?: string };
 
 type AcledRow = {
   event_id?: string;
@@ -46,15 +53,26 @@ function metaSet(key: string, body: string, ttlMs: number) {
     .run(key, body, now, now + ttlMs);
 }
 
-async function acledToken(): Promise<string> {
-  const cached = metaGet(TOKEN_KEY);
-  const exp = Number(metaGet(TOKEN_EXP_KEY));
-  if (cached && exp > Date.now() + 60_000) return cached;
+function storeOAuthTokens(json: AcledToken) {
+  if (!json.access_token) throw new Error("ACLED token response missing access_token");
+  const ttl = Math.min(86_400, Math.max(300, (json.expires_in ?? 3600) - 120)) * 1000;
+  metaSet(TOKEN_KEY, json.access_token, ttl);
+  metaSet(TOKEN_EXP_KEY, String(Date.now() + ttl), ttl);
+  if (json.refresh_token) {
+    metaSet(REFRESH_KEY, json.refresh_token, 14 * 24 * 60 * 60 * 1000);
+  }
+  acledDebugLog("OAuth token stored", { expiresIn: json.expires_in, hasRefresh: Boolean(json.refresh_token) });
+  return json.access_token;
+}
 
+async function acledOAuthPassword(): Promise<string> {
   const username = process.env.ACLED_USERNAME?.trim();
   const password = process.env.ACLED_PASSWORD?.trim();
   if (!username || !password) {
     throw new Error("ACLED credentials missing. Set ACLED_USERNAME and ACLED_PASSWORD on the server.");
+  }
+  if (!username.includes("@")) {
+    console.warn("[acled] ACLED_USERNAME does not look like an email — ACLED expects your myACLED login email.");
   }
 
   const body = new URLSearchParams({
@@ -65,6 +83,7 @@ async function acledToken(): Promise<string> {
     scope: "authenticated",
   });
 
+  acledDebugLog("OAuth password grant");
   const res = await fetchOutbound("https://acleddata.com/oauth/token", {
     method: "POST",
     headers: {
@@ -76,20 +95,69 @@ async function acledToken(): Promise<string> {
     timeoutMs: 25_000,
     maxBytes: 64_000,
   });
+  const text = await readLimited(res, 64_000).catch(() => "");
   if (!res.ok) {
-    const detail = await readLimited(res, 8_000).catch(() => "");
+    acledDebugLog("OAuth failed", { status: res.status, body: text.slice(0, 200) });
     throw new Error(
-      detail.includes("invalid")
-        ? "ACLED login failed — check ACLED_USERNAME / ACLED_PASSWORD (myACLED account)."
-        : `ACLED token HTTP ${res.status}`,
+      text.includes("invalid") || text.includes("incorrect")
+        ? "ACLED login failed — check ACLED_USERNAME / ACLED_PASSWORD (myACLED email + password)."
+        : `ACLED token HTTP ${res.status}${text ? `: ${text.slice(0, 120)}` : ""}`,
     );
   }
-  const json = JSON.parse(await readLimited(res, 64_000)) as AcledToken;
-  if (!json.access_token) throw new Error("ACLED token response missing access_token");
-  const ttl = Math.min(86_400, Math.max(300, (json.expires_in ?? 3600) - 120)) * 1000;
-  metaSet(TOKEN_KEY, json.access_token, ttl);
-  metaSet(TOKEN_EXP_KEY, String(Date.now() + ttl), ttl);
-  return json.access_token;
+  const json = JSON.parse(text) as AcledToken;
+  return storeOAuthTokens(json);
+}
+
+async function acledOAuthRefresh(refreshToken: string): Promise<string> {
+  acledDebugLog("OAuth refresh grant");
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    client_id: "acled",
+  });
+  const res = await fetchOutbound("https://acleddata.com/oauth/token", {
+    method: "POST",
+    headers: {
+      "User-Agent": UA,
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    },
+    body: body.toString(),
+    timeoutMs: 25_000,
+    maxBytes: 64_000,
+  });
+  const text = await readLimited(res, 64_000).catch(() => "");
+  if (!res.ok) {
+    acledDebugLog("OAuth refresh failed", { status: res.status, body: text.slice(0, 200) });
+    throw new Error(`ACLED refresh HTTP ${res.status}`);
+  }
+  const json = JSON.parse(text) as AcledToken;
+  return storeOAuthTokens(json);
+}
+
+async function acledToken(): Promise<string> {
+  const staticToken = process.env.ACLED_ACCESS_TOKEN?.trim();
+  if (staticToken) {
+    acledDebugLog("Using ACLED_ACCESS_TOKEN from env");
+    return staticToken;
+  }
+
+  const cached = metaGet(TOKEN_KEY);
+  const exp = Number(metaGet(TOKEN_EXP_KEY));
+  if (cached && exp > Date.now() + 60_000) return cached;
+
+  const refresh = metaGet(REFRESH_KEY);
+  if (refresh) {
+    try {
+      return await acledOAuthRefresh(refresh);
+    } catch (error) {
+      acledDebugLog("Refresh failed, falling back to password grant", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return acledOAuthPassword();
 }
 
 function startDate(days: number) {
@@ -137,6 +205,21 @@ function rowToItem(row: AcledRow, index: number): ScrapedItem | null {
   };
 }
 
+async function acledRead(url: string, token: string) {
+  acledDebugLog("read", { url: url.split("?")[0] + "?" + url.split("?")[1]?.slice(0, 80) });
+  const res = await fetchOutbound(url, {
+    headers: {
+      "User-Agent": UA,
+      Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    timeoutMs: 45_000,
+    maxBytes: 4_000_000,
+  });
+  const text = await readLimited(res, 4_000_000).catch(() => "");
+  return { res, text };
+}
+
 export async function fetchAcledFeed(feedUrl: string): Promise<ScrapedItem[]> {
   if (!acledConfigured()) {
     throw new Error(
@@ -164,21 +247,30 @@ export async function fetchAcledFeed(feedUrl: string): Promise<ScrapedItem[]> {
   if (parsed.country) params.set("country", parsed.country);
 
   const url = `https://acleddata.com/api/acled/read?${params.toString()}`;
-  const res = await fetchOutbound(url, {
-    headers: {
-      "User-Agent": UA,
-      Accept: "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    timeoutMs: 45_000,
-    maxBytes: 4_000_000,
-  });
-  if (!res.ok) {
-    throw new Error(`ACLED read HTTP ${res.status}`);
+  let { res, text } = await acledRead(url, token);
+
+  if (res.status === 401) {
+    acledDebugLog("read 401, retry after fresh token");
+    metaSet(TOKEN_KEY, "", 1000);
+    const fresh = await acledToken();
+    ({ res, text } = await acledRead(url, fresh));
   }
-  const text = await readLimited(res, 4_000_000);
+
+  if (!res.ok) {
+    const parsedErr = parseAcledReadError(res.status, text);
+    storeAcledLastError(parsedErr.message);
+    acledDebugLog("read failed", { status: res.status, message: parsedErr.message });
+    if (parsedErr.apiAccessDenied) {
+      void runAcledProbe({ bearerToken: token }).catch(() => {});
+    }
+    throw new Error(parsedErr.apiAccessDenied ? `${parsedErr.message} — ${parsedErr.hint}` : parsedErr.message);
+  }
+
   const payload = JSON.parse(text) as { data?: AcledRow[]; count?: number };
   const data = Array.isArray(payload.data) ? payload.data : [];
+  acledDebugLog("read ok", { events: data.length, count: payload.count });
   cacheSet(cacheKey, "json", JSON.stringify(data), TTL.json);
   return data.map((row, i) => rowToItem(row, i)).filter(Boolean) as ScrapedItem[];
 }
+
+export { runAcledProbe, loadAcledProbe, loadAcledLastError } from "./acled-probe";

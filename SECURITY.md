@@ -43,7 +43,7 @@ Auth is **not** implemented in `proxy.ts` / middleware. Next.js 16 moved that fi
 - `Cross-Origin-Opener-Policy` / `Cross-Origin-Resource-Policy: same-origin`
 - `X-Powered-By` disabled
 
-Leaflet still needs `style-src 'unsafe-inline'` and Esri tile `img-src`.
+Leaflet still needs `style-src 'unsafe-inline'` and OpenStreetMap raster tiles in `img-src` (`tile.openstreetmap.org`).
 
 ### Process and data
 

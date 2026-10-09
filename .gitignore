@@ -38,6 +38,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# large Natural Earth source (prebuilt into lib/world-land-paths.ts)
+/public/geo/countries-50m.geojson
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

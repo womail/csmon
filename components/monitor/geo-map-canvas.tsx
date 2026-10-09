@@ -9,6 +9,7 @@ import {
   Marker,
   Pane,
   TileLayer,
+  ZoomControl,
   useMap,
 } from "react-leaflet";
 import { KIND_COLOR } from "@/components/monitor/map-colors";
@@ -74,7 +75,7 @@ function FitAndFly({
     if (focus && Number.isFinite(focus.lat) && Number.isFinite(focus.lng)) {
       if (lastFocus.current !== focus.id) {
         lastFocus.current = focus.id;
-        map.setView([focus.lat, focus.lng], Math.min(MAP_TILE_MAX_ZOOM, Math.max(map.getZoom(), 4)), {
+        map.setView([focus.lat, focus.lng], Math.min(MAP_TILE_MAX_ZOOM, Math.max(map.getZoom(), 6)), {
           animate: false,
         });
       }
@@ -82,7 +83,7 @@ function FitAndFly({
     }
     if (anchor && Number.isFinite(anchor.lat) && Number.isFinite(anchor.lng) && !fitted.current) {
       fitted.current = true;
-      map.setView([anchor.lat, anchor.lng], Math.min(MAP_TILE_MAX_ZOOM, 4), { animate: false });
+      map.setView([anchor.lat, anchor.lng], Math.min(MAP_TILE_MAX_ZOOM, 6), { animate: false });
       return;
     }
     if (fitted.current) return;
@@ -97,16 +98,34 @@ function FitAndFly({
       return;
     }
     map.fitBounds(L.latLngBounds(pts.map((row) => [row.lat, row.lng])).pad(0.2), {
-      maxZoom: Math.min(MAP_TILE_MAX_ZOOM, interactive ? 4 : 3),
+      maxZoom: Math.min(MAP_TILE_MAX_ZOOM, interactive ? 12 : 8),
       animate: false,
     });
   }, [anchor, focus, interactive, map, markerKey, markers]);
 
   useEffect(() => {
     const id = window.setTimeout(() => map.invalidateSize(), 60);
-    return () => window.clearTimeout(id);
+    const id2 = window.setTimeout(() => map.invalidateSize(), 400);
+    return () => {
+      window.clearTimeout(id);
+      window.clearTimeout(id2);
+    };
   }, [map]);
 
+  return null;
+}
+
+function MapResizeFix() {
+  const map = useMap();
+  useEffect(() => {
+    const el = map.getContainer().parentElement;
+    if (!el) return;
+    const fix = () => map.invalidateSize();
+    fix();
+    const ro = new ResizeObserver(fix);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [map]);
   return null;
 }
 
@@ -184,7 +203,7 @@ export default function GeoMapCanvas({
       scrollWheelZoom={interactive}
       dragging={interactive}
       doubleClickZoom={interactive}
-      zoomControl={interactive}
+      zoomControl={false}
       attributionControl
       preferCanvas
       zoomAnimation={false}
@@ -203,6 +222,8 @@ export default function GeoMapCanvas({
         keepBuffer={1}
         tileSize={256}
       />
+      <MapResizeFix />
+      {interactive ? <ZoomControl position="topleft" /> : null}
       <FitAndFly markers={markers} focus={focus} interactive={interactive} anchor={anchor} />
       {anchor ? (
         <Circle

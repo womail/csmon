@@ -1,22 +1,19 @@
-/** Low-res raster tiles — fast load, minimal bandwidth. */
+/** OpenStreetMap raster tiles (standard slippy map). */
 
-export function osmTileUrl(dark: boolean) {
-  if (dark) {
-    return "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png";
-  }
-  return "https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png";
+export function osmTileUrl(_dark?: boolean) {
+  return "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 }
 
 export function osmTileAttribution() {
-  return '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
+  return '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 }
 
 export function osmTileSubdomains() {
-  return "abcd";
+  return "abc";
 }
 
-/** Keep tile fetches small — board pop-out does not need street level. */
-export const MAP_TILE_MAX_ZOOM = 5;
+/** Match OSM’s usable zoom range in Leaflet panels and pop-outs. */
+export const MAP_TILE_MAX_ZOOM = 16;
 
 export function osmTileClass() {
   return "";

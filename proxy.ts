@@ -13,7 +13,7 @@ function csp(nonce: string) {
     "default-src 'self'",
     `script-src ${script}`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https://server.arcgisonline.com",
+    "img-src 'self' data: blob: https://*.tile.openstreetmap.org",
     "font-src 'self'",
     "connect-src 'self'",
     "worker-src 'self' blob:",

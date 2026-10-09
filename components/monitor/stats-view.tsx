@@ -6,9 +6,9 @@ import { Ago } from "@/components/monitor/ago";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api-client";
 import { formatBytes } from "@/lib/format-bytes";
-import type { GdeltLayerStats, SystemStats } from "@/lib/stats-types";
+import type { AcledLayerStats, GdeltLayerStats, IngestLayerStatus, SystemStats } from "@/lib/stats-types";
 
-const STATUS_LABEL: Record<GdeltLayerStats["status"], string> = {
+const STATUS_LABEL: Record<IngestLayerStatus, string> = {
   data: "Has articles",
   cached: "Cached only",
   empty: "No matches",
@@ -17,7 +17,7 @@ const STATUS_LABEL: Record<GdeltLayerStats["status"], string> = {
   disabled: "Disabled",
 };
 
-const STATUS_CLASS: Record<GdeltLayerStats["status"], string> = {
+const STATUS_CLASS: Record<IngestLayerStatus, string> = {
   data: "bg-emerald-100 text-emerald-800",
   cached: "bg-sky-100 text-sky-800",
   empty: "bg-amber-100 text-amber-900",
@@ -32,6 +32,79 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
       <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">{label}</div>
       <div className="mt-0.5 text-[15px] font-semibold text-slate-900 dark:text-slate-100">{value}</div>
       {hint ? <p className="mt-1 text-[10px] leading-snug text-slate-500">{hint}</p> : null}
+    </div>
+  );
+}
+
+function AcledLayerCard({
+  row,
+  retryId,
+  onRetry,
+}: {
+  row: AcledLayerStats;
+  retryId: number | null;
+  onRetry: () => void;
+}) {
+  const filterLabel = row.country
+    ? `${row.country} · last ${row.days}d · limit ${row.limit}`
+    : `Global sample · last ${row.days}d · limit ${row.limit}`;
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-2.5 dark:border-border dark:bg-background">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[13px] font-semibold">{row.name}</span>
+        <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_CLASS[row.status]}`}>
+          {STATUS_LABEL[row.status]}
+        </span>
+        {!row.enabled ? <span className="text-[10px] text-slate-400">off</span> : null}
+        {row.enabled && (row.status === "never" || row.status === "stale" || row.status === "empty") ? (
+          <Button type="button" size="xs" variant="outline" disabled={retryId != null} onClick={onRetry}>
+            <RefreshCw className={`size-3 ${retryId === row.id ? "animate-spin" : ""}`} />
+            Fetch now
+          </Button>
+        ) : null}
+      </div>
+      <p className="mt-1 font-mono text-[10px] text-slate-500">{filterLabel}</p>
+      <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-4">
+        <div>
+          <dt className="text-slate-400">Items in DB</dt>
+          <dd className="font-medium">{row.itemCount}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-400">Last 24h</dt>
+          <dd className="font-medium">{row.itemsLast24h}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-400">Cached events</dt>
+          <dd className="font-medium">{row.cacheEvents == null ? "—" : row.cacheEvents}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-400">Last fetch</dt>
+          <dd className="font-medium">{row.lastFetchedAt ? <Ago ts={row.lastFetchedAt} /> : "Never"}</dd>
+        </div>
+      </dl>
+      {row.latestTitle ? (
+        <p className="mt-2 text-[11px] text-slate-600">
+          Latest: <span className="text-slate-800">{row.latestTitle}</span>
+          {row.latestAt ? (
+            <>
+              {" "}
+              · <Ago ts={row.latestAt} />
+            </>
+          ) : null}
+        </p>
+      ) : row.status === "never" ? (
+        <p className="mt-2 text-[11px] text-slate-500">
+          No successful fetch yet — check credentials, myACLED access, and that the profile is enabled. Use{" "}
+          <strong>Fetch now</strong> or header <strong>ACLED → Load</strong>.
+        </p>
+      ) : row.status === "empty" ? (
+        <p className="mt-2 text-[11px] text-slate-500">
+          Fetch succeeded but no events matched this country/window (or API returned an empty set).
+        </p>
+      ) : (
+        <p className="mt-2 text-[11px] text-slate-400">No events stored for this profile yet.</p>
+      )}
     </div>
   );
 }
@@ -70,7 +143,7 @@ export function StatsView() {
     }
   }, []);
 
-  async function retryGdeltLayer(id: number) {
+  async function retryLayer(id: number, label: string) {
     setRetryId(id);
     setError(null);
     try {
@@ -89,7 +162,7 @@ export function StatsView() {
       if (!res.ok) throw new Error(data.error || `Refresh failed (${res.status})`);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not refresh GDELT layer");
+      setError(err instanceof Error ? err.message : `Could not refresh ${label} layer`);
     } finally {
       setRetryId(null);
     }
@@ -108,7 +181,7 @@ export function StatsView() {
             <div>
               <h1 className="text-[15px] font-semibold">Statistical analysis</h1>
               <p className="text-[11px] text-slate-500">
-                Storage, cache, layer volume, and GDELT ingest health
+                Storage, cache, layer volume, and GDELT / ACLED ingest health
               </p>
             </div>
           </div>
@@ -174,6 +247,38 @@ export function StatsView() {
                   label="GDELT JSON cache"
                   value={`${stats.gdeltCache.articles} articles · ${formatBytes(stats.gdeltCache.bytes)}`}
                   hint={`${stats.gdeltCache.entries} cached DOC response(s)`}
+                />
+                <Metric
+                  label="ACLED items"
+                  value={`${stats.totals.acledItems} (${stats.totals.acledItemsLast24h} in 24h)`}
+                  hint={`${stats.totals.acledLayers} ACLED profile(s) registered`}
+                />
+                <Metric
+                  label="ACLED API"
+                  value={
+                    !stats.acledAuth.configured
+                      ? "Not configured"
+                      : stats.acledAuth.probe?.apiAccessDenied
+                        ? "Access denied"
+                        : stats.acledAuth.probe?.readHttp === 200
+                          ? "Read OK"
+                          : stats.acledAuth.tokenCached
+                            ? "Token OK"
+                            : "No token yet"
+                  }
+                  hint={
+                    !stats.acledAuth.configured
+                      ? "Set ACLED_USERNAME / ACLED_PASSWORD on the server"
+                      : stats.acledAuth.probe?.hint ||
+                        (stats.acledAuth.tokenExpiresAt
+                          ? `OAuth expires ${new Date(stats.acledAuth.tokenExpiresAt).toLocaleString()}`
+                          : "GET /api/acled or Load ACLED to run a probe")
+                  }
+                />
+                <Metric
+                  label="ACLED JSON cache"
+                  value={`${stats.acledCache.events} events · ${formatBytes(stats.acledCache.bytes)}`}
+                  hint={`${stats.acledCache.entries} cached read response(s)`}
                 />
               </div>
             </section>
@@ -271,7 +376,7 @@ export function StatsView() {
                             size="xs"
                             variant="outline"
                             disabled={retryId != null}
-                            onClick={() => void retryGdeltLayer(row.id)}
+                            onClick={() => void retryLayer(row.id, "GDELT")}
                           >
                             <RefreshCw className={`size-3 ${retryId === row.id ? "animate-spin" : ""}`} />
                             Fetch now
@@ -333,6 +438,65 @@ export function StatsView() {
                 in fetch cache but nothing ingested. <strong>No matches</strong> = fetch ran but GDELT returned no
                 articles. Refresh uses cached GDELT JSON for 30 minutes unless you Load GDELT again.
               </p>
+            </section>
+
+            <section>
+              <h2 className="mb-2 text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+                ACLED profiles
+              </h2>
+              {!stats.acledAuth.configured ? (
+                <p className="text-[12px] text-amber-900 dark:text-amber-200">
+                  Server credentials missing. Add <code className="text-[11px]">ACLED_USERNAME</code> and{" "}
+                  <code className="text-[11px]">ACLED_PASSWORD</code> from myACLED to{" "}
+                  <code className="text-[11px]">.env.local</code>, restart, then header <strong>ACLED → Load</strong>.
+                </p>
+              ) : stats.acledAuth.probe?.apiAccessDenied ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-2.5 text-[12px] leading-snug text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                  <p className="font-semibold">OAuth works, but ACLED blocked event reads (HTTP 403).</p>
+                  <p className="mt-1">
+                    {stats.acledAuth.probe.hint} Email{" "}
+                    <a href="mailto:access@acleddata.com" className="underline">
+                      access@acleddata.com
+                    </a>{" "}
+                    from the same address as <code className="text-[11px]">ACLED_USERNAME</code>.
+                  </p>
+                  {stats.acledAuth.lastError ? (
+                    <p className="mt-1 font-mono text-[10px] opacity-90">{stats.acledAuth.lastError}</p>
+                  ) : null}
+                </div>
+              ) : stats.acledAuth.probe?.readHttp === 200 ? (
+                <p className="text-[12px] text-emerald-800 dark:text-emerald-300">
+                  Last probe: {stats.acledAuth.probe.readMessage ?? "read OK"} ·{" "}
+                  <Ago ts={stats.acledAuth.probe.at} />
+                </p>
+              ) : null}
+              {stats.acledAuth.configured &&
+              stats.acled.length === 0 &&
+              !stats.acledAuth.probe?.apiAccessDenied ? (
+                <p className="text-[12px] text-slate-500">
+                  No ACLED layers yet. Use the header <strong>ACLED</strong> button → Load with at least one profile
+                  enabled.
+                </p>
+              ) : null}
+              {stats.acled.length > 0 ? (
+                <div className="space-y-2">
+                  {stats.acled.map((row) => (
+                    <AcledLayerCard
+                      key={row.key}
+                      row={row}
+                      retryId={retryId}
+                      onRetry={() => void retryLayer(row.id, "ACLED")}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {stats.acledAuth.configured ? (
+                <p className="mt-2 text-[10px] leading-snug text-slate-500">
+                  <strong>Has articles</strong> = conflict events stored as items. <strong>Cached only</strong> = API
+                  JSON in fetch cache but not ingested. OAuth token is cached in SQLite between loads. Event JSON cache
+                  TTL matches other JSON fetches (~30 minutes).
+                </p>
+              ) : null}
             </section>
           </>
         ) : null}

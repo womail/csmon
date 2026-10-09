@@ -124,9 +124,15 @@ export function AcledButton({
               >
                 myACLED
               </a>{" "}
-              account, then set <code className="text-[11px]">ACLED_USERNAME</code> and{" "}
+              account, then set <code className="text-[11px]">ACLED_USERNAME</code> (your login email) and{" "}
               <code className="text-[11px]">ACLED_PASSWORD</code> in server <code className="text-[11px]">.env.local</code>{" "}
-              (not in the browser). Each profile becomes a layer.
+              (not in the browser). ACLED also assigns an <strong>API access group</strong> per account — if Load fails
+              with HTTP 403 / Access denied, email{" "}
+              <a href="mailto:access@acleddata.com" className="text-blue-600 underline">
+                access@acleddata.com
+              </a>{" "}
+              to request API access. Check <code className="text-[11px]">/stats</code> or{" "}
+              <code className="text-[11px]">GET /api/acled</code> for a probe.
             </p>
           </DialogHeader>
           <div className="max-h-[70vh] space-y-3 overflow-y-auto px-1 pb-1">

@@ -174,8 +174,9 @@ const ReaderPane = dynamic(
 const ReportsDesk = dynamic(() =>
   import("@/components/monitor/reports").then((mod) => ({ default: mod.ReportsDesk })),
 );
-const FlightDesk = dynamic(() =>
-  import("@/components/monitor/flights").then((mod) => ({ default: mod.FlightDesk })),
+const FlightDesk = dynamic(
+  () => import("@/components/monitor/flights").then((mod) => ({ default: mod.FlightDesk })),
+  { ssr: false, loading: () => <div className="geo-map-skeleton min-h-[420px]">Loading flights…</div> },
 );
 const AircraftPane = dynamic(() =>
   import("@/components/monitor/flights").then((mod) => ({ default: mod.AircraftPane })),
@@ -1756,7 +1757,7 @@ export function Monitor({
         }}
         onClearFilters={clearBoardFilters}
       />
-      <div className="flex min-w-0 flex-1 flex-col bg-slate-50">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-slate-50">
         <header className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm">
           <RedditRssBanner onMigrate={() => setRedditDialogOpen(true)} />
           <MonitorToolbar
@@ -2353,7 +2354,9 @@ export function Monitor({
         <div
           className={`flex min-h-0 flex-1 flex-col ${openStory ? "lg:flex-row" : "lg:grid lg:grid-cols-[1fr_260px]"}`}
         >
-          <main className="min-w-0 flex-1">
+          <main
+            className={`min-w-0 flex-1 ${viewDesk === "flights" ? "flex min-h-0 flex-col" : ""}`}
+          >
             {emptyBoard ? (
               <div className="mx-auto max-w-lg px-6 py-20 text-center">
                 <div className="text-lg font-semibold">Start from a desk, not a firehose</div>

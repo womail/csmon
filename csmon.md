@@ -4,7 +4,7 @@ Current Situation Monitor. Harvest public sources, collapse them into desks, and
 
 Navigation is desks, not a firehose. Filters live in the URL so a view can be bookmarked (`?desk=patch&risk=p0&stack=linux&ransomware=1&layer=12&person=Jane`). Custom filters and **user desks** can also be named and saved in the browser.
 
-Maps are their own panes, never a background under copy. The board uses a **fast SVG preview** (Leaflet is lazy-loaded, not on first paint). **Pop out** or **Flights** load **low-res CARTO** tiles (no labels, max zoom 5) — no 800KB country GeoJSON. Map height is resizable (`localStorage`).
+Maps are their own panes, never a background under copy. **Home**, **reader**, **stats**, and **Flights** use **Leaflet + OpenStreetMap** inline (lazy-loaded on the Home board until visible). Toolbar zoom/fit/world plus **expand** opens a full-screen pop-out of the same map. Map height on situation maps is resizable (`localStorage`).
 
 Click a **source** (Home top sources, a card chip, or Sources) to drill into that layer: a source dossier lists its items even if other chips would have hidden them. Source chips are tag-sized like topics: short names, thin padding, wrapping inside the card instead of overflowing a Scan column. RSS feed titles are not treated as authors. CISA and similar feeds no longer go blank because a leftover topic filter was still on.
 
@@ -127,7 +127,7 @@ NVD link opens in the reader pane. **KEV** button refreshes the catalog (cached 
 
 This is not an asset inventory. It tells you what is being exploited and how soon CISA expects a fix; you still map that to the software you actually run.
 
-Public APIs and RSS only. No recon scanners or unauthorized probing. Maps use Natural Earth country polygons, **OpenStreetMap** / CARTO tiles where enabled, geocoded places, USGS GeoJSON, weather warning feeds, and OpenSky ADS-B (cached ~20s, 100 km around home). Aircraft drill-in uses HexDb metadata plus public globe links. This is not Osiris RECON and not a targeting tool.
+Public APIs and RSS only. No recon scanners or unauthorized probing. Maps use Natural Earth country polygons, **OpenStreetMap** tiles, geocoded places, USGS GeoJSON, weather warning feeds, and OpenSky ADS-B (cached ~20s, 100 km around home). Aircraft drill-in uses HexDb metadata plus public globe links. This is not Osiris RECON and not a targeting tool.
 
 **Reddit.** Public RSS ends **13 Nov 2026** ([announcement](https://techcrunch.com/2026/09/30/reddit-is-killing-rss-feeds-ending-public-api-access-because-of-ai-bots/)). Until then, combined `/r/a+b/hot/.rss` works at about **one request per minute per IP**. After sunset, refresh returns a clear message and disables the layer instead of repeated 502s. `.json` without auth remains 403. Paid/OAuth API access is out of scope unless you add your own app credentials later.
 
@@ -145,7 +145,7 @@ We reuse the **upstream public sources** (CISA, USGS-style RSS, vendor advisorie
 
 Browser-local (`localStorage` `csmon.options`): start desk, time range, stack, compact cards, home language, auto-translate, **home location**, **palette** (`light` / `dark`, follows the OS until you toggle), auto-load security RSS, auto-load hazards, auto-load KEV, **board item limit** (how many recent items SQLite loads onto the board; default 500), optional **update manifest URL**. Shared links still override via the query string.
 
-**Options** uses tabs (Board / Data / Help). **Open manual** is one pop-out at `/help` (user guide, **Source & filter code map**, **Lexicon**, Docker/update checklists). `/help/maintainer` redirects into that manual. **Data → Open analysis** opens `/stats`: SQLite size, outbound cache by kind, extract corpus bytes, layer counts by origin, and a **GDELT** panel (items in DB, cached article count, last fetch, latest headline, status badge). API: `GET /api/stats`.
+**Options** uses tabs (Board / Data / Help). **Open manual** is one pop-out at `/help` (user guide, **Source & filter code map**, **Lexicon**, Docker/update checklists). `/help/maintainer` redirects into that manual. **Data → Open analysis** opens `/stats`: SQLite size, outbound cache by kind, extract corpus bytes, layer counts by origin, plus **GDELT** and **ACLED** panels (items in DB, cached response size, OAuth token status for ACLED, last fetch, latest headline/event, status badge, **Fetch now**). API: `GET /api/stats`.
 
 **Source library** (Options → Open source library, or `/sources/workbench`): every layer with last fetch, item counts, latest headline, stale/silent badges, and tips. **Add RSS layer**, **Edit** (inline row), **Save layer** / **Save & refresh layer**, **Delete layer**. **Apply** saves all rows marked ● (unsaved). Per-layer **retention (days)** plus Options **default item retention**; **Purge by age** or **Run retention policy** trim SQLite items (age uses published or fetched time; items in a report or watch hit are kept). **Export JSON** / **Import JSON** — move custom RSS layers between installs. **Save instance overrides** writes intel-linked layer edits to `CSMON_DATA_DIR/overrides/feeds.json` on the server; that file is merged over `lib/intel-feeds.ts` at runtime (volume survives rebuilds). API: `GET/POST/PATCH/DELETE /api/source-catalog` (`POST` `{ import: [...] }`, `PATCH` `{ saveFeedOverrides: true }`).
 
