@@ -106,6 +106,8 @@ export function TrendList({
   hint,
   rows,
   onSelect,
+  onShowOnBoard,
+  boardCount,
 }: {
   title: string;
   hint?: string;
@@ -121,7 +123,9 @@ export function TrendList({
     sample: string;
     sourcesNow: number;
   }[];
-  onSelect: (row: { id: string; kind: string }) => void;
+  onSelect: (row: { id: string; kind: string; label: string }) => void;
+  onShowOnBoard?: (row: { id: string; kind: string; label: string }) => void;
+  boardCount?: (row: { id: string; kind: string }) => number;
 }) {
   return (
     <div className="card-tile">
@@ -139,25 +143,39 @@ export function TrendList({
               row.direction === "new"
                 ? "new"
                 : `${row.change >= 0 ? "+" : ""}${Math.round(row.change * 100)}%`;
+            const n = boardCount?.(row);
             return (
-              <button
+              <div
                 key={`${row.kind}:${row.id}`}
-                type="button"
-                onClick={() => onSelect(row)}
-                className="flex w-full items-center gap-2 rounded px-0.5 py-1 text-left hover:bg-slate-50"
+                className="flex w-full items-center gap-2 rounded px-0.5 py-1 hover:bg-slate-50"
               >
-                <MiniSpark points={row.points} color={style.color} />
-                <span
-                  className="tag shrink-0"
-                  style={{ background: style.bg, color: style.color }}
+                <button
+                  type="button"
+                  onClick={() => onSelect(row)}
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
                 >
-                  {style.mark} {row.label}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-[10px] text-slate-400">{row.sample}</span>
-                <span className="shrink-0 text-[10px] tabular-nums text-slate-500">
-                  {row.prev}→{row.now} {delta}
-                </span>
-              </button>
+                  <MiniSpark points={row.points} color={style.color} />
+                  <span
+                    className="tag shrink-0"
+                    style={{ background: style.bg, color: style.color }}
+                  >
+                    {style.mark} {row.label}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[10px] text-slate-400">{row.sample}</span>
+                  <span className="shrink-0 text-[10px] tabular-nums text-slate-500">
+                    {row.prev}→{row.now} {delta}
+                  </span>
+                </button>
+                {onShowOnBoard && n != null && n > 0 ? (
+                  <button
+                    type="button"
+                    className="shrink-0 rounded border border-slate-200 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600 hover:bg-white"
+                    onClick={() => onShowOnBoard(row)}
+                  >
+                    Brief · {n}
+                  </button>
+                ) : null}
+              </div>
             );
           })}
         </div>

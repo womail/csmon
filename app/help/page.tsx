@@ -1,5 +1,5 @@
-import { ManualView } from "@/components/monitor/manual-view";
+import { HelpGuideView } from "@/components/monitor/help-guide-view";
 
 export default function HelpPage() {
-  return <ManualView filter="all" />;
+  return <HelpGuideView audience="user" />;
 }

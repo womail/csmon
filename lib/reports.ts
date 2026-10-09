@@ -8,6 +8,7 @@ import {
   type ArticleBlock,
 } from "./article-body";
 import type { ReportVulnPlanSnapshot } from "./report-vuln-plan";
+import { parseReportConfidence, type ReportConfidence } from "./report-confidence";
 
 export type ReportStatus = "open" | "archived";
 
@@ -43,6 +44,8 @@ export type ReportStory = {
   extractAt?: number;
   /** KEV/NVD/CWE catalog plan from Read in place. */
   vulnPlan?: ReportVulnPlanSnapshot;
+  /** Analyst triage for briefing export. */
+  confidence?: ReportConfidence;
 };
 
 export type Report = {
@@ -261,6 +264,7 @@ function hydrateStory(row: Partial<ReportStory> | null | undefined): ReportStory
     extractAt: typeof row.extractAt === "number" ? row.extractAt : undefined,
     vulnPlan:
       row.vulnPlan && typeof row.vulnPlan === "object" ? (row.vulnPlan as ReportVulnPlanSnapshot) : undefined,
+    confidence: parseReportConfidence(row.confidence),
   };
 }
 
@@ -478,6 +482,26 @@ export function removeStoryFromReport(id: string, storyId: string, existing?: Re
       ? { ...row, updatedAt: Date.now(), stories: row.stories.filter((item) => item.id !== storyId) }
       : row,
   );
+  saveReports(rows);
+  return rows;
+}
+
+export function setReportStoryConfidence(
+  reportId: string,
+  storyId: string,
+  confidence: ReportConfidence | undefined,
+  existing?: Report[],
+) {
+  const rows = (existing ?? loadReports()).map((row) => {
+    if (row.id !== reportId) return row;
+    return {
+      ...row,
+      updatedAt: Date.now(),
+      stories: row.stories.map((story) =>
+        story.id === storyId ? { ...story, confidence } : story,
+      ),
+    };
+  });
   saveReports(rows);
   return rows;
 }

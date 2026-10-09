@@ -22,6 +22,12 @@ import { isVendorAdvisoryLink } from "@/lib/page-links";
 import type { ReportVulnPlanSnapshot } from "@/lib/report-vuln-plan";
 import type { NvdCveBrief } from "@/lib/nvd";
 import { extractUrlsForReportStory, fetchArticleReads } from "@/lib/report-extract";
+import { ReportTimeline } from "@/components/monitor/report-timeline";
+import {
+  REPORT_CONFIDENCE_OPTIONS,
+  reportConfidenceLabel,
+  type ReportConfidence,
+} from "@/lib/report-confidence";
 import {
   applyArticlesToReportStory,
   archivedReports,
@@ -33,6 +39,7 @@ import {
   replaceStoryInReport,
   reportStoryDisplayBlocks,
   setReportStatus,
+  setReportStoryConfidence,
   storyNeedsExtract,
   type Report,
   type ReportLink,
@@ -180,6 +187,7 @@ function ReportView({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(report.title);
   const [filling, setFilling] = useState(false);
+  const [layout, setLayout] = useState<"document" | "timeline">("document");
   const reportsRef = useRef(reports);
   reportsRef.current = reports;
   const onChangeRef = useRef(onChange);
@@ -274,6 +282,26 @@ function ReportView({
           <Printer className="size-3" />
           Print to PDF
         </Button>
+        <div className="ml-auto flex gap-1 rounded-md border border-slate-200 p-0.5">
+          <button
+            type="button"
+            className={`rounded px-2 py-0.5 text-[10px] font-medium ${
+              layout === "document" ? "bg-slate-900 text-white" : "text-slate-600"
+            }`}
+            onClick={() => setLayout("document")}
+          >
+            Document
+          </button>
+          <button
+            type="button"
+            className={`rounded px-2 py-0.5 text-[10px] font-medium ${
+              layout === "timeline" ? "bg-slate-900 text-white" : "text-slate-600"
+            }`}
+            onClick={() => setLayout("timeline")}
+          >
+            Timeline
+          </button>
+        </div>
       </div>
 
       <header className="border-b border-slate-200 pb-3">
@@ -325,6 +353,8 @@ function ReportView({
         <p className="text-[13px] text-slate-500">
           Empty report. Open a story and click Report to add news.
         </p>
+      ) : layout === "timeline" ? (
+        <ReportTimeline stories={report.stories} />
       ) : (
         report.stories.map((story, index) => (
           <section key={story.id}>
@@ -342,7 +372,37 @@ function ReportView({
                       {source.name}
                     </span>
                   ))}
+                  {story.confidence ? (
+                    <span className="report-confidence-badge">{reportConfidenceLabel(story.confidence)}</span>
+                  ) : null}
                   <Ago ts={story.latestAt} className="ml-auto" />
+                </div>
+                <div className="no-print mt-1 flex flex-wrap items-center gap-2">
+                  <label className="text-[10px] text-slate-500">
+                    Confidence
+                    <select
+                      className="ml-1 h-7 rounded border border-slate-200 bg-white px-1.5 text-[11px] text-slate-800"
+                      value={story.confidence ?? ""}
+                      onChange={(event) => {
+                        const value = event.target.value as ReportConfidence | "";
+                        onChange(
+                          setReportStoryConfidence(
+                            report.id,
+                            story.id,
+                            value || undefined,
+                            reports,
+                          ),
+                        );
+                      }}
+                    >
+                      <option value="">Unset</option>
+                      {REPORT_CONFIDENCE_OPTIONS.map((row) => (
+                        <option key={row.id} value={row.id}>
+                          {row.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
                 <h2 className="report-heading mt-1 text-[20px] leading-snug font-bold">{story.title}</h2>
                 {story.topics.length ? (

@@ -1,11 +1,19 @@
 /** In-app user manual and maintainer guide (rendered at /help). */
 
+export type HelpFigure = {
+  /** Path under public/, e.g. /help/screenshots/home-dashboard.png */
+  src: string;
+  alt: string;
+  caption?: string;
+};
+
 export type ManualSection = {
   slug: string;
   title: string;
   audience: "user" | "maintainer" | "both";
   summary: string;
   body: string;
+  figures?: HelpFigure[];
 };
 
 export const MANUAL_SECTIONS: ManualSection[] = [
@@ -14,34 +22,127 @@ export const MANUAL_SECTIONS: ManualSection[] = [
     title: "Getting started",
     audience: "user",
     summary: "What csmon is and how desks work.",
-    body: `csmon is a **current situation monitor**: RSS and public feeds collapse into desks (Home, Brief, Patch, and others). Click a story to read in place; filters live in the URL so you can bookmark a view.
+    body: `csmon is a **current situation monitor**: public feeds collapse into **desks** (Home, Brief, Patch, and others). The left rail is grouped — **Situation**, **Cyber**, **Tools**, then your custom desks.
 
-**First session:** open **Options** → set home location, language, and optional software stack for Patch. Use **Refresh** after enabling sources under **Sources** or loading intel packs from Home.`,
+**Home** is the situation dashboard: lanes for weather, quakes, war, and unrest, plus a map of where coverage clusters. Click a topic, source, or map dot to filter in place.
+
+**First session:** use **Set up monitoring** on Sources or an empty board, or load RSS packs from the Sources desk. Open **Options** (header **More**) to set **home location**, language, and your **software stack** for Patch. Press **Refresh** after enabling layers.`,
+    figures: [
+      {
+        src: "/help/screenshots/home-dashboard.png",
+        alt: "Home desk with desk rail, investigation bar, map, and situation lanes",
+        caption: "Home — situation lanes, map, and filter chips. Filters stay in the URL.",
+      },
+    ],
   },
   {
     slug: "desks-filters",
     title: "Desks and filters",
     audience: "user",
     summary: "Topics, places, CVE chips, query builder, saved filters.",
-    body: `Use the desk rail to switch context. **Tune** edits place, topic, layer, and query rows. **Filters** saves the current URL under a name.
+    body: `Use the **desk rail** to switch context. The **investigation bar** shows desk, time range, unread count, and active report.
 
-Switching a built-in desk clears the **Query builder** so an old \`qb=\` string does not linger. Custom desks keep their saved filters.`,
+**Primary chips** (place, topic, rising, 2+ sources) stay visible; **More filters** opens origin, platform, people, and CVEs. **Tune** edits filters as a form with a live item/story preview. **Saved** stores named filters, your default briefing, and watches.
+
+**Brief** clusters items into stories (lowest noise). **Scan** shows every item. **Pulse** lists what is rising vs the prior half-window — use **Brief · N** on a trend row to apply that filter and jump to Brief.
+
+Switching a built-in desk clears the **Query builder** (\`qb=\`) so an old rule does not linger. Custom desks keep their saved filters.`,
+    figures: [
+      {
+        src: "/help/screenshots/brief-board.png",
+        alt: "Brief desk with story cards, topic mix, and map",
+        caption: "Brief — clustered stories, freshness gauge, and place map.",
+      },
+      {
+        src: "/help/screenshots/pulse-trends.png",
+        alt: "Pulse desk with rising trends and Brief shortcut buttons",
+        caption: "Pulse — rising / new / falling trends; **Brief · N** opens the same filter on Brief.",
+      },
+    ],
+  },
+  {
+    slug: "read-in-place",
+    title: "Read in place",
+    audience: "user",
+    summary: "Dossier reader, context strip, reports, NVD.",
+    body: `Click a **story title** (or press **Enter** on the focused card) to open **Read in place**. The reader is a dossier, not a shrink of the card:
+
+- **Context strip** — desk, range, and clickable filter chips; click a chip to close the reader and keep investigating.
+- **Contributing sources** — full title and summary from each layer.
+- **Page extract** — cached body text, CVEs, and links mined from the live page.
+- **NVD** — official JSON for CVEs mentioned in the RSS title/summary (Patch desk also surfaces KEV).
+
+Use **Report** to append the story (with extract) to an open briefing. **View page** opens the original article in a new tab. **Esc** or back walks your trail.`,
+    figures: [
+      {
+        src: "/help/screenshots/reader-in-place.png",
+        alt: "Board with read-in-place pane showing story sources and extract",
+        caption: "Read in place beside the board — resize the pane from its left edge on wide screens.",
+      },
+    ],
+  },
+  {
+    slug: "pulse-desk",
+    title: "Pulse desk",
+    audience: "user",
+    summary: "Trends, sparklines, and the Brief bridge.",
+    body: `**Pulse** compares the current half of your time range to the half before it. Rows show topics, places, vendors, or people that are **rising**, **new**, or **falling**, with sparklines and ▲/▼ markers.
+
+Click a row to **filter** the board to that signal. Click **Brief · N** to apply the same filter and switch to **Brief** with N matching items in range.
+
+The **rising** chip on other desks keeps only items that carry a hot topic, place, vendor, or person.`,
+    figures: [
+      {
+        src: "/help/screenshots/pulse-trends.png",
+        alt: "Pulse rising trends with Brief bridge buttons",
+        caption: "Trend row → filter; **Brief · N** → filtered Brief board.",
+      },
+    ],
+  },
+  {
+    slug: "patch-desk",
+    title: "Patch desk (CISA KEV)",
+    audience: "user",
+    summary: "Known exploited CVEs, stack filter, patch now.",
+    body: `**Patch** ranks **CISA Known Exploited Vulnerabilities**. Load KEV from Sources or the setup wizard.
+
+Filter with **Patch now**, **This window**, **KEV backlog**, **ransomware**, and vendor chips. Type your **stack** in Options or the stack field (e.g. \`microsoft, openssl, linux\`) to highlight CVEs that affect you.
+
+Story cards on Brief/Pulse can show a **KEV** badge when copy matches the loaded catalog. The reader links CVEs to NVD and vendor advisories.`,
+    figures: [
+      {
+        src: "/help/screenshots/patch-kev-desk.png",
+        alt: "Patch desk showing KEV cards with patch-now badges",
+        caption: "Patch — overdue KEV entries sorted for action.",
+      },
+    ],
   },
   {
     slug: "sources",
     title: "Sources and RSS layers",
     audience: "both",
     summary: "Enable feeds, source library, import/export.",
-    body: `Each **layer** is an RSS (or scraped) source in SQLite. **+ RSS** adds one feed; **Options → Source library** lists every layer with fetch stats.
+    body: `Each **layer** is an RSS (or scraped) source in SQLite. The **Sources** desk lists every layer with origin, item count, and latest headline.
 
-**Export JSON** backs up custom layers. **Import JSON** restores them on another install (duplicate feed URLs are skipped). Shipped feeds live in \`lib/intel-feeds.ts\` in git — use Export when contributing upstream.`,
+**Set up monitoring** runs a short wizard (packs, home place, optional watch). **Corpus analysis** summarizes stored items, cache, and GDELT/ACLED layers, with a link to **/stats**.
+
+**+ RSS** (Options or scrape dialog) adds one feed; **Source library** lists fetch stats. **Export JSON** backs up custom layers; **Import JSON** restores on another install.`,
+    figures: [
+      {
+        src: "/help/screenshots/sources-layers.png",
+        alt: "Sources desk with corpus analysis card and layer tiles",
+        caption: "Sources — corpus stats, cache health, and per-layer hide/show.",
+      },
+    ],
   },
   {
     slug: "reports",
     title: "Reports and briefings",
     audience: "user",
     summary: "Compile stories with full page extract.",
-    body: `**Report** on the reader adds the story (including page extract, CVEs, links) to a briefing. Reports live in this browser's storage until you archive or print to PDF.`,
+    body: `**Report** on the reader adds the story (including page extract, CVEs, links) to a briefing. Open **Reports** on the desk rail to edit, reorder, set **confidence** (Verified / Likely / Needs work / Noise), switch **Timeline** view, or **Print to PDF**.
+
+Reports sync to SQLite when the API is available; the browser cache loads first. Items cited in a report are protected from retention purge.`,
   },
   {
     slug: "options-limits",

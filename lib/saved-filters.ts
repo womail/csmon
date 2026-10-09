@@ -11,6 +11,8 @@ export type SavedFilter = {
   name: string;
   filters: BoardFilters;
   createdAt: number;
+  /** Up to three hypotheses for ACH-style reading (optional). */
+  hypotheses?: string[];
 };
 
 export const SAVED_FILTERS_KEY = "csmon.saved-filters";
@@ -37,10 +39,16 @@ function asDesk(value: unknown, fallback: BoardFilters["desk"]): BoardFilters["d
 function hydrate(raw: Partial<SavedFilter>, fallback: BoardFilters): SavedFilter | null {
   if (!raw || typeof raw.id !== "string" || typeof raw.name !== "string") return null;
   const filters = raw.filters ?? fallback;
+  const hypotheses = Array.isArray(raw.hypotheses)
+    ? raw.hypotheses
+        .filter((line): line is string => typeof line === "string" && line.trim().length > 0)
+        .slice(0, 3)
+    : undefined;
   return {
     id: raw.id,
     name: raw.name,
     createdAt: typeof raw.createdAt === "number" ? raw.createdAt : Date.now(),
+    hypotheses: hypotheses?.length ? hypotheses : undefined,
     filters: {
       desk: asDesk(filters.desk, fallback.desk),
       q: typeof filters.q === "string" ? filters.q : "",
@@ -109,6 +117,20 @@ export function upsertSavedFilter(name: string, filters: BoardFilters, existing?
 
 export function deleteSavedFilter(id: string, existing?: SavedFilter[]) {
   const rows = (existing ?? loadSavedFilters()).filter((row) => row.id !== id);
+  saveSavedFilters(rows);
+  return rows;
+}
+
+export function updateSavedFilterHypotheses(
+  id: string,
+  hypotheses: string[],
+  existing?: SavedFilter[],
+) {
+  const rows = (existing ?? loadSavedFilters()).map((row) => {
+    if (row.id !== id) return row;
+    const trimmed = hypotheses.map((line) => line.trim()).filter(Boolean).slice(0, 3);
+    return { ...row, hypotheses: trimmed.length ? trimmed : undefined };
+  });
   saveSavedFilters(rows);
   return rows;
 }

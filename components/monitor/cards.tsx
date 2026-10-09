@@ -8,7 +8,9 @@ import { tagStyle } from "@/lib/colors";
 import type { Story } from "@/lib/cluster";
 import { personName } from "@/lib/people";
 import { mineItem } from "@/lib/mine";
+import { StoryCorroborationBadges } from "@/components/monitor/story-corroboration-badges";
 import { shortSourceName } from "@/lib/source-label";
+import type { StoryCorroboration } from "@/lib/story-corroboration";
 import type { Item, OriginReason, Source } from "@/lib/types";
 
 export function SourceChip({
@@ -18,7 +20,10 @@ export function SourceChip({
   count,
   filled,
   active,
+  subscribed,
+  tip,
   onClick,
+  onContextMenu,
 }: {
   name: string;
   color: string;
@@ -26,30 +31,51 @@ export function SourceChip({
   count?: number;
   filled?: boolean;
   active?: boolean;
+  /** When set, styles unsubscribed layers (outline) vs subscribed (filled). */
+  subscribed?: boolean;
+  tip?: string;
   onClick?: () => void;
+  onContextMenu?: (event: MouseEvent) => void;
 }) {
   const label = shortSourceName(name);
+  const showSubState = subscribed != null;
+  const isSubscribed = subscribed !== false;
+  let chipClass = "source-chip";
+  if (filled || showSubState) {
+    chipClass = "source-chip source-chip-fill";
+    if (active) chipClass += " source-chip-active";
+    else if (showSubState && !isSubscribed) chipClass += " source-chip-unsubscribed";
+  }
+  const defaultTip = `Scan only ${name}${extra ? ` · ${extra}` : ""}`;
+  const body = (
+    <button
+      type="button"
+      className={chipClass}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick?.();
+      }}
+      onContextMenu={(event) => {
+        if (!onContextMenu) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onContextMenu(event);
+      }}
+    >
+      <span
+        className="source-chip-dot"
+        style={{ background: color, opacity: showSubState && !isSubscribed ? 0.45 : 1 }}
+      />
+      <span className="source-chip-label">
+        {label}
+        {count != null ? ` ${count}` : ""}
+        {extra ? ` · ${extra}` : ""}
+      </span>
+    </button>
+  );
   return (
-    <Tip text={`Scan only ${name}${extra ? ` · ${extra}` : ""}`} className="max-w-full min-w-0">
-      <button
-        type="button"
-        className={
-          filled
-            ? `source-chip source-chip-fill${active ? " source-chip-active" : ""}`
-            : "source-chip"
-        }
-        onClick={(event) => {
-          event.stopPropagation();
-          onClick?.();
-        }}
-      >
-        <span className="source-chip-dot" style={{ background: color }} />
-        <span className="source-chip-label">
-          {label}
-          {count != null ? ` ${count}` : ""}
-          {extra ? ` · ${extra}` : ""}
-        </span>
-      </button>
+    <Tip text={tip ?? defaultTip} className="max-w-full min-w-0">
+      {body}
     </Tip>
   );
 }
@@ -135,9 +161,11 @@ export function StoryCard({
   read,
   focused,
   cardAnchorId,
+  corroboration,
 }: {
   story: Story;
   sources: Map<number, Source>;
+  corroboration?: StoryCorroboration;
   onOpen: () => void;
   onTopic: (topic: string) => void;
   onPlace: (place: string) => void;
@@ -158,7 +186,7 @@ export function StoryCard({
   return (
     <article
       id={cardAnchorId}
-      className={`card-tile cursor-pointer ${read ? "opacity-55" : ""} ${focused ? "card-tile-focus" : ""}`}
+      className={`card-tile cursor-pointer ${read ? "opacity-55 card-tile-read" : "card-tile-unread"} ${focused ? "card-tile-focus" : ""}`}
       onClick={onOpen}
       onContextMenu={(event) => {
         if (!onReclassify) return;
@@ -227,6 +255,7 @@ export function StoryCard({
           {story.summary}
         </p>
       ) : null}
+      {corroboration ? <StoryCorroborationBadges corroboration={corroboration} /> : null}
       <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
         {shownIds.map((id) => {
           const source = sources.get(id);
@@ -285,7 +314,7 @@ export function ItemCard({
   return (
     <article
       id={cardAnchorId}
-      className={`card-tile ${onOpen ? "cursor-pointer" : ""} ${read ? "opacity-55" : ""} ${focused ? "card-tile-focus" : ""}`}
+      className={`card-tile ${onOpen ? "cursor-pointer" : ""} ${read ? "opacity-55 card-tile-read" : "card-tile-unread"} ${focused ? "card-tile-focus" : ""}`}
       onClick={onOpen}
       onContextMenu={(event) => {
         if (!onReclassify) return;

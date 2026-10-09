@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import {
+  useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
@@ -26,8 +27,14 @@ import { PulseCard, TopicMix, TrendList } from "@/components/monitor/charts";
 import { FilterTuner } from "@/components/monitor/filter-tuner";
 import { CommandPalette } from "@/components/monitor/command-palette";
 import { QueryBuilderButton } from "@/components/monitor/query-builder";
-import { WatchButton } from "@/components/monitor/watch-panel";
+import { ActiveReportToast } from "@/components/monitor/active-report-toast";
+import { CorpusStatsCard } from "@/components/monitor/corpus-stats-card";
+import {
+  SetupMonitoringWizard,
+  SETUP_WIZARD_DISMISSED_KEY,
+} from "@/components/monitor/setup-monitoring-wizard";
 import { EntityDesk, HomeDashboard } from "@/components/monitor/dashboard";
+import { PeopleDesk } from "@/components/monitor/people-desk";
 import { PlacePane } from "@/components/monitor/place-pane";
 import { SourcePane } from "@/components/monitor/source-pane";
 import { placeMarkers } from "@/components/monitor/map";
@@ -40,7 +47,13 @@ import { DeskRail, DeskTabs } from "@/components/monitor/nav";
 import { GdeltButton } from "@/components/monitor/gdelt-panel";
 import { RedditButton } from "@/components/monitor/reddit-panel";
 import { RedditRssBanner } from "@/components/monitor/reddit-rss-banner";
-import { DismissFilterChip, ToggleFilterChip } from "@/components/monitor/filter-chip";
+import {
+  BoardFilterToggle,
+  DismissFilterChip,
+  ToggleFilterChip,
+} from "@/components/monitor/filter-chip";
+import { InvestigationBar } from "@/components/monitor/investigation-bar";
+import type { ReaderContextChip } from "@/components/monitor/reader-context-strip";
 import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,6 +78,14 @@ import { homeCity, type MapMarker } from "@/lib/geo";
 import { matchesStack, type KevEntry, type PatchRisk } from "@/lib/kev";
 import { matchesLane, type SituationLane } from "@/lib/lanes";
 import { kevForStory, itemsForCve, relatedStories, similarStories } from "@/lib/link";
+import { kevCatalogSet, storyCorroboration } from "@/lib/story-corroboration";
+import { countBoardItemsForTrend } from "@/lib/trend-board-bridge";
+import type { TrendRow } from "@/lib/trends";
+import { findMatchingSavedFilter } from "@/lib/saved-filter-match";
+import {
+  FirstRunChecklist,
+  FIRST_RUN_CHECKLIST_KEY,
+} from "@/components/monitor/first-run-checklist";
 import { isAdvisoryItem, itemHasVendor, matchVendorName, mineItem, vendorFamily } from "@/lib/mine";
 import { withItemLimitQuery } from "@/lib/board-limit";
 import {
@@ -76,7 +97,11 @@ import {
   sortStories,
   type BoardSort,
 } from "@/lib/board-sort";
+import { applyBoardItemFilters } from "@/lib/board-item-filter";
+import { activeFilterCount, deskLabel as investigationDeskLabel } from "@/lib/investigation-summary";
+import { loadMyBriefing, type MyBriefingProfile } from "@/lib/briefing-profile";
 import { applyTopicOverride, loadItemTopicOverrides, saveItemTopicOverride } from "@/lib/item-overrides";
+import { loadSavedFilters, type SavedFilter } from "@/lib/saved-filters";
 import { loadOptions, saveOptions } from "@/lib/options";
 import type { AcledProfile } from "@/lib/acled";
 import {
@@ -100,8 +125,6 @@ import { isCountry, isKnownPlace, itemHasPlace, PINNED_PLACES, resolvePlace } fr
 import {
   emptyQuery,
   hasQuery,
-  itemMatchesQuery,
-  parseQueryLine,
   summarizeQuery,
   type QueryTree,
 } from "@/lib/query-builder";
@@ -128,7 +151,7 @@ import {
   type TriageUndo,
 } from "@/lib/triage";
 import type { Desk, DiscoveredSource, Item, MonitorState, OriginReason, Platform, TimeRange, Watchlist } from "@/lib/types";
-import { isBuiltinDesk } from "@/lib/types";
+import { isBuiltinDesk, type BuiltinDesk } from "@/lib/types";
 import type { IntelPack } from "@/lib/intel-feeds";
 import {
   addStoryToReport,
@@ -312,6 +335,21 @@ export function Monitor({
   const [boardItemLimit, setBoardItemLimit] = useState(() => loadOptions().boardItemLimit);
   const [triage, setTriage] = useState<TriageState>({ hidden: [], read: [] });
   const [triageUndo, setTriageUndo] = useState<TriageUndo[]>([]);
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [savedViewsOpen, setSavedViewsOpen] = useState(false);
+  const [savedViewsTab, setSavedViewsTab] = useState<"filters" | "briefing" | "watches">("filters");
+  const [setupWizardOpen, setSetupWizardOpen] = useState(false);
+  const [firstRunDismissed, setFirstRunDismissed] = useState(true);
+  const [hasBriefingProfile, setHasBriefingProfile] = useState(false);
+  const [tunerDraft, setTunerDraft] = useState<{ filters: BoardFilters; view: BuiltinDesk } | null>(
+    null,
+  );
+  const [reportToast, setReportToast] = useState<{ id: string; title: string; count: number } | null>(
+    null,
+  );
+  const [paletteSavedFilters, setPaletteSavedFilters] = useState<SavedFilter[]>([]);
+  const [paletteBriefing, setPaletteBriefing] = useState<MyBriefingProfile | null>(null);
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
   const [subreddits, setSubreddits] = useState<string[]>(DEFAULT_SUBREDDITS);
   const [redditDialogOpen, setRedditDialogOpen] = useState(false);
   const [gdeltQueries, setGdeltQueries] = useState<GdeltQuery[]>(DEFAULT_GDELT_QUERIES);
@@ -359,6 +397,8 @@ export function Monitor({
     setSubreddits(loadSubreddits());
     setGdeltQueries(loadGdeltQueries());
     setBoardSort(loadBoardSort());
+    setFirstRunDismissed(window.localStorage.getItem(FIRST_RUN_CHECKLIST_KEY) === "1");
+    setHasBriefingProfile(Boolean(loadMyBriefing()));
     setTopicOverrides(loadItemTopicOverrides());
     setAutoRefreshMinutes(opts.autoRefreshMinutes);
     setReports(loadReports());
@@ -368,6 +408,7 @@ export function Monitor({
     setOpenReportId(loadActiveReportId());
     setReaderWidth(loadReaderWidth());
     setFollowOpen(window.localStorage.getItem("csmon.follow-open") !== "0");
+    setUnreadOnly(window.localStorage.getItem("csmon.unread-only") === "1");
     setBoardItemLimit(opts.boardItemLimit);
     if (!seed.stack) {
       setStack(opts.stack || window.localStorage.getItem("csmon.stack") || "");
@@ -475,6 +516,10 @@ export function Monitor({
     vendor,
   ]);
 
+  useEffect(() => {
+    window.localStorage.setItem("csmon.unread-only", unreadOnly ? "1" : "0");
+  }, [unreadOnly]);
+
   const enabled = state.sources.filter((s) => s.enabled);
   const byId = useMemo(
     () => new Map(state.sources.map((s) => [s.id, s])),
@@ -562,68 +607,55 @@ export function Monitor({
   }, [autoRefreshMinutes, boardItemLimit]);
 
   const baseItems = useMemo(() => {
-    const parsedLine = parseQueryLine(deferredQuery);
-    const q = parsedLine.text.trim().toLowerCase();
-    const needMine = ransomware || Boolean(q);
-    return boardItems.filter((item) => {
-      const source = byId.get(item.sourceId);
-      if (layer && item.sourceId !== layer) return false;
-      if (origin && !source?.origins.some((entry) => entry.reason === origin)) return false;
-      if (platform && source?.platform !== platform) return false;
-      if (viewDesk === "advisories" && !isAdvisoryItem(item, source)) return false;
-      if (viewDesk === "weather" && !matchesLane(item, "weather") && !itemHasTopic(item, "weather")) {
-        return false;
-      }
-      if (viewDesk === "documents" && !isDocumentItem(item)) return false;
-      if (topic) {
-        if (isKnownPlace(topic) && !isKnownTopic(topic)) {
-          if (!itemHasPlace(item, topic)) return false;
-        } else if (!itemHasTopic(item, topic)) {
-          return false;
-        }
-      }
-      if (filterTopics.length && !filterTopics.some((name) => itemHasTopic(item, name))) return false;
-      if (
-        filterTags.length &&
-        !filterTags.some((name) => item.tags.includes(name) || item.topics.includes(name))
-      ) {
-        return false;
-      }
-      if (displayCollection?.itemIds.length && !displayCollection.itemIds.includes(item.id)) return false;
-      if (place && !itemHasPlace(item, place)) return false;
-      if (person && !itemHasPerson(item, person, source)) return false;
-      if (triage.hidden.includes(itemKey(item.id))) return false;
-      if (vendor && !itemHasVendor(item, vendor)) return false;
-      if (needMine) {
-        const mined = mineItem(item);
-        if (ransomware && !mined.ransomware) return false;
-        if (
-          q &&
-          !`${item.title} ${item.summary ?? ""} ${item.extractText ?? ""} ${source?.name ?? ""} ${item.locations.join(" ")} ${mined.cves.join(" ")} ${item.iocs?.join(" ") ?? ""}`
-            .toLowerCase()
-            .includes(q)
-        ) {
-          return false;
-        }
-      }
-      if (!itemMatchesQuery(item, parsedLine.tree, source)) return false;
-      if (!itemMatchesQuery(item, qb, source)) return false;
-      return true;
+    const filters: BoardFilters = {
+      desk,
+      q: deferredQuery,
+      topic,
+      topics: filterTopics,
+      place,
+      tags: filterTags,
+      range,
+      cross,
+      stack,
+      risk: riskFilter,
+      vendor,
+      ransomware,
+      layer,
+      origin,
+      platform,
+      person,
+      rising,
+      qb,
+      focusItem,
+    };
+    return applyBoardItemFilters(boardItems, filters, byId, {
+      viewDesk,
+      filterTopics,
+      filterTags,
+      displayItemIds: displayCollection?.itemIds,
+      triageHidden: triage.hidden,
     });
   }, [
     boardItems,
     byId,
+    cross,
     deferredQuery,
+    desk,
     displayCollection,
     filterTags,
     filterTopics,
+    focusItem,
     layer,
     origin,
     person,
     place,
     platform,
     qb,
+    range,
     ransomware,
+    riskFilter,
+    rising,
+    stack,
     topic,
     triage.hidden,
     vendor,
@@ -632,6 +664,39 @@ export function Monitor({
 
   const trends = useMemo(() => buildTrends(baseItems, range, byId), [baseItems, byId, range]);
   const hotKeys = useMemo(() => risingKeySet(trends), [trends]);
+  const kevCveIds = useMemo(() => kevCatalogSet(state.kev), [state.kev]);
+  const storyCorr = useMemo(
+    () => (story: Story) => storyCorroboration(story, byId, hotKeys, kevCveIds),
+    [byId, hotKeys, kevCveIds],
+  );
+  const tunerLivePreview = useMemo(() => {
+    if (!deskEditorOpen || !tunerDraft) return null;
+    const { filters, view } = tunerDraft;
+    const ranged = state.items.filter((item) => {
+      const source = byId.get(item.sourceId);
+      if (!source?.enabled) return false;
+      return itemInTimeRange(item, filters.range);
+    });
+    const board = ranged.map((item) => applyTopicOverride(item, topicOverrides));
+    let matched = applyBoardItemFilters(board, filters, byId, {
+      viewDesk: view,
+      filterTopics: filters.topics,
+      filterTags: filters.tags,
+    });
+    if (filters.rising) {
+      const draftTrends = buildTrends(matched, filters.range, byId);
+      const keys = risingKeySet(draftTrends);
+      matched = matched.filter((item) =>
+        itemMatchesRising(item, keys, byId.get(item.sourceId)),
+      );
+    }
+    const itemCount = matched.length;
+    if (view === "scan") return { items: itemCount, stories: null as number | null };
+    const pool = clusterItems(matched);
+    const allowed = new Set(matched.map((item) => item.id));
+    const storyRows = storiesFromPool(pool, allowed, filters.cross, []);
+    return { items: itemCount, stories: storyRows.length };
+  }, [byId, deskEditorOpen, state.items, topicOverrides, tunerDraft]);
   const cveHits = useMemo(() => minedCves(baseItems).slice(0, 6), [baseItems]);
 
   const items = useMemo(() => {
@@ -643,14 +708,34 @@ export function Monitor({
 
   const stories = useMemo(() => {
     const allowed = new Set(items.map((item) => item.id));
-    return sortStories(storiesFromPool(poolStories, allowed, cross, triage.hidden), boardSort);
-  }, [boardSort, cross, items, poolStories, triage.hidden]);
+    let rows = sortStories(storiesFromPool(poolStories, allowed, cross, triage.hidden), boardSort);
+    if (unreadOnly) {
+      rows = rows.filter((story) => !triage.read.includes(`story:${story.id}`));
+    }
+    return rows;
+  }, [boardSort, cross, items, poolStories, triage.hidden, unreadOnly, triage.read]);
+
+  const visibleItems = useMemo(() => {
+    if (!unreadOnly) return items;
+    return items.filter((item) => !triage.read.includes(itemKey(item.id)));
+  }, [items, unreadOnly, triage.read]);
+
+  const boardUnreadCount = useMemo(() => {
+    if (viewDesk === "scan") {
+      return baseItems.filter((item) => !triage.read.includes(itemKey(item.id))).length;
+    }
+    const allowed = new Set(baseItems.map((item) => item.id));
+    const pool = storiesFromPool(poolStories, allowed, cross, triage.hidden);
+    return pool.filter((story) => !triage.read.includes(`story:${story.id}`)).length;
+  }, [baseItems, cross, poolStories, triage.hidden, triage.read, viewDesk]);
 
   const boardList = useMemo(() => {
-    if (viewDesk === "scan") return items.slice(0, boardCap).map((item) => ({ kind: "item" as const, item }));
+    if (viewDesk === "scan") {
+      return visibleItems.slice(0, boardCap).map((item) => ({ kind: "item" as const, item }));
+    }
     const rows = viewDesk === "pulse" ? stories.slice(0, 12) : stories.slice(0, boardCap);
     return rows.map((story) => ({ kind: "story" as const, story }));
-  }, [boardCap, items, stories, viewDesk]);
+  }, [boardCap, stories, viewDesk, visibleItems]);
 
   useEffect(() => {
     setFocusIndex(0);
@@ -1122,6 +1207,57 @@ export function Monitor({
     }
   }
 
+  async function runSetupMonitoring(opts: {
+    packs: IntelPack[];
+    loadKev: boolean;
+    homePlace: string;
+    watchName: string;
+    watchQuery: string;
+    createWatch: boolean;
+  }) {
+    setBusy(true);
+    setError(null);
+    try {
+      changeHomePlace(opts.homePlace);
+      for (const pack of opts.packs) {
+        setState(
+          await json<MonitorState>(statePath("/api/intel", boardItemLimit), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pack, enable: true }),
+          }),
+        );
+      }
+      if (opts.loadKev) {
+        setState(
+          await json<MonitorState>(statePath("/api/kev", boardItemLimit), {
+            method: "POST",
+          }),
+        );
+      }
+      if (opts.createWatch && opts.watchQuery.trim()) {
+        const res = await apiFetch("/api/watchlists", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: opts.watchName.trim() || opts.watchQuery.trim(),
+            query: opts.watchQuery.trim(),
+            notifyUrl: null,
+            desk: "home",
+          }),
+        });
+        const data = (await res.json()) as { watches?: Watchlist[]; error?: string };
+        if (!res.ok) throw new Error(data.error || res.statusText);
+        if (data.watches) setStateRaw((current) => ({ ...current, watches: data.watches ?? [] }));
+      }
+      setDesk("home");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Setup failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function loadIntel(pack: IntelPack) {
     setBusy(true);
     try {
@@ -1207,6 +1343,18 @@ export function Monitor({
     const next = defaultBoardFilters(stack);
     applyFilters(next);
     closeReader();
+    setOpenSourceId(null);
+  }
+
+  function clearHomeDashboard() {
+    setTopic(null);
+    setPlace(null);
+    setLayer(null);
+    setPerson(null);
+    setPlatform(null);
+    setRising(false);
+    setQuery("");
+    setQb(emptyQuery());
     setOpenSourceId(null);
   }
 
@@ -1387,6 +1535,13 @@ export function Monitor({
     openReader(storyContaining(item, poolStories) ?? itemAsStory(item));
   }
 
+  function openSourcePreview(id: number) {
+    setOpenSourceId((current) => (current === id ? null : id));
+    setSelectedFlight(null);
+    setAircraft(null);
+    closeReader();
+  }
+
   function focusSource(id: number) {
     if (openSourceId === id && layer === id) {
       setOpenSourceId(null);
@@ -1453,6 +1608,13 @@ export function Monitor({
     return itemAsStory(row.item);
   }
 
+  function flashReportToast(id: string, rows: typeof reports) {
+    const report = openReports(rows).find((row) => row.id === id);
+    if (!report) return;
+    setReportToast({ id: report.id, title: report.title, count: report.stories.length });
+    window.setTimeout(() => setReportToast((current) => (current?.id === id ? null : current)), 5000);
+  }
+
   function reportFocused() {
     const story = focusedStory();
     if (!story) return;
@@ -1460,13 +1622,16 @@ export function Monitor({
     const live = openReports(reports);
     const target = live.find((row) => row.id === openReportId) ?? live[0];
     if (target) {
-      setReports(addStoryToReport(target.id, snap, reports));
+      const rows = addStoryToReport(target.id, snap, reports);
+      setReports(rows);
       setOpenReportId(target.id);
+      flashReportToast(target.id, rows);
       return;
     }
     const next = createReport(story.title, snap, reports);
     setReports(next.rows);
     setOpenReportId(next.report.id);
+    flashReportToast(next.report.id, next.rows);
   }
 
   function hideFocused() {
@@ -1557,6 +1722,12 @@ export function Monitor({
     viewDesk !== "flights" &&
     viewDesk !== "reports";
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !emptyBoard) return;
+    if (window.localStorage.getItem(SETUP_WIZARD_DISMISSED_KEY)) return;
+    setSetupWizardOpen(true);
+  }, [emptyBoard]);
+
   const currentFilters: BoardFilters = {
     desk,
     q: query,
@@ -1631,6 +1802,92 @@ export function Monitor({
   const peopleCatalog = useMemo(() => peopleFromItems(rangedItems, byId), [byId, rangedItems]);
   const documents = useMemo(() => documentsFromItems(items), [items]);
 
+  const activeReport = useMemo(() => {
+    const open = reports.filter((row) => row.status === "open");
+    if (openReportId) return open.find((row) => row.id === openReportId) ?? open[0] ?? null;
+    return open[0] ?? null;
+  }, [openReportId, reports]);
+
+  function openActiveReportDesk() {
+    if (!activeReport) return;
+    openCompiledReport(activeReport.id);
+    changeDesk("reports");
+  }
+
+  const readerContextChips = useMemo((): ReaderContextChip[] => {
+    const chips: ReaderContextChip[] = [];
+    const q = query.trim();
+    if (q) {
+      chips.push({
+        id: "search",
+        label: q.length > 28 ? `${q.slice(0, 28)}…` : q,
+        hint: "Board search",
+        onClick: () => closeReader(),
+      });
+    }
+    if (place) chips.push({ id: "place", label: place, onClick: () => closeReader() });
+    if (topic) chips.push({ id: "topic", label: topic, onClick: () => closeReader() });
+    if (person) chips.push({ id: "person", label: person, onClick: () => closeReader() });
+    if (vendor) chips.push({ id: "vendor", label: vendor, onClick: () => closeReader() });
+    if (layer) {
+      chips.push({
+        id: "layer",
+        label: shortSourceName(byId.get(layer)?.name ?? "source"),
+        hint: "Filtered to this source layer",
+        onClick: () => closeReader(),
+      });
+    }
+    if (platform) chips.push({ id: "platform", label: platform, onClick: () => closeReader() });
+    if (origin) chips.push({ id: "origin", label: origin, onClick: () => closeReader() });
+    if (cross) chips.push({ id: "cross", label: "2+ sources", onClick: () => closeReader() });
+    if (rising) chips.push({ id: "rising", label: "rising", onClick: () => closeReader() });
+    return chips;
+  }, [byId, cross, layer, origin, person, place, platform, query, rising, topic]);
+
+  useEffect(() => {
+    if (!paletteOpen && !savedViewsOpen) return;
+    setPaletteSavedFilters(loadSavedFilters());
+    setPaletteBriefing(loadMyBriefing());
+  }, [paletteOpen, savedViewsOpen]);
+
+  useEffect(() => {
+    if (savedViewsOpen) return;
+    setHasBriefingProfile(Boolean(loadMyBriefing()));
+  }, [savedViewsOpen]);
+
+  const showDossierColumn =
+    viewDesk !== "flights" &&
+    (Boolean(place) || (openSourceId != null && Boolean(byId.get(openSourceId))));
+  const showFollowRail =
+    !openStory && !showDossierColumn && !(viewDesk === "flights" && selectedFlight);
+  const workspaceMultiColumn = openStory || showDossierColumn;
+
+  const investigationContextLine =
+    viewDesk === "patch"
+      ? `${kev.length} in your stack · ${p0} patch now · ${ransomwareCount} ransomware`
+      : viewDesk === "sources"
+        ? `${visibleSources.length} ${platform ?? "layers"} · cache ${state.cache.entries} bodies`
+        : viewDesk === "home"
+          ? topic || place || platform
+            ? `Filtered to ${[platform, topic, place].filter(Boolean).join(" · ")}`
+            : "Weather · quakes · war · unrest · click Ireland or a topic to filter"
+          : viewDesk === "flights"
+            ? homeCity(homePlace)
+              ? `${flights.length} airborne within 100 km of ${homeCity(homePlace)?.name}`
+              : `${flights.length} airborne tracks (world sample)`
+            : viewDesk === "people"
+              ? `${people.length} people on the board`
+              : viewDesk === "documents"
+                ? `${documents.length} reports and advisories`
+                : brief;
+
+  const secondaryFiltersActive =
+    Boolean(origin) ||
+    Boolean(platform) ||
+    Boolean(vendor) ||
+    Boolean(ransomware) ||
+    Boolean(person);
+
   const mapMarkers: MapMarker[] = useMemo(() => {
     const places = new Map<string, number>();
     for (const item of items) {
@@ -1680,6 +1937,23 @@ export function Monitor({
     else if (row.kind === "vendor") toggleVendor(row.id);
     else togglePerson(row.id);
   }
+
+  const trendBoardCount = useCallback(
+    (row: { id: string; kind: string }) =>
+      countBoardItemsForTrend(baseItems, byId, row as TrendRow),
+    [baseItems, byId],
+  );
+
+  function showTrendOnBoard(row: { id: string; kind: string; label: string }) {
+    openTrend(row);
+    setDesk("brief");
+    closeReader();
+  }
+
+  const matchingSavedFilter = useMemo(
+    () => findMatchingSavedFilter(currentFilters),
+    [currentFilters],
+  );
 
   function changeDesk(next: Desk) {
     if (next === desk) return;
@@ -1809,6 +2083,9 @@ export function Monitor({
                   /* ignore */
                 });
             }}
+            savedViewsOpen={savedViewsOpen}
+            onSavedViewsOpenChange={setSavedViewsOpen}
+            savedViewsTab={savedViewsTab}
             subreddits={subreddits}
             redditOpen={redditDialogOpen}
             onRedditOpenChange={setRedditDialogOpen}
@@ -1836,40 +2113,62 @@ export function Monitor({
             }}
             onAddRss={() => setScrapeOpen(true)}
           />
-          <div className="flex items-center gap-2 overflow-x-auto px-3 pb-1 text-[11px] text-slate-500">
-            {viewDesk === "patch"
-              ? `${kev.length} in your stack · ${p0} patch now · ${ransomwareCount} ransomware`
-              : viewDesk === "sources"
-                ? `${visibleSources.length} ${platform ?? "layers"} · cache ${state.cache.entries} bodies`
-                : viewDesk === "home"
-                  ? topic || place || platform
-                    ? `Filtered to ${[platform, topic, place].filter(Boolean).join(" · ")}`
-                    : "Weather · quakes · war · unrest · click Ireland or a topic to filter"
-                : viewDesk === "flights"
-                  ? homeCity(homePlace)
-                    ? `${flights.length} airborne within 100 km of ${homeCity(homePlace)?.name}`
-                    : `${flights.length} airborne tracks (world sample)`
-                  : viewDesk === "people"
-                    ? `${people.length} people on the board`
-                    : viewDesk === "documents"
-                      ? `${documents.length} reports and advisories`
-                  : brief}
-          </div>
-          <div className="flex flex-wrap content-start gap-1 px-3 pb-2">
-            {boardFiltersActive ? (
-              <DismissFilterChip
-                label="Clear all filters"
-                tip="Remove every active filter on this desk"
-                onDismiss={clearBoardFilters}
-                background="#f1f5f9"
-                color="#334155"
-              />
-            ) : null}
+          <InvestigationBar
+            desk={desk}
+            deskTitle={findUserDesk(desk, customDesks)?.label}
+            range={range}
+            filters={currentFilters}
+            filterTopics={filterTopics}
+            filterTags={filterTags}
+            displayOnly={Boolean(displayCollection?.itemIds.length)}
+            viewDesk={viewDesk}
+            unreadCount={boardUnreadCount}
+            unreadOnly={unreadOnly}
+            onUnreadOnlyChange={setUnreadOnly}
+            activeReportTitle={activeReport?.title ?? null}
+            activeReportStories={activeReport?.stories.length ?? 0}
+            onClearFilters={clearBoardFilters}
+            onOpenActiveReport={openActiveReportDesk}
+            filtersActive={boardFiltersActive}
+            contextLine={investigationContextLine}
+          />
+          {!firstRunDismissed ? (
+            <FirstRunChecklist
+              enabledLayers={enabled.length}
+              hasBriefing={hasBriefingProfile}
+              onSetUpMonitoring={() => setSetupWizardOpen(true)}
+              onOpenSaved={() => {
+                setSavedViewsTab("briefing");
+                setSavedViewsOpen(true);
+              }}
+              onDismiss={() => {
+                window.localStorage.setItem(FIRST_RUN_CHECKLIST_KEY, "1");
+                setFirstRunDismissed(true);
+              }}
+            />
+          ) : null}
+          <div className="board-filter-strip">
+            {query.trim() ||
+            (state.watches ?? []).some((watch) => watch.newHits > 0) ||
+            topic ||
+            filterTopics.length ||
+            filterTags.length ||
+            displayCollection?.itemIds.length ||
+            layer ||
+            platform ||
+            origin ||
+            (viewDesk === "patch" && riskFilter !== "all") ||
+            hasQuery(qb) ||
+            place ||
+            person ||
+            vendor ? (
+              <div className="filter-chip-row filter-chip-row-applied">
+                <span className="filter-chip-row-label">Active</span>
             {query.trim() ? (
               <DismissFilterChip
                 label={`Search: ${query.trim().slice(0, 32)}${query.trim().length > 32 ? "…" : ""}`}
                 onDismiss={() => setQuery("")}
-                background="#475569"
+                variant="search"
               />
             ) : null}
             {(state.watches ?? []).some((watch) => watch.newHits > 0) ? (
@@ -1882,18 +2181,18 @@ export function Monitor({
                   setQuery(watch.query);
                   if (watch.desk) setDesk(watch.desk as Desk);
                 }}
-                background="#c2410c"
+                variant="watch"
               />
             ) : null}
             {topic ? (
-              <DismissFilterChip label={`Topic: ${topic}`} onDismiss={() => setTopic(null)} background="#0f172a" />
+              <DismissFilterChip label={`Topic: ${topic}`} onDismiss={() => setTopic(null)} variant="topic" />
             ) : null}
             {filterTopics.map((name) => (
               <DismissFilterChip
                 key={`ft-${name}`}
                 label={`Topic: ${name}`}
                 onDismiss={() => setFilterTopics((rows) => rows.filter((row) => row !== name))}
-                background="#0f172a"
+                variant="topic"
               />
             ))}
             {filterTags.map((name) => (
@@ -1901,7 +2200,7 @@ export function Monitor({
                 key={`fg-${name}`}
                 label={`Tag: ${name}`}
                 onDismiss={() => setFilterTags((rows) => rows.filter((row) => row !== name))}
-                background="#1e3a8a"
+                variant="topic"
               />
             ))}
             {displayCollection?.itemIds.length ? (
@@ -1912,7 +2211,7 @@ export function Monitor({
                   clearDisplayCollection();
                   setDisplayCollection(null);
                 }}
-                background="#0369a1"
+                variant="query"
               />
             ) : null}
             {layer ? (
@@ -1922,36 +2221,20 @@ export function Monitor({
                   setLayer(null);
                   setOpenSourceId(null);
                 }}
+                variant="layer"
               />
             ) : null}
             {platform ? (
-              <DismissFilterChip label={platform} onDismiss={() => setPlatform(null)} />
+              <DismissFilterChip label={platform} onDismiss={() => setPlatform(null)} variant="default" />
             ) : null}
             {origin ? (
-              <DismissFilterChip label={`origin: ${origin}`} onDismiss={() => setOrigin(null)} />
-            ) : null}
-            {cross ? (
-              <DismissFilterChip label="2+ sources" onDismiss={() => setCross(false)} />
-            ) : null}
-            {rising ? (
-              <DismissFilterChip
-                label="rising"
-                onDismiss={() => setRising(false)}
-                background="#15803d"
-              />
-            ) : null}
-            {ransomware ? (
-              <DismissFilterChip
-                label="ransomware"
-                onDismiss={() => setRansomware(false)}
-                background="#9f1239"
-              />
+              <DismissFilterChip label={`origin: ${origin}`} onDismiss={() => setOrigin(null)} variant="default" />
             ) : null}
             {viewDesk === "patch" && riskFilter !== "all" ? (
               <DismissFilterChip
                 label={RISK_LABEL[riskFilter]}
                 onDismiss={() => setRiskFilter("all")}
-                background="#0f172a"
+                variant="risk"
               />
             ) : null}
             {hasQuery(qb) ? (
@@ -1959,58 +2242,49 @@ export function Monitor({
                 label="query builder"
                 tip={summarizeQuery(qb)}
                 onDismiss={() => setQb(emptyQuery())}
-                background="#1d4ed8"
+                variant="query"
               />
             ) : null}
             {place ? (
-              <DismissFilterChip label={place} onDismiss={() => setPlace(null)} background="#0e7490" />
+              <DismissFilterChip label={place} onDismiss={() => setPlace(null)} variant="place" />
             ) : null}
             {person ? (
-              <DismissFilterChip label={person} onDismiss={() => setPerson(null)} background="#6d28d9" />
+              <DismissFilterChip label={person} onDismiss={() => setPerson(null)} variant="person" />
             ) : null}
             {vendor ? (
-              <DismissFilterChip label={vendor} onDismiss={() => setVendor(null)} background="#9f1239" />
+              <DismissFilterChip label={vendor} onDismiss={() => setVendor(null)} variant="vendor" />
             ) : null}
+              </div>
+            ) : null}
+            <div className="filter-chip-row">
             {triageUndo.length > 0 ? (
               <Tip text="Undo the last hide or read">
                 <button
                   type="button"
                   onClick={() => applyTriage(undoTriage(triage, triageUndo))}
-                  className="tag inline-flex items-center gap-0.5"
-                  style={{ background: "#f1f5f9", color: "#334155" }}
+                  className="filter-chip filter-chip-toggle inline-flex items-center gap-0.5"
                 >
                   <Undo2 className="size-2.5" />
-                  Undo
+                  <span className="filter-chip-label">Undo</span>
                 </button>
               </Tip>
             ) : null}
             {viewDesk === "patch" ? (
               <>
                 {(["all", "p0", "p1", "p2"] as const).map((id) => (
-                  <button
+                  <BoardFilterToggle
                     key={id}
-                    type="button"
+                    label={id === "all" ? "all" : RISK_LABEL[id]}
+                    active={riskFilter === id}
                     onClick={() => setRiskFilter(id)}
-                    className="tag"
-                    style={{
-                      background: riskFilter === id ? "#0f172a" : "#f1f5f9",
-                      color: riskFilter === id ? "#fff" : "#475569",
-                    }}
-                  >
-                    {id === "all" ? "all" : RISK_LABEL[id]}
-                  </button>
+                  />
                 ))}
-                <button
-                  type="button"
+                <BoardFilterToggle
+                  label="ransomware"
+                  active={ransomware}
+                  accent="danger"
                   onClick={() => setRansomware((v) => !v)}
-                  className="tag"
-                  style={{
-                    background: ransomware ? "#9f1239" : "#ffe4e6",
-                    color: ransomware ? "#fff" : "#9f1239",
-                  }}
-                >
-                  ransomware
-                </button>
+                />
                 <Input
                   value={stack}
                   onChange={(e) => {
@@ -2023,103 +2297,30 @@ export function Monitor({
               </>
             ) : (
               <>
-                <span className="flex items-center gap-1 text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
-                  <Layers className="size-3" />
-                  {enabled.length}
+                <span className="filter-chip-row-label">
+                  <Layers className="size-3" aria-hidden />
+                  {enabled.length} layers
                 </span>
-                <button
-                  type="button"
+                <BoardFilterToggle
+                  label="2+ sources"
+                  active={cross}
                   onClick={() => setCross((v) => !v)}
-                  className="tag"
-                  style={{
-                    background: cross ? "#0f172a" : "#f1f5f9",
-                    color: cross ? "#fff" : "#475569",
-                  }}
-                >
-                  2+ sources
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRansomware((v) => !v)}
-                  className="tag"
-                  style={{
-                    background: ransomware ? "#9f1239" : "#ffe4e6",
-                    color: ransomware ? "#fff" : "#9f1239",
-                  }}
-                >
-                  ransomware
-                </button>
-                {(["intel", "reddit", "gdelt", "explore", "self", "follow"] as const).map((id) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setOrigin((current) => (current === id ? null : id))}
-                    className="tag"
-                    style={{
-                      background: origin === id ? "#0f172a" : "#f1f5f9",
-                      color: origin === id ? "#fff" : "#475569",
-                    }}
-                  >
-                    {id}
-                  </button>
-                ))}
-                <Tip text="Show items from RSS feeds only, then filter by place or topic">
-                  <button
-                    type="button"
-                    onClick={() => setPlatform((current) => (current === "rss" ? null : "rss"))}
-                    className="tag"
-                    style={{
-                      background: platform === "rss" ? "#334155" : "#f1f5f9",
-                      color: platform === "rss" ? "#f8fafc" : "#64748b",
-                    }}
-                  >
-                    RSS{platform === "rss" ? " ✓" : ""}
-                  </button>
-                </Tip>
-                <Tip text={`Keep coverage that is rising or new (${trends.compared})`}>
-                  <button
-                    type="button"
-                    onClick={() => setRising((value) => !value)}
-                    className="tag"
-                    style={{
-                      background: rising ? "#15803d" : "#dcfce7",
-                      color: rising ? "#fff" : "#15803d",
-                    }}
-                  >
-                    rising {trends.rising.length + trends.fresh.length}
-                  </button>
-                </Tip>
-                {STACK_CHIPS.map((chip) => {
-                  const active =
-                    chip.kind === "topic" ? topic === chip.value : vendor === chip.value;
-                  const style = tagStyle(chip.kind === "topic" ? chip.value : "cyber");
-                  return (
-                    <ToggleFilterChip
-                      key={chip.label}
-                      label={chip.label}
-                      active={active}
-                      tip={active ? `Remove ${chip.label} filter` : `Filter to ${chip.label}`}
-                      onToggle={() =>
-                        chip.kind === "topic" ? toggleTopic(chip.value) : toggleVendor(chip.value)
-                      }
-                      onDismiss={() =>
-                        chip.kind === "topic" ? setTopic(null) : setVendor(null)
-                      }
-                      activeBackground={style.fg}
-                      activeColor="#fff"
-                      idleBackground={style.bg}
-                      idleColor={style.fg}
-                    />
-                  );
-                })}
+                />
+                <BoardFilterToggle
+                  label={`rising ${trends.rising.length + trends.fresh.length}`}
+                  active={rising}
+                  accent="rise"
+                  tip={`Keep coverage that is rising or new (${trends.compared})`}
+                  onClick={() => setRising((value) => !value)}
+                />
                 {pinnedPlaceCounts.map(([name, count]) => {
-                  const style = tagStyle("place");
                   const active = place === name;
                   return (
                     <ToggleFilterChip
                       key={`pin-${name}`}
                       label={`${name} ${count}`}
                       active={active}
+                      accent="place"
                       tip={
                         active
                           ? `Remove ${name} filter`
@@ -2127,10 +2328,58 @@ export function Monitor({
                       }
                       onToggle={() => focusPlace(name)}
                       onDismiss={() => setPlace(null)}
-                      activeBackground={style.fg}
-                      activeColor="#fff"
-                      idleBackground={style.bg}
-                      idleColor={style.fg}
+                    />
+                  );
+                })}
+                <BoardFilterToggle
+                  label={
+                    moreFiltersOpen
+                      ? "Fewer filters"
+                      : `More filters${secondaryFiltersActive ? " •" : ""}`
+                  }
+                  active={moreFiltersOpen || secondaryFiltersActive}
+                  accent="more"
+                  tip="Origin, platform, topics, places, vendors, CVEs, and people"
+                  onClick={() => setMoreFiltersOpen((open) => !open)}
+                />
+                {moreFiltersOpen ? (
+                  <>
+                <BoardFilterToggle
+                  label="ransomware"
+                  active={ransomware}
+                  accent="danger"
+                  onClick={() => setRansomware((v) => !v)}
+                />
+                {(["intel", "reddit", "gdelt", "explore", "self", "follow"] as const).map((id) => (
+                  <BoardFilterToggle
+                    key={id}
+                    label={id}
+                    active={origin === id}
+                    onClick={() => setOrigin((current) => (current === id ? null : id))}
+                  />
+                ))}
+                <BoardFilterToggle
+                  label="RSS"
+                  active={platform === "rss"}
+                  tip="Show items from RSS feeds only, then filter by place or topic"
+                  onClick={() => setPlatform((current) => (current === "rss" ? null : "rss"))}
+                />
+                {STACK_CHIPS.map((chip) => {
+                  const active =
+                    chip.kind === "topic" ? topic === chip.value : vendor === chip.value;
+                  return (
+                    <ToggleFilterChip
+                      key={chip.label}
+                      label={chip.label}
+                      active={active}
+                      accent={chip.kind === "topic" ? "neutral" : "danger"}
+                      tip={active ? `Remove ${chip.label} filter` : `Filter to ${chip.label}`}
+                      onToggle={() =>
+                        chip.kind === "topic" ? toggleTopic(chip.value) : toggleVendor(chip.value)
+                      }
+                      onDismiss={() =>
+                        chip.kind === "topic" ? setTopic(null) : setVendor(null)
+                      }
                     />
                   );
                 })}
@@ -2138,7 +2387,6 @@ export function Monitor({
                   .filter(([name]) => !STACK_TOPIC_VALUES.has(name))
                   .slice(0, 10)
                   .map(([name, count]) => {
-                  const style = tagStyle(name);
                   const active = topic === name;
                   return (
                     <ToggleFilterChip
@@ -2148,10 +2396,6 @@ export function Monitor({
                       tip={active ? `Remove ${name} filter` : `Filter this desk to ${name}`}
                       onToggle={() => toggleTopic(name)}
                       onDismiss={() => setTopic(null)}
-                      activeBackground={style.fg}
-                      activeColor="#fff"
-                      idleBackground={style.bg}
-                      idleColor={style.fg}
                     />
                   );
                 })}
@@ -2159,19 +2403,15 @@ export function Monitor({
                   .filter(([name]) => isCountry(name) && !PINNED_PLACES.includes(name as (typeof PINNED_PLACES)[number]))
                   .slice(0, 8)
                   .map(([name, count]) => {
-                    const style = tagStyle("place");
                     const active = place === name;
                     return (
                       <ToggleFilterChip
                         key={`country-${name}`}
                         label={`${name} ${count}`}
                         active={active}
+                        accent="place"
                         onToggle={() => focusPlace(name)}
                         onDismiss={() => setPlace(null)}
-                        activeBackground={style.fg}
-                        activeColor="#fff"
-                        idleBackground={style.bg}
-                        idleColor={style.fg}
                       />
                     );
                   })}
@@ -2179,19 +2419,15 @@ export function Monitor({
                   .filter(([name]) => !isCountry(name))
                   .slice(0, 5)
                   .map(([name, count]) => {
-                    const style = tagStyle("place");
                     const active = place === name;
                     return (
                       <ToggleFilterChip
                         key={name}
                         label={`${name} ${count}`}
                         active={active}
+                        accent="place"
                         onToggle={() => focusPlace(name)}
                         onDismiss={() => setPlace(null)}
-                        activeBackground={style.fg}
-                        activeColor="#fff"
-                        idleBackground={style.bg}
-                        idleColor={style.fg}
                       />
                     );
                   })}
@@ -2205,12 +2441,9 @@ export function Monitor({
                       key={name}
                       label={`${name} ${count}`}
                       active={active}
+                      accent="danger"
                       onToggle={() => toggleVendor(name)}
                       onDismiss={() => setVendor(null)}
-                      activeBackground="#9f1239"
-                      activeColor="#fff"
-                      idleBackground="#fee2e2"
-                      idleColor="#9f1239"
                     />
                   );
                 })}
@@ -2221,13 +2454,10 @@ export function Monitor({
                       key={cve}
                       label={`${cve} ${count}`}
                       active={active}
+                      accent="danger"
                       tip={active ? `Clear ${cve} search` : `Search the board for ${cve}`}
                       onToggle={() => setQuery((current) => (current === cve ? "" : cve))}
                       onDismiss={() => setQuery("")}
-                      activeBackground="#9f1239"
-                      activeColor="#fff"
-                      idleBackground="#fff7ed"
-                      idleColor="#9a3412"
                     />
                   );
                 })}
@@ -2241,15 +2471,18 @@ export function Monitor({
                       tip={active ? `Remove ${row.name} filter` : `Filter to ${row.name}`}
                       onToggle={() => togglePerson(row.name)}
                       onDismiss={() => setPerson(null)}
-                      activeBackground="#6d28d9"
-                      activeColor="#fff"
-                      idleBackground="#ede9fe"
-                      idleColor="#6d28d9"
                     />
                   );
                 })}
+                  </>
+                ) : null}
                 {viewDesk === "sources" ? (
               <>
+                <Tip text="Guided packs, home location, optional watch">
+                  <Button size="xs" onClick={() => setSetupWizardOpen(true)} disabled={busy}>
+                    Set up monitoring
+                  </Button>
+                </Tip>
                 <Tip text="BBC, Guardian, NYT, and other world desks">
                   <Button size="xs" variant="outline" onClick={() => loadIntel("core")} disabled={busy}>
                     World RSS
@@ -2348,11 +2581,14 @@ export function Monitor({
                 ) : null}
               </>
             )}
+            </div>
           </div>
         </header>
 
         <div
-          className={`flex min-h-0 flex-1 flex-col ${openStory ? "lg:flex-row" : "lg:grid lg:grid-cols-[1fr_260px]"}`}
+          className={`monitor-workspace ${workspaceMultiColumn ? "monitor-workspace-row" : ""} ${
+            showFollowRail ? "lg:grid lg:grid-cols-[1fr_260px]" : ""
+          }`}
         >
           <main
             className={`min-w-0 flex-1 ${viewDesk === "flights" ? "flex min-h-0 flex-col" : ""}`}
@@ -2365,7 +2601,10 @@ export function Monitor({
                   RSS plus CISA KEV, filtered to vendor, stack, and ransomware.
                 </p>
                 <div className="mt-4 flex flex-wrap justify-center gap-2">
-                  <Button size="sm" onClick={() => loadIntel("core")} disabled={busy}>
+                  <Button size="sm" onClick={() => setSetupWizardOpen(true)} disabled={busy}>
+                    Set up monitoring
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => loadIntel("core")} disabled={busy}>
                     Load world RSS
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => loadIntel("security")} disabled={busy}>
@@ -2497,6 +2736,8 @@ export function Monitor({
                 platform={platform}
                 rising={rising}
                 queryActive={hasQuery(qb)}
+                searchQuery={query}
+                onResetFilter={clearHomeDashboard}
                 onOpenStory={openReader}
                 onLane={openLane}
                 onTopic={toggleTopic}
@@ -2527,15 +2768,14 @@ export function Monitor({
                 onHomeChange={changeHomePlace}
               />
             ) : viewDesk === "people" ? (
-              <EntityDesk
-                title="People"
-                hint="Authors and named voices on the current board. Click to filter everything to that person."
-                rows={people.map((row) => ({
-                  id: row.name,
-                  title: row.name,
-                  meta: `${row.count} items · ${row.topics.slice(0, 3).join(" · ") || "no topic"} · ${row.sample}`,
-                }))}
-                onOpen={togglePerson}
+              <PeopleDesk
+                rows={people}
+                items={items}
+                sources={byId}
+                activePerson={person}
+                onPerson={togglePerson}
+                onPreviewSource={openSourcePreview}
+                onToggleSource={(id, enabledNow) => void toggleLayer(id, enabledNow)}
               />
             ) : viewDesk === "documents" ? (
               <EntityDesk
@@ -2561,6 +2801,7 @@ export function Monitor({
               />
             ) : viewDesk === "sources" ? (
               <div className={`board p-2 ${compact ? "board-compact" : ""}`}>
+                <CorpusStatsCard enabledLayers={enabled.length} boardItems={items.length} />
                 <CacheCard entries={state.cache.entries} bytes={state.cache.bytes} />
                 <HealthCard value={stats.health} fresh={stats.fresh} total={enabled.length} />
                 {visibleSources.map((source) => (
@@ -2613,9 +2854,23 @@ export function Monitor({
                           hint={trends.compared}
                           rows={trends.rising}
                           onSelect={openTrend}
+                          onShowOnBoard={showTrendOnBoard}
+                          boardCount={trendBoardCount}
                         />
-                        <TrendList title="New" rows={trends.fresh} onSelect={openTrend} />
-                        <TrendList title="Falling" rows={trends.falling} onSelect={openTrend} />
+                        <TrendList
+                          title="New"
+                          rows={trends.fresh}
+                          onSelect={openTrend}
+                          onShowOnBoard={showTrendOnBoard}
+                          boardCount={trendBoardCount}
+                        />
+                        <TrendList
+                          title="Falling"
+                          rows={trends.falling}
+                          onSelect={openTrend}
+                          onShowOnBoard={showTrendOnBoard}
+                          boardCount={trendBoardCount}
+                        />
                       </>
                     ) : null}
                     {stats.topicRows.length > 0 ? (
@@ -2710,6 +2965,7 @@ export function Monitor({
                           }
                           read={triage.read.includes(`story:${story.id}`)}
                           focused={focusIndex === index}
+                          corroboration={storyCorr(story)}
                         />
                       ))
                     : stories.slice(0, boardCap).map((story, index) => (
@@ -2717,6 +2973,7 @@ export function Monitor({
                           key={story.id}
                           story={story}
                           sources={byId}
+                          corroboration={storyCorr(story)}
                           onOpen={() => openReader(story)}
                           onTopic={toggleTopic}
                           onPlace={focusPlace}
@@ -2803,10 +3060,26 @@ export function Monitor({
                   onDesk={changeDesk}
                   onReclassifyItem={(item, event) => openCardMenu(item, event, openStory)}
                   onCopyCardLink={(item) => void copyCardLinkFor(item)}
+                  boardContext={{
+                    deskLabel: findUserDesk(desk, customDesks)?.label ?? investigationDeskLabel(desk),
+                    range,
+                    chips: readerContextChips,
+                    onClearFilters: boardFiltersActive ? clearBoardFilters : undefined,
+                  }}
+                  hypothesisContext={
+                    matchingSavedFilter?.hypotheses?.length
+                      ? {
+                          filterId: matchingSavedFilter.id,
+                          filterName: matchingSavedFilter.name,
+                          hypotheses: matchingSavedFilter.hypotheses,
+                        }
+                      : undefined
+                  }
                 />
               </div>
             </div>
-          ) : viewDesk === "flights" && selectedFlight ? (
+          ) : null}
+          {!openStory && viewDesk === "flights" && selectedFlight ? (
             <AircraftPane
               flight={selectedFlight}
               profile={aircraft}
@@ -2815,47 +3088,54 @@ export function Monitor({
                 setAircraft(null);
               }}
             />
-          ) : viewDesk !== "flights" && place ? (
-            <PlacePane
-              place={place}
-              items={[...state.items]
-                .filter((item) => itemHasPlace(item, place))
-                .sort((a, b) => (b.publishedAt ?? b.fetchedAt) - (a.publishedAt ?? a.fetchedAt))}
-              rangedCount={rangedItems.filter((item) => itemHasPlace(item, place)).length}
-              sources={byId}
-              onClose={() => setPlace(null)}
-              onOpenItem={openItem}
-              onScan={() => {
-                setDesk("scan");
-                setPlace(place);
-              }}
-              onTopic={toggleTopic}
-              onSource={focusSource}
-            />
-          ) : viewDesk !== "flights" && openSourceId && byId.get(openSourceId) ? (
-            <SourcePane
-              source={byId.get(openSourceId)!}
-              items={[...state.items]
-                .filter((item) => item.sourceId === openSourceId)
-                .sort((a, b) => (b.publishedAt ?? b.fetchedAt) - (a.publishedAt ?? a.fetchedAt))}
-              rangedCount={rangedItems.filter((item) => item.sourceId === openSourceId).length}
-              onClose={() => setOpenSourceId(null)}
-              onOpenItem={openItem}
-              onScan={() => {
-                setDesk("scan");
-                setLayer(openSourceId);
-              }}
-            />
-          ) : selectedFlight ? (
-            <AircraftPane
-              flight={selectedFlight}
-              profile={aircraft}
-              onClose={() => {
-                setSelectedFlight(null);
-                setAircraft(null);
-              }}
-            />
-          ) : (
+          ) : null}
+          {showDossierColumn ? (
+            <div className="monitor-dossier-column">
+              {place ? (
+                <PlacePane
+                  place={place}
+                  items={[...state.items]
+                    .filter((item) => itemHasPlace(item, place))
+                    .sort(
+                      (a, b) => (b.publishedAt ?? b.fetchedAt) - (a.publishedAt ?? a.fetchedAt),
+                    )}
+                  rangedCount={rangedItems.filter((item) => itemHasPlace(item, place)).length}
+                  sources={byId}
+                  onClose={() => setPlace(null)}
+                  onOpenItem={openItem}
+                  onScan={() => {
+                    setDesk("scan");
+                    setPlace(place);
+                  }}
+                  onTopic={toggleTopic}
+                  onSource={focusSource}
+                />
+              ) : openSourceId && byId.get(openSourceId) ? (
+                <SourcePane
+                  source={byId.get(openSourceId)!}
+                  items={[...state.items]
+                    .filter((item) => item.sourceId === openSourceId)
+                    .filter(
+                      (item) =>
+                        !person || itemHasPerson(item, person, byId.get(item.sourceId)),
+                    )
+                    .sort(
+                      (a, b) => (b.publishedAt ?? b.fetchedAt) - (a.publishedAt ?? a.fetchedAt),
+                    )}
+                  rangedCount={
+                    rangedItems.filter((item) => item.sourceId === openSourceId).length
+                  }
+                  onClose={() => setOpenSourceId(null)}
+                  onOpenItem={openItem}
+                  onScan={() => {
+                    setDesk("scan");
+                    setLayer(openSourceId);
+                  }}
+                />
+              ) : null}
+            </div>
+          ) : null}
+          {showFollowRail ? (
             <aside className="border-t border-slate-200 bg-white lg:border-t-0 lg:border-l">
               <div className="sticky top-[96px] p-3">
                 <button
@@ -2931,7 +3211,7 @@ export function Monitor({
                 )}
               </div>
             </aside>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -2939,10 +3219,16 @@ export function Monitor({
         open={deskEditorOpen}
         onOpenChange={(open) => {
           setDeskEditorOpen(open);
-          if (!open) setEditingDesk(null);
+          if (!open) {
+            setEditingDesk(null);
+            setTunerDraft(null);
+          }
         }}
         current={currentFilters}
         editing={editingDesk}
+        liveMatchCount={tunerLivePreview?.items ?? null}
+        liveStoryCount={tunerLivePreview?.stories ?? null}
+        onDraftChange={(filters, view) => setTunerDraft({ filters, view })}
         onApply={(filters) =>
           applyFilters(editingDesk ? { ...filters, desk: editingDesk.id } : filters)
         }
@@ -2983,19 +3269,42 @@ export function Monitor({
         places={places.map(([name]) => name)}
         watches={state.watches ?? []}
         customDesks={customDesks}
+        savedFilters={paletteSavedFilters}
+        briefing={paletteBriefing}
+        people={peopleCatalog.map((row) => row.name)}
+        unreadOnly={unreadOnly}
         onClose={() => setPaletteOpen(false)}
         onAction={(action) => {
           if (action.kind === "desk") changeDesk(action.desk);
           if (action.kind === "place") focusPlace(action.place);
+          if (action.kind === "person") togglePerson(action.name);
           if (action.kind === "source") focusSource(action.sourceId);
           if (action.kind === "search") document.getElementById("board-search")?.focus();
           if (action.kind === "refresh") void refresh();
+          if (action.kind === "clear-filters") clearBoardFilters();
+          if (action.kind === "toggle-unread") setUnreadOnly((value) => !value);
+          if (action.kind === "apply-briefing") void applyMyBriefing(action.profile);
+          if (action.kind === "saved-filter") applyFilters(action.filters);
+          if (action.kind === "open-reports") changeDesk("reports");
+          if (action.kind === "open-user-guide") {
+            window.open("/help", "_blank", "noopener,noreferrer");
+            setPaletteOpen(false);
+            return;
+          }
+          if (action.kind === "open-saved") {
+            setSavedViewsTab(action.tab);
+            setSavedViewsOpen(true);
+            setPaletteOpen(false);
+            return;
+          }
           if (action.kind === "help") {
             setPaletteMode("help");
             setPaletteOpen(true);
             return;
           }
           if (action.kind === "watch-current") {
+            setSavedViewsTab("watches");
+            setSavedViewsOpen(true);
             setPaletteOpen(false);
             return;
           }
@@ -3005,6 +3314,25 @@ export function Monitor({
           }
           setPaletteOpen(false);
         }}
+      />
+      {reportToast ? (
+        <ActiveReportToast
+          title={reportToast.title}
+          storyCount={reportToast.count}
+          onOpen={() => {
+            openCompiledReport(reportToast.id);
+            changeDesk("reports");
+            setReportToast(null);
+          }}
+          onDismiss={() => setReportToast(null)}
+        />
+      ) : null}
+      <SetupMonitoringWizard
+        open={setupWizardOpen}
+        onOpenChange={setSetupWizardOpen}
+        homePlace={homePlace}
+        busy={busy}
+        onComplete={runSetupMonitoring}
       />
     </div>
   );

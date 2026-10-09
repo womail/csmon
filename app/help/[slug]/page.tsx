@@ -1,4 +1,4 @@
-import { ManualView } from "@/components/monitor/manual-view";
+import { HelpGuideView } from "@/components/monitor/help-guide-view";
 
 export default async function HelpSectionPage({
   params,
@@ -6,5 +6,7 @@ export default async function HelpSectionPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  return <ManualView slug={slug} />;
+  const audience =
+    slug.startsWith("maintainer") || slug === "lexicon" ? "all" : "user";
+  return <HelpGuideView slug={slug} audience={audience} />;
 }

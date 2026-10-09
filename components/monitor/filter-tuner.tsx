@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { BuiltinDesk } from "@/lib/types";
 import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +20,7 @@ import {
 import { knownTopicTags } from "@/lib/classify";
 import { knownPlaceNames } from "@/lib/places";
 import { emptyQuery } from "@/lib/query-builder";
-import { isBuiltinDesk, type BuiltinDesk, type OriginReason, type Platform, type TimeRange } from "@/lib/types";
+import { isBuiltinDesk, type OriginReason, type Platform, type TimeRange } from "@/lib/types";
 import { autoDeskLabel, resolveDeskLabel, summarizeDesk, type UserDesk } from "@/lib/user-desks";
 
 const VIEW_DESKS: BuiltinDesk[] = ["home", "brief", "scan", "sources"];
@@ -35,6 +36,9 @@ export function FilterTuner({
   onApply,
   onCreate,
   onUpdate,
+  liveMatchCount,
+  liveStoryCount,
+  onDraftChange,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -43,6 +47,10 @@ export function FilterTuner({
   onApply: (filters: BoardFilters) => void;
   onCreate: (label: string, filters: BoardFilters, view: BuiltinDesk) => void;
   onUpdate: (id: string, label: string, filters: BoardFilters, view: BuiltinDesk) => void;
+  /** Items that would match the draft filters on the chosen desk view. */
+  liveMatchCount?: number | null;
+  liveStoryCount?: number | null;
+  onDraftChange?: (filters: BoardFilters, view: BuiltinDesk) => void;
 }) {
   const [label, setLabel] = useState("");
   const [view, setView] = useState<BuiltinDesk>("brief");
@@ -56,7 +64,7 @@ export function FilterTuner({
       editing?.view ??
         (isBuiltinDesk(current.desk) && VIEW_DESKS.includes(current.desk) ? current.desk : "brief"),
     );
-  }, [open, editing]);
+  }, [open, current, editing]);
 
   function prepared() {
     return normalizeBoardFilters({
@@ -69,6 +77,11 @@ export function FilterTuner({
     onApply(prepared());
     onOpenChange(false);
   }
+
+  useEffect(() => {
+    if (!open || !onDraftChange) return;
+    onDraftChange(normalizeBoardFilters({ ...draft, desk: view }), view);
+  }, [draft, onDraftChange, open, view]);
 
   function saveDesk() {
     const filters = prepared();
@@ -105,6 +118,27 @@ export function FilterTuner({
             Saves as <span className="font-medium text-slate-700">{resolveDeskLabel(label, prepared())}</span>
             {summarizeDesk(prepared()) ? ` · ${summarizeDesk(prepared())}` : ""}
           </p>
+          {liveMatchCount != null ? (
+            <p className="tune-live-preview">
+              <span className="font-semibold text-foreground">
+                {liveMatchCount} item{liveMatchCount === 1 ? "" : "s"}
+              </span>
+              {liveStoryCount != null && view !== "scan" ? (
+                <>
+                  {" "}
+                  ·{" "}
+                  <span className="font-semibold text-foreground">
+                    ~{liveStoryCount} stor{liveStoryCount === 1 ? "y" : "ies"}
+                  </span>{" "}
+                  after clustering
+                </>
+              ) : view === "scan" ? (
+                " match on Scan"
+              ) : (
+                " match before clustering"
+              )}
+            </p>
+          ) : null}
           <div className="flex flex-wrap justify-end gap-2">
             <Button size="sm" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel

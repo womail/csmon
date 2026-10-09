@@ -41,6 +41,11 @@ import { isVendorAdvisoryLink } from "@/lib/page-links";
 import type { ReportVulnPlanSnapshot } from "@/lib/report-vuln-plan";
 import type { NvdCveBrief } from "@/lib/nvd";
 import type { Report } from "@/lib/reports";
+import {
+  ReaderContextStrip,
+  type ReaderContextChip,
+} from "@/components/monitor/reader-context-strip";
+import { HypothesisReaderStrip } from "@/components/monitor/hypothesis-reader-strip";
 import type { BuiltinDesk, Item, Source } from "@/lib/types";
 
 export function ReaderPane({
@@ -72,6 +77,8 @@ export function ReaderPane({
   onReclassifyItem,
   onCopyCardLink,
   vulnResponse = true,
+  boardContext,
+  hypothesisContext,
 }: {
   story: Story;
   sources: Map<number, Source>;
@@ -101,6 +108,17 @@ export function ReaderPane({
   onReclassifyItem?: (item: Item, event: ReactMouseEvent) => void;
   onCopyCardLink?: (item: Item) => void;
   vulnResponse?: boolean;
+  boardContext?: {
+    deskLabel: string;
+    range: string;
+    chips: ReaderContextChip[];
+    onClearFilters?: () => void;
+  };
+  hypothesisContext?: {
+    filterId: string;
+    filterName: string;
+    hypotheses: string[];
+  };
 }) {
   const [activeId, setActiveId] = useState(story.items[0].id);
   const [article, setArticle] = useState<ArticleRead | null>(null);
@@ -363,6 +381,24 @@ export function ReaderPane({
           </button>
         </Tip>
       </div>
+
+      {boardContext ? (
+        <ReaderContextStrip
+          deskLabel={boardContext.deskLabel}
+          range={boardContext.range}
+          chips={boardContext.chips}
+          onClearFilters={boardContext.onClearFilters}
+        />
+      ) : null}
+
+      {hypothesisContext ? (
+        <HypothesisReaderStrip
+          filterId={hypothesisContext.filterId}
+          filterName={hypothesisContext.filterName}
+          hypotheses={hypothesisContext.hypotheses}
+          storyId={story.id}
+        />
+      ) : null}
 
       <div className="flex flex-wrap gap-1 border-b border-slate-50 px-3 py-2">
         {itemTopicChips(active).map((topic) => {

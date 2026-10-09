@@ -3,30 +3,70 @@
 import { X } from "lucide-react";
 import { Tip } from "@/components/monitor/tip";
 
-/** Applied filter pill with an explicit remove control. */
+export type AppliedFilterVariant =
+  | "default"
+  | "search"
+  | "topic"
+  | "place"
+  | "person"
+  | "vendor"
+  | "watch"
+  | "query"
+  | "risk"
+  | "layer";
+
+/** Active constraint — always dismissible, accent stripe only (not a full color fill). */
 export function DismissFilterChip({
   label,
   onDismiss,
   tip,
-  background = "#0f172a",
-  color = "#fff",
+  variant = "default",
 }: {
   label: string;
   onDismiss: () => void;
   tip?: string;
-  background?: string;
-  color?: string;
+  variant?: AppliedFilterVariant;
 }) {
   const chip = (
     <button
       type="button"
       onClick={onDismiss}
-      className="tag inline-flex max-w-[14rem] items-center gap-1 truncate"
-      style={{ background, color }}
+      className={`filter-chip filter-chip-applied filter-chip-applied-${variant}`}
       aria-label={`Remove filter: ${label}`}
     >
-      <span className="truncate">{label}</span>
-      <X className="size-3 shrink-0 opacity-90" aria-hidden />
+      <span className="filter-chip-label">{label}</span>
+      <X className="filter-chip-x" aria-hidden />
+    </button>
+  );
+  return tip ? <Tip text={tip}>{chip}</Tip> : chip;
+}
+
+export type ToggleAccent = "neutral" | "place" | "rise" | "danger" | "more";
+
+/** Board filter you can turn on/off (2+ sources, rising, pinned places). */
+export function BoardFilterToggle({
+  label,
+  active,
+  onClick,
+  tip,
+  accent = "neutral",
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  tip?: string;
+  accent?: ToggleAccent;
+}) {
+  const chip = (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`filter-chip filter-chip-toggle filter-chip-toggle-${accent}`}
+      data-active={active ? "true" : "false"}
+      aria-pressed={active}
+    >
+      <span className="filter-chip-label">{label}</span>
+      {active ? <X className="filter-chip-x" aria-hidden /> : null}
     </button>
   );
   return tip ? <Tip text={tip}>{chip}</Tip> : chip;
@@ -39,34 +79,26 @@ export function ToggleFilterChip({
   onToggle,
   onDismiss,
   tip,
-  activeBackground,
-  activeColor,
-  idleBackground,
-  idleColor,
+  accent = "place",
 }: {
   label: string;
   active: boolean;
   onToggle: () => void;
   onDismiss?: () => void;
   tip?: string;
-  activeBackground: string;
-  activeColor: string;
-  idleBackground: string;
-  idleColor: string;
+  accent?: ToggleAccent;
 }) {
   const chip = (
     <button
       type="button"
       onClick={active && onDismiss ? onDismiss : onToggle}
-      className="tag inline-flex max-w-[14rem] items-center gap-1 truncate"
-      style={{
-        background: active ? activeBackground : idleBackground,
-        color: active ? activeColor : idleColor,
-      }}
+      className={`filter-chip filter-chip-toggle filter-chip-toggle-${accent}`}
+      data-active={active ? "true" : "false"}
+      aria-pressed={active}
       aria-label={active ? `Remove filter: ${label}` : `Filter to ${label}`}
     >
-      <span className="truncate">{label}</span>
-      {active ? <X className="size-3 shrink-0 opacity-90" aria-hidden /> : null}
+      <span className="filter-chip-label">{label}</span>
+      {active ? <X className="filter-chip-x" aria-hidden /> : null}
     </button>
   );
   return tip ? <Tip text={tip}>{chip}</Tip> : chip;

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
+  BookOpen,
   ChevronDown,
   MoreHorizontal,
   Plus,
@@ -15,11 +17,9 @@ import { OptionsButton } from "@/components/monitor/options-panel";
 import { GdeltButton } from "@/components/monitor/gdelt-panel";
 import { AcledButton } from "@/components/monitor/acled-panel";
 import { RedditButton } from "@/components/monitor/reddit-panel";
-import { SavedFilters } from "@/components/monitor/saved-filters";
-import { BriefingButton } from "@/components/monitor/briefing-button";
+import { SavedViewsButton } from "@/components/monitor/saved-views-panel";
 import { ThemeToggle } from "@/components/monitor/theme-toggle";
 import { QueryBuilderButton } from "@/components/monitor/query-builder";
-import { WatchButton } from "@/components/monitor/watch-panel";
 import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +61,9 @@ export function MonitorToolbar({
   watches,
   onWatchesChange,
   onOpenWatch,
+  savedViewsOpen,
+  onSavedViewsOpenChange,
+  savedViewsTab,
   subreddits,
   redditOpen,
   onRedditOpenChange,
@@ -102,6 +105,9 @@ export function MonitorToolbar({
   watches: Watchlist[];
   onWatchesChange: (watches: Watchlist[]) => void;
   onOpenWatch: (watch: Watchlist) => void;
+  savedViewsOpen: boolean;
+  onSavedViewsOpenChange: (open: boolean) => void;
+  savedViewsTab: "filters" | "briefing" | "watches";
   subreddits: string[];
   redditOpen: boolean;
   onRedditOpenChange: (open: boolean) => void;
@@ -137,30 +143,39 @@ export function MonitorToolbar({
             placeholder={
               viewDesk === "patch" ? "CVE, vendor, product" : "source:cisa place:Ireland -topic:sports"
             }
-            className="h-7 border-border bg-background pl-6 text-[11px]"
+            className="board-search-input h-7 border-border bg-background pl-6 text-[11px]"
           />
         </div>
         <div className="toolbar-group">
-          <SavedFilters current={currentFilters} onApply={onApplyFilters} />
-          <QueryBuilderButton value={qb} onChange={onQbChange} />
-          <WatchButton
-            query={watchLine}
+          <SavedViewsButton
+            current={currentFilters}
+            onApplyFilters={onApplyFilters}
+            watchLine={watchLine}
             desk={desk}
             watches={watches}
-            onChange={onWatchesChange}
+            onWatchesChange={onWatchesChange}
             onOpenWatch={onOpenWatch}
+            enabledSourceKeys={enabledSourceKeys}
+            onApplyBriefing={onApplyBriefing}
+            open={savedViewsOpen}
+            onOpenChange={onSavedViewsOpenChange}
+            initialTab={savedViewsTab}
           />
+          <QueryBuilderButton value={qb} onChange={onQbChange} />
           <Tip text="Tune filters and save as a desk">
             <Button size="xs" variant="outline" onClick={onTune}>
               <SlidersHorizontal className="size-3" />
               Tune
             </Button>
           </Tip>
-          <BriefingButton
-            filters={currentFilters}
-            enabledSourceKeys={enabledSourceKeys}
-            onApply={onApplyBriefing}
-          />
+          <Tip text="Illustrated user guide with screenshots">
+            <Button size="xs" variant="outline" asChild>
+              <Link href="/help" target="_blank" rel="noopener noreferrer">
+                <BookOpen className="size-3" />
+                Help
+              </Link>
+            </Button>
+          </Tip>
         </div>
         <div className="toolbar-segment hidden sm:flex">
           {ranges.map((r) => (

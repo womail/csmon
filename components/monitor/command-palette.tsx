@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { BoardFilters } from "@/lib/board-state";
 import { DESKS } from "@/lib/board-state";
 import { COMMAND_DESKS } from "@/lib/hotkeys";
+import type { MyBriefingProfile } from "@/lib/briefing-profile";
+import type { SavedFilter } from "@/lib/saved-filters";
 import type { Watchlist } from "@/lib/types";
 import type { UserDesk } from "@/lib/user-desks";
 import type { Desk, Source } from "@/lib/types";
@@ -15,7 +18,15 @@ export type PaletteAction =
   | { kind: "search" }
   | { kind: "refresh" }
   | { kind: "help" }
-  | { kind: "watch-current" };
+  | { kind: "watch-current" }
+  | { kind: "clear-filters" }
+  | { kind: "toggle-unread" }
+  | { kind: "apply-briefing"; profile: MyBriefingProfile }
+  | { kind: "open-saved"; tab: "filters" | "briefing" | "watches" }
+  | { kind: "saved-filter"; filters: BoardFilters }
+  | { kind: "open-reports" }
+  | { kind: "open-user-guide" }
+  | { kind: "person"; name: string };
 
 type Row = {
   id: string;
@@ -44,6 +55,10 @@ export function CommandPalette({
   places,
   watches,
   customDesks,
+  savedFilters,
+  briefing,
+  people,
+  unreadOnly,
   onClose,
   onAction,
 }: {
@@ -53,6 +68,10 @@ export function CommandPalette({
   places: string[];
   watches: Watchlist[];
   customDesks: UserDesk[];
+  savedFilters: SavedFilter[];
+  briefing: MyBriefingProfile | null;
+  people: string[];
+  unreadOnly: boolean;
   onClose: () => void;
   onAction: (action: PaletteAction) => void;
 }) {
@@ -66,9 +85,35 @@ export function CommandPalette({
     const list: Row[] = [
       { id: "search", label: "Focus search", hint: "/", action: { kind: "search" } },
       { id: "refresh", label: "Refresh layers", hint: "reload", action: { kind: "refresh" } },
-      { id: "watch-current", label: "Watch this query", hint: "watchlist", action: { kind: "watch-current" } },
+      { id: "clear-filters", label: "Clear board filters", hint: "reset", action: { kind: "clear-filters" } },
+      {
+        id: "toggle-unread",
+        label: unreadOnly ? "Show all items (not unread only)" : "Unread only",
+        hint: "triage",
+        action: { kind: "toggle-unread" },
+      },
+      { id: "open-saved", label: "Saved views…", hint: "filters", action: { kind: "open-saved", tab: "filters" } },
+      { id: "watch-current", label: "Watch this query…", hint: "watchlist", action: { kind: "watch-current" } },
+      { id: "open-reports", label: "Open Reports desk", hint: "briefings", action: { kind: "open-reports" } },
+      { id: "user-guide", label: "User guide (screenshots)", hint: "/help", action: { kind: "open-user-guide" } },
       { id: "help", label: "Keyboard cheatsheet", hint: "?", action: { kind: "help" } },
     ];
+    if (briefing) {
+      list.push({
+        id: "apply-briefing",
+        label: `Apply briefing: ${briefing.name}`,
+        hint: "saved",
+        action: { kind: "apply-briefing", profile: briefing },
+      });
+    }
+    for (const row of savedFilters.slice(0, 8)) {
+      list.push({
+        id: `filter-${row.id}`,
+        label: `Filter: ${row.name}`,
+        hint: "saved",
+        action: { kind: "saved-filter", filters: row.filters },
+      });
+    }
     for (const desk of DESKS) {
       const idx = COMMAND_DESKS.indexOf(desk.id as (typeof COMMAND_DESKS)[number]);
       list.push({
@@ -110,12 +155,20 @@ export function CommandPalette({
         action: { kind: "watch", watch },
       });
     }
+    for (const name of people.slice(0, 10)) {
+      list.push({
+        id: `person-${name}`,
+        label: `Person: ${name}`,
+        hint: "filter",
+        action: { kind: "person", name },
+      });
+    }
     const needle = q.trim().toLowerCase();
     if (!needle) return list.slice(0, 18);
     return list
       .filter((row) => `${row.label} ${row.hint}`.toLowerCase().includes(needle))
       .slice(0, 18);
-  }, [customDesks, places, q, sources, watches]);
+  }, [briefing, customDesks, people, places, q, savedFilters, sources, unreadOnly, watches]);
 
   const [index, setIndex] = useState(0);
   useEffect(() => setIndex(0), [q, open, mode]);
@@ -149,7 +202,7 @@ export function CommandPalette({
               autoFocus
               value={q}
               onChange={(event) => setQ(event.target.value)}
-              placeholder="Jump to desk, place, source, watch…"
+              placeholder="Desk, place, source, person, saved filter, watch…"
               className="h-10 w-full border-b border-slate-200 px-3 text-[13px] outline-none"
               onKeyDown={(event) => {
                 if (event.key === "ArrowDown") {

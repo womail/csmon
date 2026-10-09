@@ -43,6 +43,8 @@ export function HomeDashboard({
   platform,
   rising,
   queryActive,
+  searchQuery,
+  onResetFilter,
   onOpenStory,
   onLane,
   onTopic,
@@ -73,6 +75,8 @@ export function HomeDashboard({
   platform?: string | null;
   rising?: boolean;
   queryActive?: boolean;
+  searchQuery?: string;
+  onResetFilter?: () => void;
   onOpenStory: (story: Story) => void;
   onLane: (lane: SituationLane) => void;
   onTopic: (topic: string) => void;
@@ -89,7 +93,21 @@ export function HomeDashboard({
   trendHint?: string;
   onTrend?: (row: TrendRow) => void;
 }) {
-  const filtered = Boolean(topic || layer || person || place || platform || rising || queryActive);
+  const filtered = Boolean(
+    topic || layer || person || place || platform || rising || queryActive || searchQuery?.trim(),
+  );
+
+  const filteredLabel = [
+    place,
+    topic,
+    person,
+    layer != null ? "source layer" : null,
+    platform,
+    rising ? "rising" : null,
+    searchQuery?.trim() ? "search" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const lanes = SITUATION_LANES.map((lane) => {
     const laneStories = stories.filter(
       (story) =>
@@ -111,6 +129,23 @@ export function HomeDashboard({
           — country outlines, not a background under the copy.
         </p>
       </div>
+
+      {filtered && onResetFilter ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-cyan-200 bg-cyan-50/80 px-3 py-2">
+          <p className="text-[12px] text-cyan-950">
+            Showing filtered view{filteredLabel ? `: ${filteredLabel}` : ""}. Lanes are hidden until you reset.
+          </p>
+          <Tip text="Clear topic, place, source, and other Home filters">
+            <button
+              type="button"
+              className="shrink-0 rounded-md border border-cyan-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-cyan-900 hover:bg-cyan-50"
+              onClick={onResetFilter}
+            >
+              Back to full dashboard
+            </button>
+          </Tip>
+        </div>
+      ) : null}
 
       <section className="card-tile">
         <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">Topics</div>
