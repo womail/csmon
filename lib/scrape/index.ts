@@ -1,5 +1,6 @@
 import { isAcledFeedUrl } from "../acled";
 import { isGdeltDocUrl } from "../gdelt";
+import { acledIngestEnabled, gdeltIngestEnabled } from "../ingest-flags";
 import { parseTarget } from "../parse-target";
 import type { ScrapedItem, Source } from "../types";
 import { fetchBskySource, scrapeBskyUser } from "./bsky";
@@ -31,9 +32,11 @@ export async function fetchSourceItems(source: Source): Promise<ScrapedItem[]> {
     return fetchRedditOAuthFeed(source.feedUrl);
   }
   if (source.feedUrl && isAcledFeedUrl(source.feedUrl)) {
+    if (!acledIngestEnabled()) return [];
     return fetchAcledFeed(source.feedUrl);
   }
   if (source.feedUrl && isGdeltDocUrl(source.feedUrl)) {
+    if (!gdeltIngestEnabled()) return [];
     return fetchGdeltDoc(source.feedUrl);
   }
   if (source.feedUrl) {

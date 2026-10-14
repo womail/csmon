@@ -66,6 +66,7 @@ export async function fetchOutbound(
       signal,
       ...(dispatcher ? { dispatcher } : {}),
     });
+    if (res.status === 304) return res;
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get("location");
       if (!location) throw new Error("Redirect missing location");

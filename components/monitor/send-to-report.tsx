@@ -33,6 +33,7 @@ export function SendToReportButton({
   vulnPlanSnapshot,
   onChange,
   onOpenReport,
+  onActiveReportChange,
 }: {
   story: Story;
   sources: Map<number, Source>;
@@ -41,11 +42,14 @@ export function SendToReportButton({
   vulnPlanSnapshot?: ReportVulnPlanSnapshot | null;
   onChange: (rows: Report[]) => void;
   onOpenReport?: (id: string) => void;
+  /** Keeps Reports desk / split pane on the briefing that was just created or appended to. */
+  onActiveReportChange?: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [target, setTarget] = useState<"new" | string>("new");
   const [added, setAdded] = useState<string | null>(null);
+  const [addedTitle, setAddedTitle] = useState<string | null>(null);
   const [pulling, setPulling] = useState(false);
   const [pullError, setPullError] = useState<string | null>(null);
 
@@ -57,6 +61,7 @@ export function SendToReportButton({
   useEffect(() => {
     if (!open) return;
     setAdded(null);
+    setAddedTitle(null);
     setPulling(false);
     setPullError(null);
     const active = loadActiveReportId();
@@ -81,10 +86,15 @@ export function SendToReportButton({
       if (target === "new") {
         const { rows, report } = createReport(title || story.title, snap, reports);
         onChange(rows);
+        onActiveReportChange?.(report.id);
+        setAddedTitle(report.title);
         setAdded(report.id);
         return;
       }
-      onChange(addStoryToReport(target, snap, reports));
+      const rows = addStoryToReport(target, snap, reports);
+      onChange(rows);
+      onActiveReportChange?.(target);
+      setAddedTitle(live.find((row) => row.id === target)?.title ?? null);
       setAdded(target);
     } catch (error) {
       setPullError(error instanceof Error ? error.message : "Could not pull the full copy");
@@ -113,11 +123,8 @@ export function SendToReportButton({
           {added ? (
             <div className="space-y-3">
               <p className="text-[13px] text-slate-700">
-                Added to{" "}
-                <span className="font-medium">
-                  {reports.find((row) => row.id === added)?.title ?? "report"}
-                </span>
-                .
+                Added to <span className="font-medium">{addedTitle ?? "report"}</span>.
+                {target === "new" ? " That briefing is now selected on the Reports desk." : null}
               </p>
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
@@ -143,6 +150,16 @@ export function SendToReportButton({
               ) : null}
               {live.length ? (
                 <div className="space-y-1">
+                  <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[12px] text-slate-800">
+                    <input
+                      type="radio"
+                      name="report-target"
+                      checked={target === "new"}
+                      onChange={() => setTarget("new")}
+                    />
+                    <span className="font-medium">New report</span>
+                    <span className="text-[11px] text-slate-500">separate briefing</span>
+                  </label>
                   {live.map((row) => (
                     <label key={row.id} className="flex items-center gap-2 text-[12px] text-slate-700">
                       <input
@@ -153,19 +170,10 @@ export function SendToReportButton({
                       />
                       <span className="min-w-0 truncate font-medium">{row.title}</span>
                       <span className="text-[11px] text-slate-400">
-                        {row.stories.length} {row.stories.length === 1 ? "story" : "stories"}
+                        add story · {row.stories.length} {row.stories.length === 1 ? "story" : "stories"}
                       </span>
                     </label>
                   ))}
-                  <label className="flex items-center gap-2 text-[12px] text-slate-700">
-                    <input
-                      type="radio"
-                      name="report-target"
-                      checked={target === "new"}
-                      onChange={() => setTarget("new")}
-                    />
-                    New report
-                  </label>
                 </div>
               ) : (
                 <p className="text-[12px] text-slate-500">Start a report with a title, then keep adding stories.</p>

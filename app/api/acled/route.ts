@@ -1,4 +1,5 @@
 import { acledConfigured, normalizeAcledProfiles } from "@/lib/acled";
+import { acledIngestDisabledReason, acledIngestEnabled } from "@/lib/ingest-flags";
 import { fail, gate, jsonOk, readJson } from "@/lib/guard";
 import { monitorStateFromRequest } from "@/lib/monitor-state";
 import { registerAcledProfiles } from "@/lib/queries";
@@ -14,10 +15,11 @@ export async function GET(request: Request) {
   const blocked = gate(request, "acled", 12);
   if (blocked) return blocked;
   try {
-    if (!acledConfigured()) {
+    if (!acledIngestEnabled()) {
       return jsonOk({
-        configured: false,
-        error: "Set ACLED_USERNAME and ACLED_PASSWORD in .env.local, then restart.",
+        configured: acledConfigured(),
+        enabled: false,
+        error: acledIngestDisabledReason(),
       });
     }
     const probe = await runAcledProbe();
@@ -31,6 +33,9 @@ export async function POST(request: Request) {
   const blocked = gate(request, "acled", 6);
   if (blocked) return blocked;
   try {
+    if (!acledIngestEnabled()) {
+      return jsonOk({ error: acledIngestDisabledReason() }, 503);
+    }
     if (!acledConfigured()) {
       return jsonOk(
         {

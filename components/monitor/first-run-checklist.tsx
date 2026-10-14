@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -27,6 +28,16 @@ export function FirstRunChecklist({
   onDismiss: () => void;
 }) {
   const feedsDone = enabledLayers > 0;
+  const [homeDone, setHomeDone] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("csmon.options");
+      const parsed = raw ? (JSON.parse(raw) as { homePlace?: unknown }) : null;
+      setHomeDone(typeof parsed?.homePlace === "string" && parsed.homePlace.length > 0);
+    } catch {
+      setHomeDone(false);
+    }
+  }, []);
   const steps: Step[] = [
     {
       id: "feeds",
@@ -41,8 +52,8 @@ export function FirstRunChecklist({
     {
       id: "home",
       label: "Pick home location (weather, map, flights radius)",
-      done: feedsDone,
-      action: (
+      done: homeDone,
+      action: homeDone ? null : (
         <Button size="xs" variant="outline" asChild>
           <Link href="/help/options-limits">Options guide</Link>
         </Button>

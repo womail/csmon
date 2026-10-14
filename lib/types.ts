@@ -33,6 +33,19 @@ export type Source = {
   /** Max age of items to keep; null uses the board default from Options. */
   retentionDays: number | null;
   origins: { reason: OriginReason; weight: number; seedHandle: string }[];
+  health?: SourceHealth;
+};
+
+export type SourceFetchStatus = "ok" | "not_modified" | "error";
+
+export type SourceHealth = {
+  status: SourceFetchStatus | null;
+  error: string | null;
+  failCount: number;
+  /** Scheduler's next due time (unix ms). */
+  nextFetchAt: number | null;
+  /** New items from the last successful fetch. */
+  lastAdded: number | null;
 };
 
 export type EntityKind = "person" | "org" | "place" | "vendor" | "cve" | "ioc";

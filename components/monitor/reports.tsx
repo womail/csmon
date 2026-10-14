@@ -411,6 +411,19 @@ function ReportView({
                 {story.locations.length ? (
                   <p className="mt-1 text-[11px] text-slate-500">{story.locations.join(" · ")}</p>
                 ) : null}
+                {story.highlights?.length ? (
+                  <div className="report-highlights mt-2 space-y-1.5">
+                    <p className="text-[10px] font-semibold tracking-wide text-slate-500 uppercase">Highlighted</p>
+                    {story.highlights.map((quote, quoteIndex) => (
+                      <blockquote
+                        key={quoteIndex}
+                        className="border-l-2 border-amber-400 pl-2 text-[12px] leading-snug text-slate-700 italic"
+                      >
+                        {quote}
+                      </blockquote>
+                    ))}
+                  </div>
+                ) : null}
                 <ReportStoryCopy story={story} filling={filling && storyNeedsExtract(story)} />
               </div>
               <div className="no-print flex shrink-0 flex-col">

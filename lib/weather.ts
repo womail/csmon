@@ -7,7 +7,7 @@ export type WeatherEvent = {
   lng: number | null;
   time: number;
   url: string;
-  source: "nws" | "local" | "met";
+  source: "nws" | "local" | "met" | "meteoalarm";
   hint?: string;
 };
 

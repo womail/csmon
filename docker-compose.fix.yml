@@ -1,0 +1,4 @@
+services:
+  csmon:
+    user: "1001:1001"
+    entrypoint: ["/bin/sh", "-c", "mkdir -p /app/data && exec node server.js"]

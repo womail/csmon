@@ -188,7 +188,28 @@ const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS idx_report_stories_item ON report_stories(item_id);
     `,
   },
+  {
+    name: "007_fetch_health",
+    sql: "",
+  },
 ];
+
+const FETCH_HEALTH_COLUMNS: { table: string; column: string; ddl: string }[] = [
+  { table: "fetch_cache", column: "etag", ddl: "etag TEXT" },
+  { table: "fetch_cache", column: "last_modified", ddl: "last_modified TEXT" },
+  { table: "sources", column: "last_status", ddl: "last_status TEXT" },
+  { table: "sources", column: "last_error", ddl: "last_error TEXT" },
+  { table: "sources", column: "fail_count", ddl: "fail_count INTEGER NOT NULL DEFAULT 0" },
+  { table: "sources", column: "next_fetch_at", ddl: "next_fetch_at INTEGER" },
+  { table: "sources", column: "last_added", ddl: "last_added INTEGER" },
+];
+
+function addColumnIfMissing(db: DatabaseSync, table: string, column: string, ddl: string) {
+  const cols = new Set(
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((row) => row.name),
+  );
+  if (!cols.has(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+}
 
 const globalForDb = globalThis as unknown as { csmonDb?: DatabaseSync };
 
@@ -228,6 +249,8 @@ function applyMigrations(db: DatabaseSync) {
       if (!cols.has("retention_days")) {
         db.exec(`ALTER TABLE sources ADD COLUMN retention_days INTEGER`);
       }
+    } else if (migration.name === "007_fetch_health") {
+      ensureFetchHealthColumns(db);
     } else {
       db.exec(migration.sql);
     }
@@ -242,6 +265,14 @@ function applyMigrations(db: DatabaseSync) {
   if (applied.has("006_evidence")) {
     ensureItemsFts(db);
   }
+  if (applied.has("007_fetch_health")) {
+    ensureFetchHealthColumns(db);
+  }
+}
+
+function ensureFetchHealthColumns(db: DatabaseSync) {
+  for (const row of FETCH_HEALTH_COLUMNS) addColumnIfMissing(db, row.table, row.column, row.ddl);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_sources_next_fetch ON sources(enabled, next_fetch_at)");
 }
 
 function ensureItemsFts(db: DatabaseSync) {

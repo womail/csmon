@@ -48,3 +48,6 @@ next-env.d.ts
 # local monitor db
 /data/*.sqlite
 /data/*.sqlite-*
+
+# slot deploy state (clones, archives, snapshots)
+.csmon-deploy/

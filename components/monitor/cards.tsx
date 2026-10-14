@@ -98,7 +98,7 @@ const KIND_LABEL: Record<Source["kind"], string> = {
   site: "Site",
 };
 
-function originCopy(source: Source) {
+export function originCopy(source: Source) {
   const origin = source.origins[0];
   if (!origin) return { label: KIND_LABEL[source.kind], via: null as string | null };
   return {
@@ -107,38 +107,69 @@ function originCopy(source: Source) {
   };
 }
 
+export type CardChip =
+  | { kind: "topic" | "place" | "vendor"; value: string }
+  | { kind: "source"; value: string; sourceId: number };
+
+function chipMenuHandler(
+  chip: CardChip,
+  onChipMenu: ((chip: CardChip, event: MouseEvent) => void) | undefined,
+) {
+  if (!onChipMenu) return undefined;
+  return (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onChipMenu(chip, event);
+  };
+}
+
 function CardActions({
   read,
   onHide,
   onRead,
   onCopyLink,
+  onMenu,
 }: {
   read?: boolean;
   onHide?: () => void;
   onRead?: () => void;
   onCopyLink?: () => void;
+  onMenu?: (event: MouseEvent) => void;
 }) {
-  if (!onHide && !onRead && !onCopyLink) return null;
+  if (!onHide && !onRead && !onCopyLink && !onMenu) return null;
   return (
     <div className="mt-1.5 flex items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
+      {onRead ? (
+        <Tip text={read ? "Already marked read" : "Mark as read without opening"}>
+          <button type="button" className="card-action" onClick={onRead} disabled={read}>
+            {read ? "Read ✓" : "Read"}
+          </button>
+        </Tip>
+      ) : null}
       {onCopyLink ? (
         <Tip text="Copy a URL that opens this card">
-          <button type="button" className="card-action" onClick={onCopyLink}>
+          <button type="button" className="card-action card-action-secondary" onClick={onCopyLink}>
             Link
           </button>
         </Tip>
       ) : null}
       {onHide ? (
         <Tip text="Hide this card from the board">
-          <button type="button" className="card-action" onClick={onHide}>
+          <button type="button" className="card-action card-action-secondary" onClick={onHide}>
             Hide
           </button>
         </Tip>
       ) : null}
-      {onRead ? (
-        <Tip text={read ? "Already marked read" : "Mark as read without opening"}>
-          <button type="button" className="card-action" onClick={onRead} disabled={read}>
-            {read ? "Read ✓" : "Read"}
+      {onMenu ? (
+        <Tip text="More actions (or right-click the card)">
+          <button
+            type="button"
+            className="card-action card-action-menu"
+            aria-haspopup="menu"
+            aria-label="More actions"
+            onClick={onMenu}
+          >
+            ⋯
           </button>
         </Tip>
       ) : null}
@@ -162,6 +193,7 @@ export function StoryCard({
   focused,
   cardAnchorId,
   corroboration,
+  onChipMenu,
 }: {
   story: Story;
   sources: Map<number, Source>;
@@ -173,8 +205,10 @@ export function StoryCard({
   onSource?: (sourceId: number) => void;
   onHide?: () => void;
   onRead?: () => void;
+  /** Opens the card menu (right-click, ⋯, or the menu key). */
   onReclassify?: (event: MouseEvent) => void;
   onCopyLink?: () => void;
+  onChipMenu?: (chip: CardChip, event: MouseEvent) => void;
   read?: boolean;
   focused?: boolean;
   cardAnchorId?: string;
@@ -208,6 +242,7 @@ export function StoryCard({
                   event.stopPropagation();
                   onTopic(topic);
                 }}
+                onContextMenu={chipMenuHandler({ kind: "topic", value: topic }, onChipMenu)}
               >
                 {topic}
               </button>
@@ -224,6 +259,7 @@ export function StoryCard({
                 event.stopPropagation();
                 onPlace(place);
               }}
+              onContextMenu={chipMenuHandler({ kind: "place", value: place }, onChipMenu)}
             >
               {place}
             </button>
@@ -239,6 +275,7 @@ export function StoryCard({
                   event.stopPropagation();
                   onVendor?.(vendor);
                 }}
+                onContextMenu={chipMenuHandler({ kind: "vendor", value: vendor }, onChipMenu)}
               >
                 {vendor}
               </button>
@@ -265,6 +302,11 @@ export function StoryCard({
               name={source?.name ?? "source"}
               color={source?.color ?? "#94a3b8"}
               onClick={() => onSource?.(id)}
+              onContextMenu={
+                onChipMenu
+                  ? (event) => onChipMenu({ kind: "source", value: source?.name ?? "source", sourceId: id }, event)
+                  : undefined
+              }
             />
           );
         })}
@@ -272,7 +314,7 @@ export function StoryCard({
           <span className="text-[10px] text-slate-400">+{extra} more</span>
         ) : null}
       </div>
-      <CardActions read={read} onHide={onHide} onRead={onRead} onCopyLink={onCopyLink} />
+      <CardActions read={read} onHide={onHide} onRead={onRead} onCopyLink={onCopyLink} onMenu={onReclassify} />
     </article>
   );
 }
@@ -292,6 +334,7 @@ export function ItemCard({
   read,
   focused,
   cardAnchorId,
+  onChipMenu,
 }: {
   item: Item;
   source?: Source;
@@ -302,8 +345,10 @@ export function ItemCard({
   onSource?: (sourceId: number) => void;
   onHide?: () => void;
   onRead?: () => void;
+  /** Opens the card menu (right-click, ⋯, or the menu key). */
   onReclassify?: (event: MouseEvent) => void;
   onCopyLink?: () => void;
+  onChipMenu?: (chip: CardChip, event: MouseEvent) => void;
   read?: boolean;
   focused?: boolean;
   cardAnchorId?: string;
@@ -336,6 +381,7 @@ export function ItemCard({
                   event.stopPropagation();
                   onTag(tag, event);
                 }}
+                onContextMenu={chipMenuHandler({ kind: "topic", value: tag }, onChipMenu)}
               >
                 {tag}
               </button>
@@ -352,6 +398,7 @@ export function ItemCard({
                   event.stopPropagation();
                   onPlace?.(place);
                 }}
+                onContextMenu={chipMenuHandler({ kind: "place", value: place }, onChipMenu)}
               >
                 {place}
               </button>
@@ -367,6 +414,7 @@ export function ItemCard({
                   event.stopPropagation();
                   onVendor?.(vendor);
                 }}
+                onContextMenu={chipMenuHandler({ kind: "vendor", value: vendor }, onChipMenu)}
               >
                 {vendor}
               </button>
@@ -396,9 +444,14 @@ export function ItemCard({
           onClick={() => {
             if (source) onSource?.(source.id);
           }}
+          onContextMenu={
+            onChipMenu && source
+              ? (event) => onChipMenu({ kind: "source", value: source.name, sourceId: source.id }, event)
+              : undefined
+          }
         />
       </div>
-      <CardActions read={read} onHide={onHide} onRead={onRead} onCopyLink={onCopyLink} />
+      <CardActions read={read} onHide={onHide} onRead={onRead} onCopyLink={onCopyLink} onMenu={onReclassify} />
     </article>
   );
 }

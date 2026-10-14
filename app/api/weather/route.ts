@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { fetchJson, fetchRssXml } from "@/lib/http";
 import { coordsForPlace } from "@/lib/geo";
 import { asCoords, gate, jsonOk } from "@/lib/guard";
+import { meteoalarmCountryFor, parseMeteoalarmAtom, type MeteoalarmWarning } from "@/lib/hazards";
 import { weatherSummary, type LocalWeather, type WeatherEvent } from "@/lib/weather";
 
 export const runtime = "nodejs";
@@ -126,8 +127,10 @@ export async function GET(req: NextRequest) {
   const hasPoint = Number.isFinite(lat) && Number.isFinite(lng);
   const region = hasPoint ? regionFor(lat, lng) : "other";
   const homePoint = hasPoint ? { lat, lng } : null;
+  const alarmCountry = hasPoint ? meteoalarmCountryFor(lat, lng) : null;
+  const elsewhere = region === "other" && !alarmCountry;
 
-  if (region === "us" || region === "other") {
+  if (region === "us" || elsewhere) {
     try {
       const data = await fetchJson<NwsFeed>(NWS, 14000);
       for (const feature of data.features ?? []) {
@@ -152,14 +155,53 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  if (region === "ie" || region === "uk" || region === "other") {
+  let alarmCovered: string | null = null;
+  if (alarmCountry) {
+    try {
+      const groups = new Map<string, MeteoalarmWarning[]>();
+      for (const warning of parseMeteoalarmAtom(await fetchRssXml(alarmCountry.url, 12000))) {
+        const key = `${warning.event.toLowerCase()}|${warning.severity}`;
+        groups.set(key, [...(groups.get(key) ?? []), warning]);
+      }
+      for (const group of [...groups.values()].slice(0, 12)) {
+        const head = group[0];
+        const point =
+          (group.length === 1 ? coordsForPlace(head.area) : null) ?? coordsForPlace(alarmCountry.label) ?? homePoint;
+        const expires = Math.max(...group.map((warning) => warning.expires ?? 0));
+        const event = head.event.charAt(0).toUpperCase() + head.event.slice(1);
+        events.push({
+          id: `meteoalarm-${alarmCountry.slug}-${head.event}-${head.severity}`,
+          title: `${event} warning · ${group.length === 1 ? head.area : `${group.length} areas`}`,
+          severity: head.severity,
+          place: group.length === 1 ? head.area : alarmCountry.label,
+          lat: point?.lat ?? null,
+          lng: point?.lng ?? null,
+          time: Math.min(...group.map((warning) => warning.onset ?? Date.now())),
+          url: head.url,
+          source: "meteoalarm",
+          hint: [
+            "MeteoAlarm",
+            expires ? `until ${new Date(expires).toUTCString().slice(5, 22)} UTC` : "",
+            group.length > 1 ? group.slice(0, 4).map((warning) => warning.area).join(", ") + (group.length > 4 ? "…" : "") : "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        });
+      }
+      alarmCovered = alarmCountry.slug;
+    } catch {
+      /* MeteoAlarm is best-effort; national RSS still runs */
+    }
+  }
+
+  if ((region === "ie" || region === "uk" || elsewhere) && alarmCovered !== "ireland") {
     try {
       events.push(...(await rssWarnings(MET_EIREANN, "met", "Ireland", homePoint)));
     } catch {
       /* Met Éireann is best-effort */
     }
   }
-  if (region === "uk" || region === "ie" || region === "other") {
+  if ((region === "uk" || region === "ie" || elsewhere) && alarmCovered !== "united-kingdom") {
     try {
       events.push(...(await rssWarnings(MET_OFFICE, "met", "UK", homePoint)));
     } catch {

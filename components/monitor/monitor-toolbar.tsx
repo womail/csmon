@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   BookOpen,
@@ -32,6 +32,93 @@ import type { Desk, MonitorState, TimeRange, Watchlist } from "@/lib/types";
 import type { UserDesk } from "@/lib/user-desks";
 import type { QueryTree } from "@/lib/query-builder";
 import type { UserOptions } from "@/lib/options";
+import { applySuggestion, searchSuggestions, type SearchSuggestData } from "@/lib/search-suggest";
+
+function BoardSearch({
+  query,
+  onQueryChange,
+  placeholder,
+  data,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  placeholder: string;
+  data: SearchSuggestData;
+}) {
+  const [focused, setFocused] = useState(false);
+  const [active, setActive] = useState(0);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const suggestions = useMemo(() => searchSuggestions(query, data), [data, query]);
+  const open = focused && suggestions.length > 0 && dismissed !== query;
+  const activeIndex = Math.min(active, Math.max(0, suggestions.length - 1));
+
+  function pick(index: number) {
+    const row = suggestions[index];
+    if (!row) return;
+    onQueryChange(applySuggestion(query, row));
+    setActive(0);
+  }
+
+  return (
+    <div className="relative min-w-[100px] flex-1">
+      <Search className="pointer-events-none absolute top-1 left-1.5 size-3 text-muted-foreground" />
+      <Input
+        id="board-search"
+        value={query}
+        onChange={(e) => {
+          onQueryChange(e.target.value);
+          setActive(0);
+          setDismissed(null);
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onKeyDown={(e) => {
+          if (!open) return;
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setActive((activeIndex + 1) % suggestions.length);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setActive((activeIndex - 1 + suggestions.length) % suggestions.length);
+          } else if (e.key === "Tab" || e.key === "Enter") {
+            e.preventDefault();
+            pick(activeIndex);
+          } else if (e.key === "Escape") {
+            e.stopPropagation();
+            setDismissed(query);
+          }
+        }}
+        placeholder={placeholder}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls="board-search-suggest"
+        aria-autocomplete="list"
+        className="board-search-input h-7 border-border bg-background pl-6 text-[11px]"
+      />
+      {open ? (
+        <ul id="board-search-suggest" role="listbox" className="search-suggest">
+          {suggestions.map((row, index) => (
+            <li
+              key={`${row.insert}-${index}`}
+              role="option"
+              aria-selected={index === activeIndex}
+              className="search-suggest-row"
+              data-active={index === activeIndex ? "true" : "false"}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pick(index);
+              }}
+              onMouseEnter={() => setActive(index)}
+            >
+              <span className="truncate">{row.label}</span>
+              {row.hint ? <span className="search-suggest-hint">{row.hint}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
 
 export function MonitorToolbar({
   viewDesk,
@@ -77,6 +164,7 @@ export function MonitorToolbar({
   onOptionsApply,
   onSourcesApplied,
   onAddRss,
+  searchData,
 }: {
   viewDesk: string;
   query: string;
@@ -121,6 +209,7 @@ export function MonitorToolbar({
   onOptionsApply: (options: UserOptions) => void;
   onSourcesApplied: (state: MonitorState) => void;
   onAddRss: () => void;
+  searchData: SearchSuggestData;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -134,18 +223,12 @@ export function MonitorToolbar({
             </div>
           </button>
         </Tip>
-        <div className="relative min-w-[100px] flex-1">
-          <Search className="pointer-events-none absolute top-1 left-1.5 size-3 text-muted-foreground" />
-          <Input
-            id="board-search"
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            placeholder={
-              viewDesk === "patch" ? "CVE, vendor, product" : "source:cisa place:Ireland -topic:sports"
-            }
-            className="board-search-input h-7 border-border bg-background pl-6 text-[11px]"
-          />
-        </div>
+        <BoardSearch
+          query={query}
+          onQueryChange={onQueryChange}
+          placeholder={viewDesk === "patch" ? "Search CVE, vendor, product…" : "Search… (try source:cisa or place:Ireland)"}
+          data={searchData}
+        />
         <div className="toolbar-group">
           <SavedViewsButton
             current={currentFilters}

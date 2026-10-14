@@ -46,6 +46,8 @@ export type ReportStory = {
   vulnPlan?: ReportVulnPlanSnapshot;
   /** Analyst triage for briefing export. */
   confidence?: ReportConfidence;
+  /** Passages the analyst selected in Read in place. */
+  highlights?: string[];
 };
 
 export type Report = {
@@ -265,6 +267,9 @@ function hydrateStory(row: Partial<ReportStory> | null | undefined): ReportStory
     vulnPlan:
       row.vulnPlan && typeof row.vulnPlan === "object" ? (row.vulnPlan as ReportVulnPlanSnapshot) : undefined,
     confidence: parseReportConfidence(row.confidence),
+    highlights: Array.isArray(row.highlights)
+      ? row.highlights.filter((text): text is string => typeof text === "string").slice(0, MAX_HIGHLIGHTS)
+      : undefined,
   };
 }
 
@@ -291,7 +296,22 @@ export function mergeReportStories(current: ReportStory, next: ReportStory): Rep
     extractAt: next.extractAt ?? current.extractAt,
     items: next.items.length ? next.items : current.items,
     sources: next.sources.length ? next.sources : current.sources,
+    confidence: next.confidence ?? current.confidence,
+    highlights: mergeHighlights(current.highlights, next.highlights),
   };
+}
+
+const MAX_HIGHLIGHTS = 12;
+
+function mergeHighlights(a: string[] | undefined, b: string[] | undefined) {
+  const merged = [...new Set([...(a ?? []), ...(b ?? [])])].slice(0, MAX_HIGHLIGHTS);
+  return merged.length ? merged : undefined;
+}
+
+/** Quote a passage into a report, adding the story first if it is not there yet. */
+export function addHighlightToReport(id: string, story: ReportStory, text: string, existing?: Report[]) {
+  const quote = text.replace(/\s+/g, " ").trim().slice(0, 1200);
+  return addStoryToReport(id, { ...story, highlights: mergeHighlights(story.highlights, [quote]) }, existing);
 }
 
 export function applyArticlesToReportStory(story: ReportStory, articles: ArticleRead[]): ReportStory {

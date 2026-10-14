@@ -9,20 +9,31 @@ export function StoryCorroborationBadges({
 }: {
   corroboration: StoryCorroboration;
 }) {
-  const { sourceCount, sourceNames, rising, kevCves } = corroboration;
+  const { sourceCount, layerCount, sourceNames, syndicated, rising, kevCves } = corroboration;
   const sourceTip =
     sourceNames.length > 0
       ? sourceNames.map((name) => shortSourceName(name)).join(" · ")
       : "Independent layers";
+  const copies = layerCount - sourceCount;
+  const syndicationTip = syndicated.length ? ` Folded as one origin: ${syndicated.join("; ")}.` : "";
 
-  if (sourceCount < 2 && !rising && kevCves.length === 0) return null;
+  if (sourceCount < 2 && copies === 0 && !rising && kevCves.length === 0) return null;
 
   return (
     <div className="story-corr-badges" onClick={(event) => event.stopPropagation()}>
       {sourceCount >= 2 ? (
-        <Tip text={`Corroborated by ${sourceCount} layers: ${sourceTip}`}>
+        <Tip text={`Corroborated by ${sourceCount} independent origins: ${sourceTip}.${syndicationTip}`}>
           <span className="story-corr-badge story-corr-badge-sources">
             {sourceCount} sources
+          </span>
+        </Tip>
+      ) : null}
+      {copies > 0 ? (
+        <Tip
+          text={`${copies} layer${copies === 1 ? "" : "s"} re-published the same copy and ${copies === 1 ? "is" : "are"} not counted as corroboration.${syndicationTip}`}
+        >
+          <span className="story-corr-badge story-corr-badge-syndicated">
+            +{copies} syndicated
           </span>
         </Tip>
       ) : null}

@@ -3,7 +3,8 @@
 import dynamic from "next/dynamic";
 import { CloudLightning, Landmark, Siren, Waves } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
-import { SourceChip, StoryCard } from "@/components/monitor/cards";
+import type { MouseEvent } from "react";
+import { SourceChip, StoryCard, type CardChip } from "@/components/monitor/cards";
 import { placeMarkers } from "@/components/monitor/map";
 
 const SituationMap = dynamic(
@@ -20,6 +21,8 @@ import type { QuakeEvent } from "@/lib/quakes";
 import type { TrendRow } from "@/lib/trends";
 import type { Item, Source } from "@/lib/types";
 import type { WeatherEvent } from "@/lib/weather";
+import type { NaturalEvent, OutageRow } from "@/lib/hazards";
+import { independentSourceCount } from "@/lib/syndication";
 
 const LANE_ICON = {
   weather: CloudLightning,
@@ -36,6 +39,8 @@ export function HomeDashboard({
   people,
   quakes,
   weatherEvents = [],
+  naturalEvents = [],
+  outages = [],
   topic,
   layer,
   person,
@@ -60,7 +65,11 @@ export function HomeDashboard({
   trends,
   trendHint,
   onTrend,
+  onStoryMenu,
+  onChipMenu,
 }: {
+  onStoryMenu?: (story: Story, event: MouseEvent) => void;
+  onChipMenu?: (chip: CardChip, event: MouseEvent) => void;
   stories: Story[];
   items: Item[];
   catalogTopics: [string, number][];
@@ -68,6 +77,8 @@ export function HomeDashboard({
   people: PersonRow[];
   quakes: QuakeEvent[];
   weatherEvents?: WeatherEvent[];
+  naturalEvents?: NaturalEvent[];
+  outages?: OutageRow[];
   topic: string | null;
   layer: number | null;
   person: string | null;
@@ -247,7 +258,7 @@ export function HomeDashboard({
 
       <SituationMap
         title="Where coverage relates"
-        markers={homeMarkers(items, quakes, weatherEvents)}
+        markers={homeMarkers(items, quakes, weatherEvents, naturalEvents)}
         onSelect={onPlace}
         empty="Load world or hazard RSS to plot places, weather, and USGS quakes."
       />
@@ -276,6 +287,8 @@ export function HomeDashboard({
                 onSource={onSource}
                 onHide={onHide ? () => onHide(story) : undefined}
                 onRead={onRead ? () => onRead(story) : undefined}
+                onReclassify={onStoryMenu ? (event) => onStoryMenu(story, event) : undefined}
+                onChipMenu={onChipMenu}
                 read={readKeys?.includes(`story:${story.id}`)}
               />
             ))}
@@ -338,7 +351,7 @@ export function HomeDashboard({
                           {story.title}
                         </span>
                         <span className="text-[10px] text-slate-400">
-                          {story.sourceIds.length} sources
+                          {independentSourceCount(story.items)} sources
                           {story.locations[0] ? ` · ${story.locations[0]}` : ""} ·{" "}
                           <Ago ts={story.latestAt} />
                         </span>
@@ -380,6 +393,56 @@ export function HomeDashboard({
           </div>
         </section>
       ) : null}
+      {naturalEvents.length > 0 && !filtered ? (
+        <section className="card-tile">
+          <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+            Natural events · NASA EONET
+          </div>
+          <div className="mt-2 space-y-1">
+            {naturalEvents.slice(0, 6).map((event) => (
+              <Tip key={event.id} text="Open the source record">
+                <a
+                  href={event.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block rounded px-1 py-1 hover:bg-slate-50"
+                >
+                  <span className="text-[12px] font-medium text-slate-800">{event.title}</span>
+                  <span className="block text-[10px] text-slate-400">
+                    {event.category}
+                    {event.magnitude ? ` · ${event.magnitude}` : ""} · <Ago ts={event.time} />
+                  </span>
+                </a>
+              </Tip>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {outages.length > 0 && !filtered ? (
+        <section className="card-tile">
+          <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+            Internet outages · IODA, last 24h
+          </div>
+          <div className="mt-2 space-y-1">
+            {outages.slice(0, 6).map((row) => (
+              <Tip key={row.code} text="Open the IODA country dashboard">
+                <a
+                  href={row.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block rounded px-1 py-1 hover:bg-slate-50"
+                >
+                  <span className="text-[12px] font-medium text-slate-800">{row.country}</span>
+                  <span className="block text-[10px] text-slate-400">
+                    {row.events} event{row.events === 1 ? "" : "s"}
+                    {row.signals.length ? ` · ${row.signals.join(", ")}` : ""}
+                  </span>
+                </a>
+              </Tip>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {quakes.length > 0 && !filtered ? (
         <section className="card-tile">
           <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
@@ -414,7 +477,12 @@ export function HomeDashboard({
   );
 }
 
-function homeMarkers(items: Item[], quakes: QuakeEvent[], weatherEvents: WeatherEvent[]): MapMarker[] {
+function homeMarkers(
+  items: Item[],
+  quakes: QuakeEvent[],
+  weatherEvents: WeatherEvent[],
+  naturalEvents: NaturalEvent[],
+): MapMarker[] {
   const places = new Map<string, number>();
   for (const item of items) {
     for (const name of item.locations) places.set(name, (places.get(name) ?? 0) + 1);
@@ -442,6 +510,17 @@ function homeMarkers(items: Item[], quakes: QuakeEvent[], weatherEvents: Weather
         lng: event.lng as number,
         kind: "weather" as const,
         hint: `${event.severity} · ${event.title}`,
+      })),
+    ...naturalEvents
+      .filter((event) => event.lat != null && event.lng != null)
+      .slice(0, 24)
+      .map((event) => ({
+        id: `eonet-${event.id}`,
+        name: event.title,
+        lat: event.lat as number,
+        lng: event.lng as number,
+        kind: "weather" as const,
+        hint: `${event.category} · ${event.title} (NASA EONET)`,
       })),
   ];
 }

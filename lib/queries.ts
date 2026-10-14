@@ -31,6 +31,7 @@ import type {
   ScrapedItem,
   SeedUser,
   Source,
+  SourceFetchStatus,
   SourceKind,
 } from "./types";
 
@@ -50,6 +51,11 @@ type SourceRow = {
   last_fetched_at: number | null;
   created_at: number;
   retention_days?: number | null;
+  last_status?: string | null;
+  last_error?: string | null;
+  fail_count?: number | null;
+  next_fetch_at?: number | null;
+  last_added?: number | null;
 };
 
 type ItemRow = {
@@ -108,6 +114,13 @@ function mapSource(
         ? null
         : Number(row.retention_days),
     origins,
+    health: {
+      status: (row.last_status as SourceFetchStatus | null | undefined) ?? null,
+      error: row.last_error ?? null,
+      failCount: Number(row.fail_count ?? 0),
+      nextFetchAt: row.next_fetch_at ?? null,
+      lastAdded: row.last_added ?? null,
+    },
   };
 }
 
@@ -277,10 +290,15 @@ export function upsertScrape(result: ScrapeResult) {
   return { userId, sources: listSources() };
 }
 
-export function insertItems(sourceId: number, items: ScrapedItem[]): { ids: number[]; alerts: WatchAlert[] } {
-  if (!items.length) return { ids: [], alerts: [] };
+export function insertItems(
+  sourceId: number,
+  items: ScrapedItem[],
+): { ids: number[]; created: number; alerts: WatchAlert[] } {
+  if (!items.length) return { ids: [], created: 0, alerts: [] };
   const db = getDb();
   const now = Date.now();
+  const exists = db.prepare("SELECT 1 FROM items WHERE source_id = ? AND external_id = ?");
+  let created = 0;
   const stmt = db.prepare(
     `INSERT INTO items
      (source_id, external_id, title, summary, url, author, published_at, tags, topics, locations, fetched_at)
@@ -308,6 +326,7 @@ export function insertItems(sourceId: number, items: ScrapedItem[]): { ids: numb
       });
       const topics = item.topics.length ? item.topics : classified.topics;
       const tags = item.tags.length ? item.tags : classified.tags;
+      if (!exists.get(sourceId, item.externalId)) created += 1;
       const row = stmt.get(
         sourceId,
         item.externalId,
@@ -349,7 +368,7 @@ export function insertItems(sourceId: number, items: ScrapedItem[]): { ids: numb
     };
     alerts.push(...recordWatchHits(mapped, source ?? undefined, watches));
   }
-  return { ids: indexed.map((row) => row.id), alerts };
+  return { ids: indexed.map((row) => row.id), created, alerts };
 }
 
 export function retireRedditRssSource(sourceId: number, detail: string) {
@@ -366,10 +385,67 @@ export function setSourceEnabled(ids: number[], enabled: boolean) {
   ).run(enabled ? 1 : 0, ...ids);
 }
 
-export function markFetched(sourceId: number) {
+export function recordFetchSuccess(
+  sourceId: number,
+  status: Exclude<SourceFetchStatus, "error">,
+  added: number,
+  nextFetchAt: number,
+) {
   getDb()
-    .prepare("UPDATE sources SET last_fetched_at = ? WHERE id = ?")
-    .run(Date.now(), sourceId);
+    .prepare(
+      `UPDATE sources SET last_fetched_at = ?, last_status = ?, last_error = NULL, fail_count = 0,
+         last_added = ?, next_fetch_at = ? WHERE id = ?`,
+    )
+    .run(Date.now(), status, added, nextFetchAt, sourceId);
+}
+
+export function recordFetchFailure(sourceId: number, message: string, nextFetchAt: (failCount: number) => number) {
+  const db = getDb();
+  const row = db.prepare("SELECT fail_count FROM sources WHERE id = ?").get(sourceId) as
+    | { fail_count: number | null }
+    | undefined;
+  const failCount = Number(row?.fail_count ?? 0) + 1;
+  db.prepare(
+    `UPDATE sources SET last_status = 'error', last_error = ?, fail_count = ?, next_fetch_at = ? WHERE id = ?`,
+  ).run(message.slice(0, 300), failCount, nextFetchAt(failCount), sourceId);
+}
+
+export function deferSources(ids: number[], until: number) {
+  if (!ids.length) return;
+  const placeholders = ids.map(() => "?").join(",");
+  getDb()
+    .prepare(`UPDATE sources SET next_fetch_at = ? WHERE id IN (${placeholders})`)
+    .run(until, ...ids);
+}
+
+/**
+ * Enabled layers whose scheduler slot has come round. Never-scheduled layers count as due once
+ * their last fetch is older than `unscheduledAfterMs`, so a restart does not refetch everything.
+ */
+export function listDueSources(now = Date.now(), unscheduledAfterMs = 15 * 60 * 1000) {
+  return attachOrigins(
+    getDb()
+      .prepare(
+        `SELECT * FROM sources WHERE enabled = 1 AND (
+           next_fetch_at <= ?
+           OR (next_fetch_at IS NULL AND (last_fetched_at IS NULL OR last_fetched_at <= ?))
+         )
+         ORDER BY COALESCE(next_fetch_at, last_fetched_at, 0)`,
+      )
+      .all(now, now - unscheduledAfterMs) as SourceRow[],
+  );
+}
+
+/** Recent publish times for one layer, newest first — feeds adaptive polling. */
+export function recentPublishTimes(sourceId: number, limit = 12): number[] {
+  return (
+    getDb()
+      .prepare(
+        `SELECT published_at FROM items WHERE source_id = ? AND published_at IS NOT NULL
+         ORDER BY published_at DESC LIMIT ?`,
+      )
+      .all(sourceId, limit) as { published_at: number }[]
+  ).map((row) => Number(row.published_at));
 }
 
 export function deleteSource(id: number) {

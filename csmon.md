@@ -26,8 +26,8 @@ Default is **Home**.
 | Reports | Briefings you compile from Read in place. Full page extract, edit, archive, delete, print to PDF. |
 | Flights | Live public ADS-B (OpenSky) within **100 km of home** (default Dublin). Pick home in Options or on the Flights desk. |
 | Advisories | Cyber-classified items plus security RSS (CISA, Krebs, BleepingComputer, NCSC). |
-| Patch | CISA KEV. Exploited CVEs, due dates, ransomware flag, filter to your stack. |
-| Sources | Layers as objects: origin, item count, latest headline. Click a layer to scan it. |
+| Patch | CISA KEV. Exploited CVEs, due dates, ransomware flag, filter to your stack. Each card carries a FIRST **EPSS** tag; **Rank → EPSS** orders the backlog by exploitation probability. |
+| Sources | Layers as objects: origin, item count, latest headline. Click a layer to scan it. **Table** switches to a sortable table with last fetch, status (ok / unchanged / error ×N with the message), new items from the last pull, and the next scheduled pull. |
 | *Your desks* | **New desk** or **Tune** pins or edits filters on the rail (`c-…` in the URL). The rail shows the **desk name** you typed (one line), not the query sentence. **edit** on a custom desk retunes place, RSS, topic, query, and which board it opens. |
 
 Click a story to **read in place**. When copy or links name a **CVE** (including `nvd.nist.gov/vuln/detail/…`), the reader loads the official **NVD JSON API** (not HTML scraping) and shows CVSS, whether a **patch/fix** is listed, fixed versions, **mitigation** and **release notes** links (from NVD reference tags), vendor advisories, and CISA required action when present. `GET /api/nvd?cves=…`.
@@ -40,11 +40,17 @@ The pane is a dossier, not a shrink of the card: a **context strip** shows desk,
 
 **Evidence store.** Read in place writes the page extract to `extracts` and indexes title / summary / body in FTS5 (`items_fts`). Search and Pulse then hit the same corpus, including older extract matches that were off the 500-item board. Ingest also mines people, orgs, places, vendors, CVEs, and threat IOCs into `entities` / `item_entities`.
 
-**Typed search.** The board search line accepts prefixes: `source:cisa cve:2024- ioc:sha256 place:Ireland -topic:sports`. Bare words still do substring / FTS. `OR` joins the next term. Tune / Query builder stays as extra `qb=` rules.
+**Typed search.** The board search line accepts prefixes: `source:cisa cve:2024- ioc:sha256 place:Ireland -topic:sports`. Bare words still do substring / FTS. `OR` joins the next term. Tune / Query builder stays as extra `qb=` rules. While typing, a suggestion list (`lib/search-suggest.ts`) offers field prefixes and then values from enabled layers, places, topics, vendors, and authors on the board; arrows move, Tab/Enter accepts, a leading `-` is kept for negation.
+
+**Menus.** Every card has **Read**, then **Link** / **Hide** (revealed on hover on pointer devices), then **⋯**. The ⋯ button, right-click, the ContextMenu key, or **Shift+F10** on the focused card open one shared menu (`components/monitor/context-menu.tsx`): Read in place / Open original / Add to report / Watch this story / Find other coverage; Filter (only this source, topic, place); Triage (mark read, hide, mute layer); Copy (link to card, Markdown citation, title + URL); Organise (display only, display collection, save to My desk, reclassify). Right-click a topic, place, vendor, or source chip for Only / Exclude / Watch; source chips also offer Refresh layer, Copy feed URL, and Mute.
+
+**Reader selection.** Select 3–1200 characters in Read in place for a popover: **Search board** (quoted phrase), **Watch phrase**, **Quote to report** (adds the text to the story's highlights in the open report, or starts one), **Copy**. Highlights render as a "Highlighted" quote block in the report and in Print to PDF.
+
+**Syndication.** Corroboration counts **independent origins**, not layers (`lib/syndication.ts`). Within a story, layers are folded into one origin when they carry the same canonical URL (scheme, `www.`/`m.`/`amp.`, AMP paths, `utm_*`/`fbclid`/`gclid` and similar stripped), the same wire byline (Reuters, AP, AFP, PA, Bloomberg, dpa, ANSA, EFE), or near-identical title + summary text (5-word shingles, ≥50% overlap). Cards show **N sources** for origins plus a dashed **+N syndicated** badge whose tooltip names the folded layers. Brief sorting, the **2+ sources** filter, Home lanes, and the reader header all use the origin count.
 
 **Help.** `/help` is an illustrated user guide: sidebar navigation, search, screenshots of Home, Brief, Pulse, Sources, Patch, and Read in place, plus prev/next between topics. Open it from the toolbar **Help** button, **Options → User manual**, the getting-started checklist, or the command palette (**User guide**). Maintainer sections stay linked from the help header.
 
-**Keyboard.** `/` focuses search. `Ctrl/⌘ K` opens the command palette (desks, places, sources, people, saved filters, watches, clear filters, unread-only). `j` / `k` move the focused card, `Enter` opens it, `h` hides, `u` undoes, `r` sends the focused story to the open report (or starts one) and shows a short **report toast**. `1`–`9` jump Home through Flights. `?` is the cheatsheet. Esc closes the palette, then the reader.
+**Keyboard.** `/` focuses search. `Ctrl/⌘ K` opens the command palette (desks, places, sources, people, saved filters, watches, clear filters, unread-only). `j` / `k` move the focused card, `Enter` opens it, ContextMenu key or `Shift+F10` opens its menu, `h` hides, `u` undoes, `r` sends the focused story to the open report (or starts one) and shows a short **report toast**. `1`–`9` jump Home through Flights. `?` is the cheatsheet. Esc closes the palette, then the reader.
 
 **Watch.** Save watches from **Saved → Watches** or the palette. New matches are logged, stay off the purge list, and can POST to an optional public ntfy URL. Click a watch (palette, Saved dialog, or the orange hits chip) to reopen its query and desk. The investigation bar **Report** chip opens the active briefing on the Reports desk.
 
@@ -74,6 +80,12 @@ Home is the current-situation board. Lanes stay filled even on older items by ma
 | Civil unrest | Protests, riots, coups, martial law |
 
 **Load hazards** pulls USGS, NWS alerts, NHC Atlantic, Met Éireann, Met Office UK, GDACS, and Crisis Group. World RSS still covers the wire desks.
+
+Live panels under the lanes (not stored as items):
+
+- **Weather events** (`GET /api/weather?lat&lng&place`). For a European home (nearest capital within 700 km, 16 countries) csmon reads the national **MeteoAlarm** CAP Atom feed (`feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-{country}`, CC BY 4.0), drops expired warnings, and groups them by event + severity ("Gale-force gusts warning · 89 areas", tooltip lists areas and expiry). When MeteoAlarm covers Ireland or the UK, the Met Éireann / Met Office RSS for that country is skipped to avoid duplicates. NWS is only pulled for US homes or homes outside MeteoAlarm. Open-Meteo local conditions stay first.
+- **Natural events · NASA EONET** (`GET /api/hazards`): open events from the last 10 days (`eonet.gsfc.nasa.gov/api/v3/events`), skipping sea/lake ice, snow, water colour, and man-made categories. Latest geometry point (polygon → centroid) is pinned on the Home map; magnitude (kts, acres) shows when present.
+- **Internet outages · IODA** (same route): country-level outage summary for the last 24 h from Georgia Tech IODA (`api.ioda.inetintel.cc.gatech.edu/v2/outages/summary?entityType=country`), ranked by overall score, with event count and which signals moved (BGP routes, active probing, Google traffic, darknet telescope). Each row links to the IODA country dashboard.
 
 **Home location** (Options, default Dublin) is the ADS-B origin: OpenSky is queried with a bounding box, then tracks farther than 100 km are dropped. That is why Dublin no longer shows a thin global altitude sample. A 100 km ring is drawn on the flight map. Pick World in Options to sample globally again.
 
@@ -117,15 +129,19 @@ CISA KEV is the exploited-in-the-wild catalog. That is the patch list; CVSS-only
 
 Type your stack (`microsoft, openssl, chrome, apache`) to hide vulns that do not match vendor/product. Vendor chips and the ransomware toggle further slice both KEV and advisory copy.
 
+**EPSS.** The Patch desk asks `GET /api/epss?cves=…` for up to 400 visible CVEs; the server batches 100 per call to `https://api.first.org/data/v1/epss` and caches each score as `epss:CVE-…` for 12 h (misses cached as `null`). Tags are tinted hot (≥10%), warm (≥1%), or cool. **Rank → EPSS** sorts by score; **CISA risk** keeps the P0/P1/P2 order. KEV says a CVE is exploited; EPSS orders a long backlog.
+
+**OSV.** For CVE stories, Read in place shows an **Open-source packages** panel under NVD: `GET /api/osv?cves=…` (max 4) loads the CVE from `https://api.osv.dev/v1/vulns/{id}` plus up to two GHSA aliases (CVE records alone usually carry only git ranges), then lists ecosystem, package, fixed versions, and last-affected versions with links to osv.dev. Cached as `osv:CVE-…` for 24 h.
+
 NVD link opens in the reader pane. **KEV** button refreshes the catalog (cached 1h). **RSS** adds a public feed or discovers one from a site. **Options** stores default desk, range, stack, compact layout, home language, home location, **light/dark palette**, auto-translate, and auto-load of security RSS / hazards / KEV. A **Dark / Light** toggle in the header switches the palette immediately.
 
 **Load world RSS** includes DW, France 24, and Sky News. Relief adds GDACS and OCHA. **Load security RSS** includes CISA, CISA ICS, Krebs, BleepingComputer, The Record, NCSC UK, Schneier, Bellingcat, CFR, CSIS, Brookings, Defense One, War on the Rocks, Breaking Defense, The War Zone, The Diplomat, Al-Monitor, DoD news, The Hacker News, Dark Reading, MSRC, CERT-EU. **Load tech RSS** includes Hacker News, Ars Technica, The Verge, MIT Tech Review, arXiv cs.AI, OpenAI news. **Load markets RSS** includes CNBC, MarketWatch, BBC Business, White House, Federal Reserve, SEC. **Load sports RSS** includes BBC Sport, BBC Football, Guardian Sport, ESPN, NYT Sports, and Sky Sports. **Load hazards** includes USGS (significant + M4.5+), NWS CAP alerts, NHC Atlantic, Met Éireann, Met Office UK, GDACS, Crisis Group.
 
 **Subreddits** (until **13 Nov 2026**) are their own category. Names live in `csmon.subreddits` and load as one combined public RSS (`rss:reddit:combined`, origin `reddit`). After that date Reddit ends public RSS — csmon **disables** the layer on 404/410 or calendar sunset, shows a header banner, and offers **Import to GDELT** (keyword queries from saved sub names). Replacements: Bluesky, GDELT, wire RSS. **Reddit OAuth** — After RSS ends, add a Reddit **script/app** id and secret in **Options → Data** (or `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` on the server). **Load Reddit** uses `client_credentials` and `oauth.reddit.com` listings instead of RSS.
 
-**GDELT** (header **Intel → GDELT**) is the [GDELT Project](https://www.gdeltproject.org/) DOC 2.0 article API: a public news index, no key. Queries live in `csmon.gdelt`. **Load GDELT** registers each enabled row as a layer (`gdelt:{id}`, origin `gdelt`). First-time defaults enable **War** and **Unrest** keyword bundles (not Ireland-only). **Packs** (Conflict & unrest, Ireland & UK, …) add presets quickly. Avoid broken `theme:` / full-country `sourcecountry:` names — use keywords or FIPS (`UK`, `US`). Cap 8 saved / **4 enabled** per load; **one HTTP call every ~6s**; 429 → **90s cooldown**. Probe: `node scripts/test-gdelt.mjs`. Credit GDELT.
+**GDELT** (header **Intel → GDELT**) is the [GDELT Project](https://www.gdeltproject.org/) DOC 2.0 article API. **Ingest is paused by default** (`CSMON_ENABLE_GDELT=1` on the server to turn on). When enabled: queries live in `csmon.gdelt`, **Load GDELT** registers layers (`gdelt:{id}`, origin `gdelt`), **one HTTP call every ~6s**, 429 → **90s cooldown**. Probe: `node scripts/test-gdelt.mjs`. Credit GDELT.
 
-**ACLED** (header **Intel → ACLED**) pulls structured conflict/protest events when `ACLED_USERNAME` and `ACLED_PASSWORD` (myACLED) are set in server `.env.local`. Profiles (country filter, days, limit) save in `csmon.acled` and register as `acled:{id}` layers (origin `acled`). See Options → Data for setup steps.
+**ACLED** (header **Intel → ACLED**) pulls structured conflict/protest events when `ACLED_USERNAME` and `ACLED_PASSWORD` (myACLED) are set. **Ingest is paused by default** (`CSMON_ENABLE_ACLED=1` plus credentials). Profiles save in `csmon.acled` and register as `acled:{id}` layers (origin `acled`). See Options → Data for setup steps.
 
 **Other geopolitical APIs** from the [2026 comparison](https://www.worldmonitor.app/blog/posts/free-geopolitical-data-apis-2026/): USGS and GDACS are in **Load hazards**. UCDP, NASA FIRMS, and Cloudflare Radar still need separate keys.
 
@@ -169,8 +185,14 @@ Outbound fetches go through SQLite `fetch_cache` so refresh does not hammer the 
 | live | 20 seconds (ADS-B) |
 | nvd (CVE JSON) | 30 minutes (same store as `json`; key `nvd:CVE-…`) |
 | cwe (MITRE weakness JSON) | 7 days (`cwe:502,787…` via `https://cwe-api.mitre.org/api/v1/cwe/weakness/…`) |
+| epss | 12 hours (`epss:CVE-…`, stored as `json`) |
+| osv | 24 hours (`osv:CVE-…`, stored as `json`) |
 
-Expired rows are deleted on read. The Sources desk shows live entry count and bytes. Article extracts are stored in `extracts` (not TTL) and indexed in `items_fts`. `GET /api/state?q=` unions recent items with FTS hits. `GET/POST /api/reports` and `GET/POST /api/watchlists` persist analyst work.
+**Conditional requests.** `cachedGet` (`lib/http.ts`) stores `ETag` / `Last-Modified` with each 200 and, once a row is stale, sends `If-None-Match` / `If-Modified-Since`. A 304 re-arms the TTL on the cached body without downloading it, and the layer records status `not_modified` (no insert). Stale rows are kept for 3 days (`STALE_KEEP_MS`) so validators survive; manual **Refresh** marks rows stale (`expires_at = MIN(expires_at, now-1)`) instead of deleting them. At most 2 concurrent requests per host.
+
+**Server scheduler.** `instrumentation.ts` starts `lib/scheduler.ts` in the Node runtime (not during build). Every 60 s (first tick after 15 s) it refreshes up to 24 due layers (`sources.next_fetch_at <= now`, or never scheduled and not fetched in 15 min). After each pull the next slot is set by `lib/fetch-schedule.ts`: half the median gap between the layer's last 12 posts, clamped to 10 min–4 h; ACLED 6 h, GDELT 30 min, Reddit 20 min, Bluesky 15 min. Failures back off exponentially (capped at 12 h) and store the error. GDELT layers skipped during the 429 cooldown are deferred past it. When the scheduler is on, the browser polls `GET /api/state` every 2 min instead of POSTing refreshes; `GET /api/scheduler` reports `{enabled, running, lastTickAt, lastRun}`. In `pnpm dev` the scheduler keeps the module copies it started with — restart the dev server after editing fetch code. Disable with `CSMON_SCHEDULER=0`.
+
+Rows past their keep window are purged on read. The Sources desk shows live entry count and bytes. Article extracts are stored in `extracts` (not TTL) and indexed in `items_fts`. `GET /api/state?q=` unions recent items with FTS hits. `GET/POST /api/reports` and `GET/POST /api/watchlists` persist analyst work.
 
 ## Flow
 
@@ -188,7 +210,9 @@ Expired rows are deleted on read. The Sources desk shows live entry count and by
 - GDELT DOC 2.0 article JSON (`https://api.gdeltproject.org/api/v2/doc/doc`, tuned queries, no key)
 - CISA KEV JSON catalog
 - USGS earthquake GeoJSON
-- NWS, Met Éireann, Met Office UK warnings + Open-Meteo local conditions
+- NWS, Met Éireann, Met Office UK, and MeteoAlarm (CAP Atom) warnings + Open-Meteo local conditions
+- NASA EONET natural events, Georgia Tech IODA internet outages
+- FIRST EPSS scores, OSV.dev package advisories
 - Natural Earth 110m country polygons (`public/geo/countries.geojson`) on Leaflet maps (pan / zoom on Flights)
 - OpenSky Network ADS-B (100 km around home, or a world grid sample) + HexDb aircraft metadata
 - MyMemory translation (public, no key)
@@ -197,6 +221,8 @@ Expired rows are deleted on read. The Sources desk shows live entry count and by
 ## Run
 
 Local: `pnpm install && pnpm dev` (or `pnpm build && pnpm start`). Docker: `ubuntu:24.04` is the `ubuntu` service in `docker-compose.yml`; deploy with `bash scripts/build-docker.sh`. See `DOCKER.md`. Compose publishes `127.0.0.1:3000` only.
+
+**VM slots (production / pre-production).** `bash scripts/csmon-deploy.sh` opens an operator menu (or use subcommands: `pull-build`, `start`, `promote`, `rollback`). State lives in `.csmon-deploy/` (gitignored): production uses the repo checkout on port **3000**, pre-production clone on **3010**, both bound to all interfaces by default. **Promote** swaps application code only; live SQLite and `.env.local` stay in `.csmon-deploy/shared/` (see `deploy/manifest.sh`). Pre-production tests against a **snapshot** of production data. Runtime **docker** or **node** is selectable once and stored in state. Retention rules and ports are versioned under `deploy/` for reuse on other hosts.
 
 ## Security
 
@@ -217,6 +243,7 @@ Options shows **version**, **git commit**, and **build date** (`GET /api/version
 | `CSMON_UPDATE_MANIFEST_URL` | unset | HTTPS JSON manifest for private installs |
 | `CSMON_UPDATE_MANIFEST_ALLOW_SUFFIX` | unset | Domain suffix for Options manifest override |
 | `CSMON_ITEM_LIMIT` | `500` | Default SQL item cap when client omits `?itemLimit=` |
+| `CSMON_SCHEDULER` | on | `0` disables the server-side refresh scheduler (browser auto-refresh takes over) |
 
 Copy `.env.example` to `.env.local`.
 
@@ -256,6 +283,13 @@ Copy `.env.example` to `.env.local`.
 | last_fetched_at | INTEGER | |
 | retention_days | INTEGER | Per-layer max item age; NULL uses Options default |
 | created_at | INTEGER NOT NULL | |
+| last_status | TEXT | `ok` \| `not_modified` \| `error` (`007_fetch_health`) |
+| last_error | TEXT | last failure message, cleared on success (`007`) |
+| fail_count | INTEGER NOT NULL DEFAULT 0 | consecutive failures, drives backoff (`007`) |
+| next_fetch_at | INTEGER | unix ms, next scheduler slot; NULL = not yet scheduled (`007`) |
+| last_added | INTEGER | new items created by the last pull (`007`) |
+
+Index `idx_sources_next_fetch ON sources(enabled, next_fetch_at)` (`007`).
 
 ### source_origins
 
@@ -400,10 +434,12 @@ TTL body cache for outbound RSS, JSON, KEV, HTML, and translations (`004_fetch_c
 | column | type | notes |
 | --- | --- | --- |
 | cache_key | TEXT PK | e.g. `rss:https://…`, `kev:catalog`, `translate:en:es:…` |
-| kind | TEXT NOT NULL | `rss` \| `json` \| `kev` \| `html` \| `translate` |
+| kind | TEXT NOT NULL | `rss` \| `json` \| `kev` \| `html` \| `translate` \| `live` |
 | body | TEXT NOT NULL | raw response |
 | fetched_at | INTEGER NOT NULL | unix ms |
-| expires_at | INTEGER NOT NULL | unix ms |
+| expires_at | INTEGER NOT NULL | unix ms; stale rows kept 3 days for revalidation |
+| etag | TEXT | response `ETag`, sent as `If-None-Match` (`007_fetch_health`) |
+| last_modified | TEXT | response `Last-Modified`, sent as `If-Modified-Since` (`007`) |
 
 Saved filters, user desks, language options, and triage stay in `localStorage`. USGS points are fetched live (JSON cache 30m) and not persisted as rows. `CSMON_DATA_DIR` only moves the SQLite file.
 
@@ -415,3 +451,4 @@ Saved filters, user desks, language options, and triage stay in `localStorage`. 
 - `004_fetch_cache` — `fetch_cache` TTL table
 - `005_source_retention` — `sources.retention_days`
 - `006_evidence` — extracts, FTS5, entities, watchlists, reports
+- `007_fetch_health` — `fetch_cache.etag`, `fetch_cache.last_modified`; `sources.last_status`, `last_error`, `fail_count`, `next_fetch_at`, `last_added`; index `idx_sources_next_fetch`. Columns are added with `ADD COLUMN` only when missing (`ensureFetchHealthColumns` also runs on every start once 007 is recorded)

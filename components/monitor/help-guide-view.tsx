@@ -17,21 +17,21 @@ function Markdownish({ text }: { text: string }) {
   const blocks = text.split(/\n\n+/);
   return (
     <div className="help-prose space-y-3 text-[13px] leading-relaxed text-slate-700">
-      {blocks.map((block) => {
+      {blocks.map((block, blockIndex) => {
         if (block.startsWith("|")) {
           const rows = block.trim().split("\n").filter((r) => !r.match(/^\|[-\s|]+\|$/));
           return (
-            <div key={block.slice(0, 24)} className="overflow-x-auto">
+            <div key={blockIndex} className="overflow-x-auto">
               <table className="w-full border-collapse text-[12px]">
                 <tbody>
-                  {rows.map((row) => {
+                  {rows.map((row, rowIndex) => {
                     const cells = row.split("|").filter((c) => c.trim() !== "");
-                    const isHead = row === rows[0];
+                    const isHead = rowIndex === 0;
                     return (
-                      <tr key={row} className="border-b border-slate-200">
-                        {cells.map((cell) => (
+                      <tr key={rowIndex} className="border-b border-slate-200">
+                        {cells.map((cell, cellIndex) => (
                           <td
-                            key={cell}
+                            key={cellIndex}
                             className={`px-2 py-1 align-top ${isHead ? "font-semibold text-slate-800" : ""}`}
                           >
                             {cell.trim().replace(/\*\*/g, "")}
@@ -47,13 +47,13 @@ function Markdownish({ text }: { text: string }) {
         }
         if (block.startsWith("### ")) {
           return (
-            <h3 key={block} className="text-[14px] font-semibold text-slate-900">
+            <h3 key={blockIndex} className="text-[14px] font-semibold text-slate-900">
               {block.replace(/^###\s+/, "")}
             </h3>
           );
         }
         return (
-          <p key={block.slice(0, 32)} className="whitespace-pre-wrap">
+          <p key={blockIndex} className="whitespace-pre-wrap">
             {block.replace(/\*\*(.+?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1")}
           </p>
         );
@@ -71,7 +71,7 @@ function HelpFigureBlock({ figure }: { figure: HelpFigure }) {
           alt={figure.alt}
           width={1280}
           height={720}
-          className="h-auto w-full"
+          style={{ width: "100%", height: "auto" }}
           sizes="(max-width: 768px) 100vw, 720px"
         />
       </div>
@@ -178,7 +178,8 @@ function HubCard({ section }: { section: ManualSection }) {
             alt=""
             width={400}
             height={225}
-            className="h-auto w-full transition group-hover:scale-[1.01]"
+            className="transition group-hover:scale-[1.01]"
+            style={{ width: "100%", height: "auto" }}
             sizes="280px"
           />
         </div>

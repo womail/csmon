@@ -36,7 +36,9 @@ type AcledRow = {
 };
 
 function metaGet(key: string) {
-  const row = getDb().prepare("SELECT body FROM fetch_cache WHERE cache_key = ?").get(key) as
+  const row = getDb()
+    .prepare("SELECT body FROM fetch_cache WHERE cache_key = ? AND expires_at > ?")
+    .get(key, Date.now()) as
     | { body: string }
     | undefined;
   return row?.body ?? "";

@@ -1,5 +1,6 @@
 import { sortStoryTopics } from "./classify";
 import { mineItem } from "./mine";
+import { canonicalUrl, independentSourceCount } from "./syndication";
 import type { Item, Source } from "./types";
 
 const STOP = new Set([
@@ -55,13 +56,7 @@ function indexPush(index: Map<string, number[]>, key: string, group: number) {
 }
 
 function itemKey(item: Item) {
-  try {
-    const parsed = new URL(item.url);
-    parsed.hash = "";
-    return parsed.toString().replace(/\/$/, "");
-  } catch {
-    return item.url;
-  }
+  return canonicalUrl(item.url);
 }
 
 export function itemAsStory(item: Item): Story {
@@ -191,7 +186,7 @@ export function clusterItems(items: Item[]): Story[] {
       };
     })
     .sort((a, b) => {
-      const sourceDelta = b.sourceIds.length - a.sourceIds.length;
+      const sourceDelta = independentSourceCount(b.items) - independentSourceCount(a.items);
       if (sourceDelta) return sourceDelta;
       return b.latestAt - a.latestAt;
     });
@@ -221,7 +216,7 @@ export function storiesFromPool(pool: Story[], allowedIds: Set<number>, cross: b
           topics: sortStoryTopics(kept.flatMap((item) => item.topics)),
           locations: [...new Set(kept.flatMap((item) => item.locations))],
         };
-    if (cross && next.sourceIds.length < 2) continue;
+    if (cross && (next.sourceIds.length < 2 || independentSourceCount(next.items) < 2)) continue;
     if (hidden.includes(`story:${story.id}`)) continue;
     out.push(next);
   }
@@ -267,7 +262,7 @@ export function situationLine(stories: Story[], sources: Source[]) {
   ];
   if (places.length) bits.push(places.join(", "));
   if (topics.length) bits.push(topics.join(" · "));
-  if (hottest && hottest.sourceIds.length > 1) {
+  if (hottest && independentSourceCount(hottest.items) > 1) {
     bits.push(`most covered: ${hottest.title.slice(0, 72)}`);
   }
   return bits.join("  ·  ");

@@ -1,13 +1,25 @@
 import type { Story } from "./cluster";
 import { mineItem } from "./mine";
+import { storyOrigins, type SyndicationReason } from "./syndication";
 import { itemMatchesRising } from "./trends";
-import type { Item, Source } from "./types";
+import type { Source } from "./types";
 
 export type StoryCorroboration = {
+  /** Independent origins after folding syndicated copies together. */
   sourceCount: number;
+  /** Raw layer count, including syndicated copies. */
+  layerCount: number;
   sourceNames: string[];
+  /** One line per origin that absorbed copies, e.g. "Reuters wire: BBC, RTÉ". */
+  syndicated: string[];
   rising: boolean;
   kevCves: string[];
+};
+
+const REASON_LABEL: Record<SyndicationReason, string> = {
+  "same-url": "same link",
+  wire: "wire copy",
+  "same-text": "near-identical text",
 };
 
 export function storyCorroboration(
@@ -16,9 +28,15 @@ export function storyCorroboration(
   risingKeys: Set<string>,
   kevCveIds: Set<string>,
 ): StoryCorroboration {
-  const sourceNames = story.sourceIds
-    .map((id) => sources.get(id)?.name ?? "source")
-    .filter(Boolean);
+  const nameOf = (id: number) => sources.get(id)?.name ?? "source";
+  const origins = storyOrigins(story.items);
+  const syndicated = origins
+    .filter((origin) => origin.sourceIds.length > 1)
+    .map((origin) => {
+      const why = origin.wire ? `${origin.wire} wire` : origin.reasons.map((r) => REASON_LABEL[r]).join(", ");
+      return `${why}: ${origin.sourceIds.map(nameOf).join(", ")}`;
+    });
+  const sourceNames = origins.map((origin) => nameOf(origin.sourceIds[0]));
   const rising = story.items.some((item) =>
     itemMatchesRising(item, risingKeys, sources.get(item.sourceId)),
   );
@@ -28,8 +46,10 @@ export function storyCorroboration(
   }
   const kevCves = [...cves].filter((cve) => kevCveIds.has(cve));
   return {
-    sourceCount: story.sourceIds.length,
+    sourceCount: origins.length,
+    layerCount: story.sourceIds.length,
     sourceNames,
+    syndicated,
     rising,
     kevCves,
   };

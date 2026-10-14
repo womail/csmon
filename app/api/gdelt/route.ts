@@ -1,4 +1,5 @@
 import { normalizeGdeltQueries } from "@/lib/gdelt";
+import { gdeltIngestDisabledReason, gdeltIngestEnabled } from "@/lib/ingest-flags";
 import { fail, gate, jsonOk, readJson } from "@/lib/guard";
 import { monitorStateFromRequest } from "@/lib/monitor-state";
 import { registerGdeltQueries } from "@/lib/queries";
@@ -12,6 +13,9 @@ export async function POST(request: Request) {
   const blocked = gate(request, "gdelt", 6);
   if (blocked) return blocked;
   try {
+    if (!gdeltIngestEnabled()) {
+      return jsonOk({ error: gdeltIngestDisabledReason() }, 503);
+    }
     const body = await readJson<{ queries?: unknown }>(request);
     if (!Array.isArray(body.queries)) return jsonOk({ error: "Send a list of GDELT queries." }, 400);
     const queries = normalizeGdeltQueries(body.queries);

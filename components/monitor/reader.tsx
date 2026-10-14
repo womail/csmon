@@ -1,7 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { SelectionPopover, type SelectionAction } from "@/components/monitor/selection-popover";
 import { ChevronLeft, ExternalLink, Languages, Printer, Rss, ScanSearch, X } from "lucide-react";
 import { SendToReportButton } from "@/components/monitor/send-to-report";
 import { Ago } from "@/components/monitor/ago";
@@ -31,6 +32,7 @@ import { ArticleBody } from "@/components/monitor/article-body";
 import { ExternalLinkRow } from "@/components/monitor/external-link-row";
 import { VulnResponsePanel } from "@/components/monitor/vuln-response-panel";
 import { NvdPanel } from "@/components/monitor/nvd-panel";
+import { OsvPanel } from "@/components/monitor/osv-panel";
 import {
   articleDisplayBlocks,
   blocksPlainText,
@@ -40,13 +42,21 @@ import { isNoiseCopy, type ArticleRead } from "@/lib/article";
 import { isVendorAdvisoryLink } from "@/lib/page-links";
 import type { ReportVulnPlanSnapshot } from "@/lib/report-vuln-plan";
 import type { NvdCveBrief } from "@/lib/nvd";
-import type { Report } from "@/lib/reports";
+import {
+  addHighlightToReport,
+  createReport,
+  loadActiveReportId,
+  openReports,
+  snapshotStory,
+  type Report,
+} from "@/lib/reports";
 import {
   ReaderContextStrip,
   type ReaderContextChip,
 } from "@/components/monitor/reader-context-strip";
 import { HypothesisReaderStrip } from "@/components/monitor/hypothesis-reader-strip";
 import type { BuiltinDesk, Item, Source } from "@/lib/types";
+import { independentSourceCount } from "@/lib/syndication";
 
 export function ReaderPane({
   story,
@@ -71,6 +81,7 @@ export function ReaderPane({
   onPerson,
   reports = [],
   onReportsChange,
+  onActiveReportChange,
   onOpenReport,
   stack = "",
   onDesk,
@@ -79,7 +90,13 @@ export function ReaderPane({
   vulnResponse = true,
   boardContext,
   hypothesisContext,
+  onSearchText,
+  onWatchText,
 }: {
+  /** Selected passage → board search. */
+  onSearchText?: (text: string) => void;
+  /** Selected passage → watchlist. */
+  onWatchText?: (text: string) => void;
   story: Story;
   sources: Map<number, Source>;
   related: { story: Story; why: string }[];
@@ -102,6 +119,7 @@ export function ReaderPane({
   onPerson?: (name: string) => void;
   reports?: Report[];
   onReportsChange?: (rows: Report[]) => void;
+  onActiveReportChange?: (id: string) => void;
   onOpenReport?: (id: string) => void;
   stack?: string;
   onDesk?: (desk: BuiltinDesk) => void;
@@ -120,6 +138,7 @@ export function ReaderPane({
     hypotheses: string[];
   };
 }) {
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState(story.items[0].id);
   const [article, setArticle] = useState<ArticleRead | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -303,6 +322,51 @@ export function ReaderPane({
 
   const shownBlocks = translated && translated.length > 1 ? translated.slice(1) : dossier.blocks;
   const shownTitle = translated?.[0] ?? story.title;
+  const originCount = independentSourceCount(story.items);
+
+  const selectionActions: SelectionAction[] = [
+    ...(onSearchText
+      ? [{ id: "search", label: "Search board", run: (text: string) => onSearchText(text) }]
+      : []),
+    ...(onWatchText ? [{ id: "watch", label: "Watch phrase", run: (text: string) => onWatchText(text) }] : []),
+    ...(onReportsChange
+      ? [
+          {
+            id: "quote",
+            label: "Quote to report",
+            run: (text: string) => {
+              const snap = snapshotStory(story, sources, article ? [article] : [], {
+                vulnPlan: vulnPlanSnapshot ?? undefined,
+              });
+              const live = openReports(reports);
+              const target = live.find((row) => row.id === loadActiveReportId()) ?? live[0];
+              if (target) {
+                onReportsChange(addHighlightToReport(target.id, snap, text, reports));
+                onActiveReportChange?.(target.id);
+                return `Quoted into ${target.title}`;
+              }
+              const created = createReport(story.title, snap, reports);
+              const rows = addHighlightToReport(created.report.id, snap, text, created.rows);
+              onReportsChange(rows);
+              onActiveReportChange?.(created.report.id);
+              return `Quoted into ${created.report.title}`;
+            },
+          },
+        ]
+      : []),
+    {
+      id: "copy",
+      label: "Copy",
+      run: async (text: string) => {
+        try {
+          await navigator.clipboard.writeText(text);
+          return "Copied";
+        } catch {
+          return "Copy blocked";
+        }
+      },
+    },
+  ];
 
   function printReaderPdf() {
     const root = document.documentElement;
@@ -336,9 +400,10 @@ export function ReaderPane({
         <div className="min-w-0 flex-1">
           <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
             Read in place
-            {story.sourceIds.length > 1
-              ? ` · ${story.sourceIds.length} desks corroborate`
-              : " · single desk"}
+            {originCount > 1 ? ` · ${originCount} independent origins` : " · single origin"}
+            {story.sourceIds.length > originCount
+              ? ` (+${story.sourceIds.length - originCount} syndicated)`
+              : ""}
             {articleLang ? ` · ${languageName(articleLang)}` : ""}
           </div>
           <div className="text-[14px] leading-snug font-semibold text-slate-900">{shownTitle}</div>
@@ -372,6 +437,7 @@ export function ReaderPane({
             article={article}
             vulnPlanSnapshot={vulnPlanSnapshot}
             onChange={onReportsChange}
+            onActiveReportChange={onActiveReportChange}
             onOpenReport={onOpenReport}
           />
         ) : null}
@@ -474,7 +540,8 @@ export function ReaderPane({
         })}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        <SelectionPopover containerRef={bodyRef} actions={selectionActions} />
         <SituationMap
           title="Where this relates"
           markers={mapMarkers}
@@ -716,6 +783,7 @@ export function ReaderPane({
             {nvdLoading && nvdEntries.length > 0 ? (
               <p className="mt-1 text-[10px] text-slate-400">Updating NVD…</p>
             ) : null}
+            <OsvPanel cveKey={nvdCveKey} onFollow={onFollow} />
           </>
         ) : null}
 
@@ -787,7 +855,7 @@ export function ReaderPane({
                       {row.story.title}
                     </span>
                     <span className="text-[10px] text-slate-400">
-                      {row.story.sourceIds.length} sources
+                      {independentSourceCount(row.story.items)} sources
                     </span>
                   </button>
                 </Tip>

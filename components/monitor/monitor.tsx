@@ -13,6 +13,9 @@ import {
 } from "react";
 import { Layers, ChevronDown, ChevronRight, Undo2 } from "lucide-react";
 import { CardContextMenu, type CardMenuAction } from "@/components/monitor/card-context-menu";
+import { ContextMenu, menuAnchor } from "@/components/monitor/context-menu";
+import { storySearchLine } from "@/lib/story-keywords";
+import { itemTopicChips, storyTopicChips, uniquePlaces } from "@/lib/card-tags";
 import { MonitorToolbar } from "@/components/monitor/monitor-toolbar";
 import { Ago } from "@/components/monitor/ago";
 import {
@@ -22,6 +25,7 @@ import {
   RankedCard,
   SourceLayerCard,
   StoryCard,
+  type CardChip,
 } from "@/components/monitor/cards";
 import { PulseCard, TopicMix, TrendList } from "@/components/monitor/charts";
 import { FilterTuner } from "@/components/monitor/filter-tuner";
@@ -82,6 +86,8 @@ import { kevCatalogSet, storyCorroboration } from "@/lib/story-corroboration";
 import { countBoardItemsForTrend } from "@/lib/trend-board-bridge";
 import type { TrendRow } from "@/lib/trends";
 import { findMatchingSavedFilter } from "@/lib/saved-filter-match";
+import type { SearchSuggestData } from "@/lib/search-suggest";
+import { epssLabel, epssTone, type EpssScore } from "@/lib/vuln-intel";
 import {
   FirstRunChecklist,
   FIRST_RUN_CHECKLIST_KEY,
@@ -169,6 +175,8 @@ import {
   type Report,
 } from "@/lib/reports";
 import type { WeatherEvent } from "@/lib/weather";
+import type { NaturalEvent, OutageRow } from "@/lib/hazards";
+import { SourcesTable } from "@/components/monitor/sources-table";
 import {
   clearDisplayCollection,
   loadDisplayCollection,
@@ -235,6 +243,9 @@ const RISK_COLOR: Record<PatchRisk, string> = {
   p1: "#c2410c",
   p2: "#64748b",
 };
+
+/** With the server scheduler on, the board only re-reads SQLite; the server does the fetching. */
+const SERVER_SYNC_MS = 2 * 60 * 1000;
 
 function statePath(path: string, limit: number, q?: string) {
   const base = withItemLimitQuery(path, limit);
@@ -321,6 +332,8 @@ export function Monitor({
   const [homeLanguage, setHomeLanguage] = useState("en");
   const [autoTranslate, setAutoTranslate] = useState(false);
   const [quakes, setQuakes] = useState<QuakeEvent[]>([]);
+  const [naturalEvents, setNaturalEvents] = useState<NaturalEvent[]>([]);
+  const [outages, setOutages] = useState<OutageRow[]>([]);
   const [flights, setFlights] = useState<Flight[]>([]);
   const [flightError, setFlightError] = useState<string | null>(null);
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
@@ -336,6 +349,7 @@ export function Monitor({
   const [triage, setTriage] = useState<TriageState>({ hidden: [], read: [] });
   const [triageUndo, setTriageUndo] = useState<TriageUndo[]>([]);
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [sourcesView, setSourcesView] = useState<"tiles" | "table">("tiles");
   const [savedViewsOpen, setSavedViewsOpen] = useState(false);
   const [savedViewsTab, setSavedViewsTab] = useState<"filters" | "briefing" | "watches">("filters");
   const [setupWizardOpen, setSetupWizardOpen] = useState(false);
@@ -366,11 +380,17 @@ export function Monitor({
     x: number;
     y: number;
   } | null>(null);
+  const [chipMenu, setChipMenu] = useState<{ chip: CardChip; x: number; y: number } | null>(null);
+  const [epss, setEpss] = useState<Map<string, EpssScore>>(() => new Map());
+  const epssRequested = useRef(new Set<string>());
+  const [patchOrder, setPatchOrder] = useState<"cisa" | "epss">("cisa");
+  const [notice, setNotice] = useState<string | null>(null);
   const [displayCollection, setDisplayCollection] = useState<DisplayCollection | null>(null);
   const [focusItem, setFocusItem] = useState<number | null>(seed.focusItem ?? null);
   const [linkCopied, setLinkCopied] = useState<number | null>(null);
   const focusItemHandled = useRef<number | null>(null);
   const [autoRefreshMinutes, setAutoRefreshMinutes] = useState(0);
+  const [serverScheduler, setServerScheduler] = useState(false);
 
   function setState(next: MonitorState) {
     setStateRaw({
@@ -409,6 +429,7 @@ export function Monitor({
     setReaderWidth(loadReaderWidth());
     setFollowOpen(window.localStorage.getItem("csmon.follow-open") !== "0");
     setUnreadOnly(window.localStorage.getItem("csmon.unread-only") === "1");
+    setSourcesView(window.localStorage.getItem("csmon.sources-view") === "table" ? "table" : "tiles");
     setBoardItemLimit(opts.boardItemLimit);
     if (!seed.stack) {
       setStack(opts.stack || window.localStorage.getItem("csmon.stack") || "");
@@ -443,6 +464,14 @@ export function Monitor({
           });
           if (!cancelled) setState(next);
         }
+        void apiFetch("/api/hazards")
+          .then((res) => (res.ok ? (res.json() as Promise<{ natural?: NaturalEvent[]; outages?: OutageRow[] }>) : null))
+          .then((data) => {
+            if (cancelled || !data) return;
+            setNaturalEvents(data.natural ?? []);
+            setOutages(data.outages ?? []);
+          })
+          .catch(() => {});
         const [quakeRes, flightRes, weatherRes] = await Promise.all([
           apiFetch("/api/quakes"),
           apiFetch(`/api/flights${near ? `?${near}` : ""}`),
@@ -597,6 +626,28 @@ export function Monitor({
   ]);
 
   useEffect(() => {
+    let cancelled = false;
+    void apiFetch("/api/scheduler")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { enabled?: boolean } | null) => {
+        if (!cancelled) setServerScheduler(Boolean(data?.enabled));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (serverScheduler) {
+      const id = window.setInterval(() => {
+        if (document.visibilityState !== "visible") return;
+        void json<MonitorState>(statePath("/api/state", boardItemLimit, deferredQuery))
+          .then(setState)
+          .catch(() => undefined);
+      }, SERVER_SYNC_MS);
+      return () => window.clearInterval(id);
+    }
     if (!autoRefreshMinutes) return;
     const ms = autoRefreshMinutes * 60_000;
     const id = window.setInterval(() => {
@@ -604,7 +655,7 @@ export function Monitor({
       void refresh({ skipGdelt: true, skipReddit: true, skipAcled: true });
     }, ms);
     return () => window.clearInterval(id);
-  }, [autoRefreshMinutes, boardItemLimit]);
+  }, [autoRefreshMinutes, boardItemLimit, deferredQuery, serverScheduler]);
 
   const baseItems = useMemo(() => {
     const filters: BoardFilters = {
@@ -797,7 +848,21 @@ export function Monitor({
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);
   }, [items, state.kev, viewDesk]);
 
-  const kev = useMemo(() => {
+  const searchData = useMemo((): SearchSuggestData => {
+    const authors = new Map<string, number>();
+    for (const item of rangedItems) {
+      if (item.author) authors.set(item.author, (authors.get(item.author) ?? 0) + 1);
+    }
+    return {
+      source: state.sources.filter((s) => s.enabled).map((s) => s.name),
+      place: places.map(([name]) => name),
+      topic: topics.map(([name]) => name),
+      vendor: vendors.map(([name]) => name),
+      author: [...authors.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name),
+    };
+  }, [places, rangedItems, state.sources, topics, vendors]);
+
+  const kevFiltered = useMemo(() => {
     return state.kev
       .filter((entry) => matchesStack(entry, stack))
       .filter((entry) => (riskFilter === "all" ? true : entry.risk === riskFilter))
@@ -810,6 +875,32 @@ export function Monitor({
         return `${entry.cveId} ${entry.vendor} ${entry.product} ${entry.name}`.toLowerCase().includes(q);
       });
   }, [query, ransomware, riskFilter, stack, state.kev, triage.hidden, vendor]);
+
+  useEffect(() => {
+    if (viewDesk !== "patch") return;
+    const wanted = kevFiltered
+      .slice(0, 400)
+      .map((entry) => entry.cveId)
+      .filter((id) => !epssRequested.current.has(id));
+    if (!wanted.length) return;
+    for (const id of wanted) epssRequested.current.add(id);
+    void json<{ scores: EpssScore[] }>(`/api/epss?cves=${encodeURIComponent(wanted.join(","))}`)
+      .then((data) => {
+        setEpss((current) => {
+          const next = new Map(current);
+          for (const row of data.scores) next.set(row.cve, row);
+          return next;
+        });
+      })
+      .catch(() => {
+        for (const id of wanted) epssRequested.current.delete(id);
+      });
+  }, [kevFiltered, viewDesk]);
+
+  const kev = useMemo(() => {
+    if (patchOrder !== "epss") return kevFiltered;
+    return [...kevFiltered].sort((a, b) => (epss.get(b.cveId)?.epss ?? -1) - (epss.get(a.cveId)?.epss ?? -1));
+  }, [epss, kevFiltered, patchOrder]);
 
   const stats = useMemo(() => {
     const sixH = Date.now() - 6 * 60 * 60 * 1000;
@@ -1027,12 +1118,97 @@ export function Monitor({
 
   function openCardMenu(item: Item, event: ReactMouseEvent, story: Story | null = null) {
     event.preventDefault();
-    setCardMenu({
-      item,
-      story,
-      x: event.clientX,
-      y: event.clientY,
-    });
+    event.stopPropagation();
+    setChipMenu(null);
+    setCardMenu({ item, story, ...menuAnchor(event) });
+  }
+
+  function openChipMenu(chip: CardChip, event: ReactMouseEvent) {
+    event.preventDefault();
+    setCardMenu(null);
+    setChipMenu({ chip, ...menuAnchor(event) });
+  }
+
+  function flashNotice(text: string) {
+    setNotice(text);
+    window.setTimeout(() => setNotice((current) => (current === text ? null : current)), 3500);
+  }
+
+  async function copyText(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      flashNotice(`Copied ${label}`);
+    } catch {
+      setError("Could not copy to the clipboard");
+    }
+  }
+
+  async function createWatch(query: string, name: string) {
+    const line = window.prompt("Watch query (same syntax as search)", query);
+    if (!line?.trim()) return;
+    try {
+      const res = await apiFetch("/api/watchlists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.slice(0, 80) || line.trim(), query: line.trim(), notifyUrl: null, desk: viewDesk }),
+      });
+      const data = (await res.json()) as { watches?: Watchlist[]; error?: string };
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      if (data.watches) setStateRaw((current) => ({ ...current, watches: data.watches ?? [] }));
+      flashNotice(`Watching “${line.trim()}”`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save watch");
+    }
+  }
+
+  function appendQueryToken(token: string) {
+    setQuery((current) => [current.trim(), token].filter(Boolean).join(" "));
+  }
+
+  async function handleChipMenuAction(kind: "filter" | "exclude" | "watch" | "only" | "mute" | "refresh" | "copy-feed") {
+    if (!chipMenu) return;
+    const { chip } = chipMenu;
+    setChipMenu(null);
+    const token = `${chip.kind}:${/\s/.test(chip.value) ? `"${chip.value}"` : chip.value}`;
+    if (chip.kind === "source") {
+      const source = byId.get(chip.sourceId);
+      if (kind === "only" || kind === "filter") focusSource(chip.sourceId);
+      else if (kind === "exclude") appendQueryToken(`-${token}`);
+      else if (kind === "mute" && source) {
+        await toggleLayer(source.id, true);
+        flashNotice(`Muted ${source.name}`);
+      } else if (kind === "refresh" && source) void refreshLayer(source.id);
+      else if (kind === "copy-feed" && source) void copyText(source.feedUrl ?? source.url, "feed URL");
+      else if (kind === "watch") void createWatch(token, chip.value);
+      return;
+    }
+    if (kind === "filter") {
+      if (chip.kind === "topic") toggleTopic(chip.value);
+      else if (chip.kind === "place") focusPlace(chip.value);
+      else toggleVendor(chip.value);
+    } else if (kind === "exclude") {
+      appendQueryToken(`-${token}`);
+    } else if (kind === "watch") {
+      void createWatch(token, chip.value);
+    }
+  }
+
+  async function refreshLayer(id: number) {
+    setRefreshing(true);
+    try {
+      setState(
+        await json<MonitorState>(statePath("/api/refresh", boardItemLimit), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: [id] }),
+        }),
+      );
+      flashNotice(`Refreshed ${byId.get(id)?.name ?? "layer"}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Refresh failed");
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   function filtersSnapshot(): BoardFilters {
@@ -1067,6 +1243,71 @@ export function Monitor({
     if (!cardMenu) return;
     const { item, story } = cardMenu;
     setCardMenu(null);
+    const target = story ?? storyContaining(item, poolStories) ?? itemAsStory(item);
+    const source = byId.get(item.sourceId);
+
+    if (action.kind === "open") {
+      openReader(target);
+      return;
+    }
+    if (action.kind === "open-original") {
+      window.open(item.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (action.kind === "report") {
+      reportStory(target);
+      return;
+    }
+    if (action.kind === "hide") {
+      if (story) hideStory(story);
+      else hideItem(item);
+      return;
+    }
+    if (action.kind === "read") {
+      if (story) readStory(story);
+      else readItem(item);
+      return;
+    }
+    if (action.kind === "watch") {
+      void createWatch(storySearchLine(target.title, mineItem(item).cves), target.title);
+      return;
+    }
+    if (action.kind === "find-coverage") {
+      const line = storySearchLine(target.title);
+      if (!line) return;
+      setLayer(null);
+      setQuery(line);
+      if (viewDesk === "home" || viewDesk === "sources") setDesk("brief");
+      return;
+    }
+    if (action.kind === "only-source") {
+      focusSource(item.sourceId);
+      return;
+    }
+    if (action.kind === "mute-source") {
+      if (source) {
+        await toggleLayer(source.id, true);
+        flashNotice(`Muted ${source.name}`);
+      }
+      return;
+    }
+    if (action.kind === "filter-topic") {
+      toggleTopic(action.topic);
+      return;
+    }
+    if (action.kind === "filter-place") {
+      focusPlace(action.place);
+      return;
+    }
+    if (action.kind === "copy-citation") {
+      const when = item.publishedAt ? new Date(item.publishedAt).toISOString().slice(0, 10) : "undated";
+      void copyText(`[${item.title}](${item.url}) — ${source?.name ?? "source"}, ${when}`, "citation");
+      return;
+    }
+    if (action.kind === "copy-title") {
+      void copyText(`${item.title}\n${item.url}`, "title and URL");
+      return;
+    }
 
     if (action.kind === "reclassify") {
       await reclassifyItemTopics(item.id, action.topics);
@@ -1617,20 +1858,35 @@ export function Monitor({
 
   function reportFocused() {
     const story = focusedStory();
-    if (!story) return;
+    if (story) reportStory(story);
+  }
+
+  function handleReportsChange(rows: Report[]) {
+    setReports(rows);
+    const active = loadActiveReportId();
+    if (active && rows.some((row) => row.id === active)) {
+      setOpenReportId(active);
+    }
+  }
+
+  /** Switch the active briefing without leaving the reader or changing desk. */
+  function selectActiveReport(id: string) {
+    setOpenReportId(id);
+    saveActiveReportId(id);
+  }
+
+  function reportStory(story: Story) {
     const snap = snapshotStory(story, byId);
     const live = openReports(reports);
     const target = live.find((row) => row.id === openReportId) ?? live[0];
     if (target) {
       const rows = addStoryToReport(target.id, snap, reports);
-      setReports(rows);
-      setOpenReportId(target.id);
+      handleReportsChange(rows);
       flashReportToast(target.id, rows);
       return;
     }
     const next = createReport(story.title, snap, reports);
-    setReports(next.rows);
-    setOpenReportId(next.report.id);
+    handleReportsChange(next.rows);
     flashReportToast(next.report.id, next.rows);
   }
 
@@ -1707,6 +1963,18 @@ export function Monitor({
       if (event.key === "r") {
         event.preventDefault();
         reportFocused();
+        return;
+      }
+      if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+        const row = boardList[focusIndex];
+        const story = row?.kind === "story" ? row.story : null;
+        const item = row ? (row.kind === "story" ? row.story.items[0] : row.item) : null;
+        if (!item) return;
+        event.preventDefault();
+        const el = document.getElementById(cardAnchorId(item.id));
+        const rect = el?.getBoundingClientRect();
+        setChipMenu(null);
+        setCardMenu({ item, story, x: rect ? rect.left + 12 : 80, y: rect ? rect.top + 24 : 80 });
       }
     }
     window.addEventListener("keydown", onKey);
@@ -1772,6 +2040,12 @@ export function Monitor({
         color: byId.get(id)?.color ?? "#94a3b8",
       }));
   }, [byId, rangedItems]);
+
+  const sourceItemCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const item of items) counts.set(item.sourceId, (counts.get(item.sourceId) ?? 0) + 1);
+    return counts;
+  }, [items]);
 
   const visibleSources = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -2035,6 +2309,7 @@ export function Monitor({
         <header className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm">
           <RedditRssBanner onMigrate={() => setRedditDialogOpen(true)} />
           <MonitorToolbar
+            searchData={searchData}
             viewDesk={viewDesk}
             query={query}
             onQueryChange={setQuery}
@@ -2478,6 +2753,20 @@ export function Monitor({
                 ) : null}
                 {viewDesk === "sources" ? (
               <>
+                <Tip text="Switch between layer tiles and a sortable table with fetch health">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    aria-pressed={sourcesView === "table"}
+                    onClick={() => {
+                      const next = sourcesView === "table" ? "tiles" : "table";
+                      setSourcesView(next);
+                      window.localStorage.setItem("csmon.sources-view", next);
+                    }}
+                  >
+                    {sourcesView === "table" ? "Tiles" : "Table"}
+                  </Button>
+                </Tip>
                 <Tip text="Guided packs, home location, optional watch">
                   <Button size="xs" onClick={() => setSetupWizardOpen(true)} disabled={busy}>
                     Set up monitoring
@@ -2708,9 +2997,25 @@ export function Monitor({
             ) : viewDesk === "patch" ? (
               <div className={`board p-2 ${compact ? "board-compact" : ""}`}>
                 <RankedCard title="Vendors to watch" rows={stats.vendorRows} onSelect={toggleVendor} />
+                <div className="card-tile patch-order">
+                  <p className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">Rank</p>
+                  <div className="toolbar-segment mt-1">
+                    <button type="button" data-active={patchOrder === "cisa" ? "true" : "false"} onClick={() => setPatchOrder("cisa")}>
+                      CISA risk
+                    </button>
+                    <button type="button" data-active={patchOrder === "epss" ? "true" : "false"} onClick={() => setPatchOrder("epss")}>
+                      EPSS
+                    </button>
+                  </div>
+                  <p className="mt-1.5 text-[10.5px] leading-snug text-slate-500">
+                    EPSS is FIRST&apos;s daily estimate of the chance a CVE is exploited in the next 30 days. KEV says it
+                    already has been; EPSS helps order a long backlog.
+                  </p>
+                </div>
                 {kev.slice(0, 80).map((entry) => (
                   <KevCard
                     key={entry.cveId}
+                    epss={epss.get(entry.cveId)}
                     entry={entry}
                     read={triage.read.includes(kevKey(entry.cveId))}
                     onOpen={() => openReader(kevStory(entry, rangedItems))}
@@ -2722,6 +3027,11 @@ export function Monitor({
               </div>
             ) : viewDesk === "home" ? (
               <HomeDashboard
+                onStoryMenu={(story, event) => {
+                  const head = story.items[0];
+                  if (head) openCardMenu(head, event, story);
+                }}
+                onChipMenu={openChipMenu}
                 stories={stories}
                 items={items}
                 catalogTopics={catalogTopics}
@@ -2729,6 +3039,8 @@ export function Monitor({
                 people={peopleCatalog}
                 quakes={quakes}
                 weatherEvents={weatherEvents}
+                naturalEvents={naturalEvents}
+                outages={outages}
                 topic={topic}
                 layer={layer}
                 person={person}
@@ -2797,18 +3109,31 @@ export function Monitor({
                   setOpenReportId(id);
                   saveActiveReportId(id);
                 }}
-                onChange={setReports}
+                onChange={handleReportsChange}
               />
             ) : viewDesk === "sources" ? (
               <div className={`board p-2 ${compact ? "board-compact" : ""}`}>
                 <CorpusStatsCard enabledLayers={enabled.length} boardItems={items.length} />
                 <CacheCard entries={state.cache.entries} bytes={state.cache.bytes} />
                 <HealthCard value={stats.health} fresh={stats.fresh} total={enabled.length} />
-                {visibleSources.map((source) => (
+                {sourcesView === "table" ? (
+                  <SourcesTable
+                    sources={visibleSources}
+                    itemCounts={sourceItemCounts}
+                    activeId={layer}
+                    onOpen={focusSource}
+                    onRefresh={(id) => void refreshLayer(id)}
+                    onToggle={(id) => void toggleLayer(id, true)}
+                    onMenu={(source, event) =>
+                      openChipMenu({ kind: "source", value: source.name, sourceId: source.id }, event)
+                    }
+                  />
+                ) : null}
+                {sourcesView === "table" ? null : visibleSources.map((source) => (
                   <SourceLayerCard
                     key={source.id}
                     source={source}
-                    itemCount={items.filter((item) => item.sourceId === source.id).length}
+                    itemCount={sourceItemCounts.get(source.id) ?? 0}
                     sample={items.find((item) => item.sourceId === source.id)?.title}
                     active={layer === source.id}
                     onToggle={() => toggleLayer(source.id, true)}
@@ -2921,6 +3246,7 @@ export function Monitor({
                             onHide={() => hideItem(item)}
                             onRead={() => readItem(item)}
                             onReclassify={(event) => openCardMenu(item, event)}
+                            onChipMenu={openChipMenu}
                             onCopyLink={() => void copyCardLinkFor(item)}
                             cardAnchorId={cardAnchorId(item.id)}
                             read={triage.read.includes(itemKey(item.id))}
@@ -2956,6 +3282,7 @@ export function Monitor({
                             const head = story.items[0];
                             if (head) openCardMenu(head, event, story);
                           }}
+                          onChipMenu={openChipMenu}
                           onCopyLink={() => {
                             const head = story.items[0];
                             if (head) void copyCardLinkFor(head);
@@ -2985,6 +3312,7 @@ export function Monitor({
                             const head = story.items[0];
                             if (head) openCardMenu(head, event, story);
                           }}
+                          onChipMenu={openChipMenu}
                           onCopyLink={() => {
                             const head = story.items[0];
                             if (head) void copyCardLinkFor(head);
@@ -3033,6 +3361,15 @@ export function Monitor({
               />
               <div className="min-h-0 min-w-0 flex-1 lg:w-[var(--reader-width)] lg:flex-none">
                 <ReaderPane
+                  onSearchText={(text) => {
+                    setLayer(null);
+                    setQuery(/\s/.test(text) ? `"${text.slice(0, 120).replace(/"/g, "")}"` : text.slice(0, 120));
+                    flashNotice("Searching the board for the selection");
+                  }}
+                  onWatchText={(text) => {
+                    const phrase = text.slice(0, 120).replace(/"/g, "");
+                    void createWatch(/\s/.test(phrase) ? `"${phrase}"` : phrase, phrase);
+                  }}
                   story={openStory}
                   sources={byId}
                   related={relatedStories(openStory, poolStories)}
@@ -3054,7 +3391,8 @@ export function Monitor({
                   onOpenItem={openItem}
                   onPerson={togglePerson}
                   reports={reports}
-                  onReportsChange={setReports}
+                  onReportsChange={handleReportsChange}
+                  onActiveReportChange={selectActiveReport}
                   onOpenReport={openCompiledReport}
                   stack={stack}
                   onDesk={changeDesk}
@@ -3255,12 +3593,68 @@ export function Monitor({
       />
       {cardMenu ? (
         <CardContextMenu
+          key={`${cardMenu.item.id}:${cardMenu.x}:${cardMenu.y}`}
           x={cardMenu.x}
           y={cardMenu.y}
+          title={cardMenu.story?.title ?? cardMenu.item.title}
           currentTopics={cardMenu.item.topics}
+          sourceName={byId.get(cardMenu.item.sourceId)?.name ?? null}
+          topic={(cardMenu.story ? storyTopicChips(cardMenu.story) : itemTopicChips(cardMenu.item))[0] ?? null}
+          place={uniquePlaces(cardMenu.story?.locations ?? cardMenu.item.locations)[0] ?? null}
+          read={triage.read.includes(
+            cardMenu.story ? `story:${cardMenu.story.id}` : itemKey(cardMenu.item.id),
+          )}
+          reportTitle={(openReports(reports).find((row) => row.id === openReportId) ?? openReports(reports)[0])?.title ?? null}
           onAction={(action) => void handleCardMenuAction(action)}
           onClose={() => setCardMenu(null)}
         />
+      ) : null}
+      {chipMenu ? (
+        <ContextMenu
+          key={`${chipMenu.chip.kind}:${chipMenu.chip.value}:${chipMenu.x}:${chipMenu.y}`}
+          x={chipMenu.x}
+          y={chipMenu.y}
+          title={`${chipMenu.chip.kind}: ${chipMenu.chip.value}`}
+          onClose={() => setChipMenu(null)}
+          sections={
+            chipMenu.chip.kind === "source"
+              ? [
+                  {
+                    items: [
+                      { id: "only", label: "Only this layer", onSelect: () => void handleChipMenuAction("only") },
+                      { id: "exclude", label: "Exclude from search", hint: "-source:", onSelect: () => void handleChipMenuAction("exclude") },
+                      { id: "watch", label: "Watch this layer…", onSelect: () => void handleChipMenuAction("watch") },
+                    ],
+                  },
+                  {
+                    items: [
+                      { id: "refresh", label: "Refresh now", onSelect: () => void handleChipMenuAction("refresh") },
+                      { id: "copy-feed", label: "Copy feed URL", onSelect: () => void handleChipMenuAction("copy-feed") },
+                      { id: "mute", label: "Mute layer", danger: true, onSelect: () => void handleChipMenuAction("mute") },
+                    ],
+                  },
+                ]
+              : [
+                  {
+                    items: [
+                      { id: "filter", label: `Filter to ${chipMenu.chip.value}`, onSelect: () => void handleChipMenuAction("filter") },
+                      {
+                        id: "exclude",
+                        label: `Exclude ${chipMenu.chip.value}`,
+                        hint: `-${chipMenu.chip.kind}:`,
+                        onSelect: () => void handleChipMenuAction("exclude"),
+                      },
+                      { id: "watch", label: "Watch…", onSelect: () => void handleChipMenuAction("watch") },
+                    ],
+                  },
+                ]
+          }
+        />
+      ) : null}
+      {notice ? (
+        <div className="board-notice no-print" role="status">
+          {notice}
+        </div>
       ) : null}
       <CommandPalette
         open={paletteOpen}
@@ -3369,8 +3763,15 @@ function kevStory(entry: KevEntry, boardItems: Item[]): Story {
   };
 }
 
+const EPSS_STYLE = {
+  hot: { background: "#fee2e2", color: "#991b1b" },
+  warm: { background: "#fef3c7", color: "#92400e" },
+  cool: { background: "#f1f5f9", color: "#475569" },
+} as const;
+
 function KevCard({
   entry,
+  epss,
   onOpen,
   onVendor,
   onHide,
@@ -3378,6 +3779,7 @@ function KevCard({
   read,
 }: {
   entry: KevEntry;
+  epss?: EpssScore;
   onOpen: () => void;
   onVendor?: (vendor: string) => void;
   onHide?: () => void;
@@ -3405,6 +3807,13 @@ function KevCard({
               {entry.daysUntilDue}d
             </span>
           )}
+          {epss ? (
+            <Tip text={`FIRST EPSS ${epss.date}: ${(epss.epss * 100).toFixed(2)}% chance of exploitation in 30 days · percentile ${(epss.percentile * 100).toFixed(1)}`}>
+              <span className="tag" style={EPSS_STYLE[epssTone(epss)]}>
+                {epssLabel(epss)}
+              </span>
+            </Tip>
+          ) : null}
           <button
             type="button"
             className="tag"
