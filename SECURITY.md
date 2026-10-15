@@ -59,6 +59,18 @@ Leaflet still needs `style-src 'unsafe-inline'` and OpenStreetMap raster tiles i
 - Dependabot watches npm, Docker, and GitHub Actions.
 - `iconv-lite` is overridden to 0.7.3 in `pnpm-workspace.yaml` so cheerio’s encoding stack resolves a complete package.
 
+## Checks
+
+From the repo root:
+
+```bash
+pnpm security:audit      # routes call gate, headers, compose, no tracked .env
+pnpm security:outbound   # parsePublicHttpUrl rejects private and odd-port URLs
+pnpm security:live       # loopback only; headers, health, rejected private reads
+```
+
+`security:live` does nothing harmful if the app is down. Pass `--require-auth` when this instance should be enforcing `CSMON_TOKEN`. Prompts for development, for keeping current behavior, and for hardening live in `prompts/`.
+
 ## Recommended deploy
 
 1. Bind to loopback (`127.0.0.1:3000`), which Compose already does.

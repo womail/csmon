@@ -226,7 +226,7 @@ Local: `pnpm install && pnpm dev` (or `pnpm build && pnpm start`). Docker: `ubun
 
 ## Security
 
-Outbound fetches refuse private/loopback/link-local addresses, odd ports, and credentialed URLs; redirects are re-checked. Optional `CSMON_TOKEN` locks `/api/*` (health stays open). Security headers and a tight CSP ship from `next.config.ts`. Details: `SECURITY.md`.
+Outbound fetches refuse private/loopback/link-local addresses, odd ports, and credentialed URLs; redirects are re-checked. Optional `CSMON_TOKEN` locks `/api/*` (health stays open). Security headers and a tight CSP ship from `next.config.ts`. Check the tree with `pnpm security:audit` and `pnpm security:outbound`, and a running loopback instance with `pnpm security:live`. Agent prompts for development, for what to keep, and for hardening are in `prompts/`. Details: `SECURITY.md`.
 
 ## Updates
 
