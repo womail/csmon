@@ -4,5 +4,6 @@
 
 services:
   csmon:
-    ports:
+    # Replace (do not append) base compose 127.0.0.1:3000 — merged lists would bind twice.
+    ports: !reset
       - "3000:3000"

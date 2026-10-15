@@ -336,6 +336,8 @@ docker compose run --rm csmon cat /app/sbom/cyclonedx.json
 
 Troubleshooting: `docker compose ps` and `docker compose logs csmon`. A failing health check usually means the app is still starting or outbound DNS is blocked.
 
+**`address already in use` on `127.0.0.1:3000` with `-f docker-compose.lan.yml`:** Compose used to **merge** both port lines (localhost + LAN). `docker-compose.lan.yml` now uses `ports: !reset` so only `3000:3000` is published. On a stuck install: `docker compose -f docker-compose.yml -f docker-compose.lan.yml down`, `git pull`, then `up -d` again.
+
 ### Refresh spins but nothing changes
 
 1. **No layers enabled** — Refresh only hits **enabled** sources. On Home use **Load world RSS** / **Load security RSS**, or enable layers under **Sources**, then Refresh again. The UI now shows an error if nothing is enabled.
