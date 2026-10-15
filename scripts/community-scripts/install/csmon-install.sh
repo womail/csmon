@@ -45,9 +45,16 @@ fi
 
 msg_info "Building and starting csmon (LAN :3000)"
 cd "${CSMON_DIR}"
-$STD docker compose -f docker-compose.yml -f docker-compose.lan.yml pull ubuntu
-$STD docker compose -f docker-compose.yml -f docker-compose.lan.yml build --pull
-$STD docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d
+export CSMON_PUBLISH_IP=0.0.0.0
+# Clean partial run from a prior failed install (same CTID retry or keep-for-debug).
+docker compose down --remove-orphans 2>/dev/null || true
+if command -v ss >/dev/null 2>&1 && ss -tln | grep -q ':3000 '; then
+  msg_warn "Port 3000 still in use — stopping other csmon containers"
+  docker ps -aq --filter 'name=csmon' | xargs -r docker rm -f 2>/dev/null || true
+fi
+$STD docker compose pull ubuntu
+$STD docker compose build --pull
+$STD docker compose up -d
 msg_ok "Started csmon"
 
 msg_info "Waiting for /api/health"

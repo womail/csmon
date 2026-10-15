@@ -40,9 +40,11 @@ function update_script() {
   cd "${var_csmon_install_dir}"
   $STD git fetch origin
   $STD git pull --ff-only origin "${var_csmon_branch}"
-  $STD docker compose -f docker-compose.yml -f docker-compose.lan.yml pull ubuntu
-  $STD docker compose -f docker-compose.yml -f docker-compose.lan.yml build --pull
-  $STD docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d
+  export CSMON_PUBLISH_IP=0.0.0.0
+  docker compose down --remove-orphans 2>/dev/null || true
+  $STD docker compose pull ubuntu
+  $STD docker compose build --pull
+  $STD docker compose up -d
   msg_ok "Updated ${APP}"
 
   if curl -fsS http://127.0.0.1:3000/api/health >/dev/null; then

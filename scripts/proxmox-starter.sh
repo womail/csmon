@@ -59,11 +59,14 @@ compose_cmd() {
 }
 
 compose_files() {
-  local dir="$1"
-  if [[ "$CSMON_COMPOSE_LAN" == "1" && -f "${dir}/docker-compose.lan.yml" ]]; then
-    echo "-f ${dir}/docker-compose.yml -f ${dir}/docker-compose.lan.yml"
+  echo "-f ${1}/docker-compose.yml"
+}
+
+compose_env() {
+  if [[ "$CSMON_COMPOSE_LAN" == "1" ]]; then
+    export CSMON_PUBLISH_IP=0.0.0.0
   else
-    echo "-f ${dir}/docker-compose.yml"
+    export CSMON_PUBLISH_IP=127.0.0.1
   fi
 }
 
@@ -126,12 +129,15 @@ compose_up() {
   files="$(compose_files "$dir")"
   local compose
   compose="$(compose_cmd)"
+  compose_env
   # shellcheck disable=SC2086
-  (cd "$dir" && as_root ${compose} ${files} pull ubuntu)
+  (cd "$dir" && as_root env CSMON_PUBLISH_IP="${CSMON_PUBLISH_IP}" ${compose} ${files} down --remove-orphans 2>/dev/null || true)
   # shellcheck disable=SC2086
-  (cd "$dir" && as_root ${compose} ${files} build --pull)
+  (cd "$dir" && as_root env CSMON_PUBLISH_IP="${CSMON_PUBLISH_IP}" ${compose} ${files} pull ubuntu)
   # shellcheck disable=SC2086
-  (cd "$dir" && as_root ${compose} ${files} up -d)
+  (cd "$dir" && as_root env CSMON_PUBLISH_IP="${CSMON_PUBLISH_IP}" ${compose} ${files} build --pull)
+  # shellcheck disable=SC2086
+  (cd "$dir" && as_root env CSMON_PUBLISH_IP="${CSMON_PUBLISH_IP}" ${compose} ${files} up -d)
 }
 
 wait_health() {

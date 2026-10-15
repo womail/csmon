@@ -27,6 +27,24 @@ update
 
 (`update_script` in `ct/csmon.sh` runs `git pull` and `docker compose` rebuild; SQLite stays in the `csmon-data` volume.)
 
+## If install fails and the LXC disappears
+
+Community Scripts **Core removes the container by default** when the in-guest install exits with an error (menu option 1, or **no input for 60 seconds**). That is expected Core behavior, not csmon deleting Proxmox itself.
+
+**Retry** (port fix is on `main` — publish via `CSMON_PUBLISH_IP=0.0.0.0`, no double `:3000` bind):
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/womail/csmon/main/scripts/community-scripts/ct/csmon.sh)"
+```
+
+On failure, choose **keep container for debugging** (option 2) or run with:
+
+```bash
+dev_mode=keep bash -c "$(curl -fsSL …/ct/csmon.sh)"
+```
+
+Then inside the CT: `cd /opt/csmon && git pull && export CSMON_PUBLISH_IP=0.0.0.0 && docker compose up -d --build`.
+
 ## Test from a git checkout
 
 ```bash

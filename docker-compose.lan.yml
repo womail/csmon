@@ -1,5 +1,4 @@
-# Override for a remote Docker host (e.g. Proxmox VM on the LAN).
-# Publishes 3000 on all interfaces so http://10.1.1.244:3000 works.
+# Optional override (legacy). Prefer: CSMON_PUBLISH_IP=0.0.0.0 docker compose up -d
 # Use: docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d
 
 services:

@@ -16,7 +16,10 @@ services:
       ubuntu:
         condition: service_completed_successfully
     ports:
-      - "127.0.0.1:3000:3000"
+      # Proxmox / LAN: export CSMON_PUBLISH_IP=0.0.0.0 (see proxmox-starter, community-scripts install)
+      - target: 3000
+        published: "3000"
+        host_ip: ${CSMON_PUBLISH_IP:-127.0.0.1}
     environment:
       NODE_ENV: production
       CSMON_BIND_HOST: 0.0.0.0

@@ -86,6 +86,8 @@ Files live in `scripts/community-scripts/` (`ct/csmon.sh`, `install/csmon-instal
 
 **Update:** re-run the CT script and choose update, or run `update` inside the container (`git pull` + compose rebuild; `csmon-data` volume kept).
 
+**Install failed / LXC gone:** Core **destroys the CT** on install failure unless you pick “keep for debugging” or wait out the 60s prompt (default removes it). Re-run the curl command above; see `scripts/community-scripts/README.md`. LAN publish uses `CSMON_PUBLISH_IP=0.0.0.0` in the install script (single `docker-compose.yml`, no merged port conflict).
+
 To contribute csmon to the public catalog, copy those files into [community-scripts/ProxmoxVE](https://github.com/community-scripts/ProxmoxVE) per `scripts/community-scripts/README.md`.
 
 ### Legacy host script (env file, no wizard)
