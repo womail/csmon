@@ -1,3 +1,4 @@
+import { getAdvisoryFeedProbes } from "@/lib/advisory-feed-health";
 import { mergedIntelFeeds } from "@/lib/feed-overrides";
 import type { IntelPack } from "@/lib/intel-feeds";
 import { fail, gate, jsonOk, readJson } from "@/lib/guard";
@@ -12,6 +13,7 @@ const PACKS = new Set<IntelPack | "all">([
   "core",
   "relief",
   "security",
+  "politics",
   "hazard",
   "tech",
   "markets",
@@ -36,6 +38,9 @@ export async function POST(request: Request) {
     const enable = body.enable !== false;
     const ids = registerIntelFeeds(feeds, enable);
     if (enable) await refreshSources(ids);
+    if (pack === "security" || pack === "all") {
+      void getAdvisoryFeedProbes(true);
+    }
     return jsonOk(monitorStateFromRequest(request));
   } catch (error) {
     return fail(error, "Intel pack failed");

@@ -61,6 +61,17 @@ export type AcledProbeStats = {
   hint: string;
 };
 
+export type AdvisoryProbeStats = {
+  id: string;
+  label: string;
+  feedUrl: string;
+  ok: boolean;
+  status: number | null;
+  checkedAt: number;
+  bytes: number | null;
+  hint: string | null;
+};
+
 export type AcledAuthStats = {
   configured: boolean;
   tokenCached: boolean;
@@ -96,4 +107,5 @@ export type SystemStats = {
   origins: OriginRow[];
   gdelt: GdeltLayerStats[];
   acled: AcledLayerStats[];
+  advisoryProbes: AdvisoryProbeStats[];
 };

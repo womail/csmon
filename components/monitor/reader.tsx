@@ -17,7 +17,9 @@ import { Button } from "@/components/ui/button";
 import { tagStyle } from "@/lib/colors";
 import { apiFetch } from "@/lib/api-client";
 import type { Story } from "@/lib/cluster";
+import { ReaderAtAGlance } from "@/components/monitor/reader-at-a-glance";
 import { buildDeepDive } from "@/lib/dive";
+import { leadBulletsFromParagraphs } from "@/lib/reader-lead";
 import type { KevEntry } from "@/lib/kev";
 import { languageName } from "@/lib/lang";
 import { formatPublishDate, relTime } from "@/lib/time";
@@ -272,6 +274,15 @@ export function ReaderPane({
   }, [active.title, article, articleBlocks, story.items]);
 
   const dive = useMemo(() => buildDeepDive(story, article), [article, story]);
+  const leadBullets = useMemo(
+    () =>
+      leadBulletsFromParagraphs(
+        article?.paragraphs?.length
+          ? article.paragraphs
+          : dossier.blocks.flatMap((block) => (typeof block === "string" ? [block] : [])),
+      ),
+    [article?.paragraphs, dossier.blocks],
+  );
   const articleLang = dive.language.id;
   const needsTranslate = articleLang && homeLanguage && articleLang !== homeLanguage;
 
@@ -667,6 +678,13 @@ export function ReaderPane({
             );
           })}
         </div>
+
+        <ReaderAtAGlance
+          dive={dive}
+          leadBullets={leadBullets}
+          kevHits={kevHits}
+          extractEngine={article?.extractEngine ?? null}
+        />
 
         <div className="mt-4 flex items-center justify-between gap-2">
           <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">

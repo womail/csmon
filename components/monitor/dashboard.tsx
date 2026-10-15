@@ -19,10 +19,11 @@ import { SITUATION_LANES, type SituationLane } from "@/lib/lanes";
 import type { PersonRow } from "@/lib/people";
 import type { QuakeEvent } from "@/lib/quakes";
 import type { TrendRow } from "@/lib/trends";
+import type { StoryCorroboration } from "@/lib/story-corroboration";
 import type { Item, Source } from "@/lib/types";
+import type { EpssScore } from "@/lib/vuln-intel";
 import type { WeatherEvent } from "@/lib/weather";
 import type { NaturalEvent, OutageRow } from "@/lib/hazards";
-import { independentSourceCount } from "@/lib/syndication";
 
 const LANE_ICON = {
   weather: CloudLightning,
@@ -67,9 +68,21 @@ export function HomeDashboard({
   onTrend,
   onStoryMenu,
   onChipMenu,
+  corroborationFor,
+  kevCveIds,
+  epss,
+  onCve,
+  onCopyLinkForStory,
+  cardAnchorForStory,
 }: {
   onStoryMenu?: (story: Story, event: MouseEvent) => void;
   onChipMenu?: (chip: CardChip, event: MouseEvent) => void;
+  corroborationFor?: (story: Story) => StoryCorroboration;
+  kevCveIds?: ReadonlySet<string>;
+  epss?: ReadonlyMap<string, EpssScore>;
+  onCve?: (cve: string) => void;
+  onCopyLinkForStory?: (story: Story) => void;
+  cardAnchorForStory?: (story: Story) => string | undefined;
   stories: Story[];
   items: Item[];
   catalogTopics: [string, number][];
@@ -104,6 +117,32 @@ export function HomeDashboard({
   trendHint?: string;
   onTrend?: (row: TrendRow) => void;
 }) {
+  function homeStoryCard(story: Story) {
+    return (
+      <StoryCard
+        key={story.id}
+        story={story}
+        sources={sources}
+        corroboration={corroborationFor?.(story)}
+        kevCveIds={kevCveIds}
+        epss={epss}
+        onCve={onCve}
+        onOpen={() => onOpenStory(story)}
+        onTopic={onTopic}
+        onPlace={onPlace}
+        onVendor={onVendor}
+        onSource={onSource}
+        onHide={onHide ? () => onHide(story) : undefined}
+        onRead={onRead ? () => onRead(story) : undefined}
+        onReclassify={onStoryMenu ? (event) => onStoryMenu(story, event) : undefined}
+        onChipMenu={onChipMenu}
+        onCopyLink={onCopyLinkForStory ? () => onCopyLinkForStory(story) : undefined}
+        cardAnchorId={cardAnchorForStory?.(story)}
+        read={readKeys?.includes(`story:${story.id}`)}
+      />
+    );
+  }
+
   const filtered = Boolean(
     topic || layer || person || place || platform || rising || queryActive || searchQuery?.trim(),
   );
@@ -275,23 +314,7 @@ export function HomeDashboard({
             {queryActive ? " · query" : ""}
           </div>
           <div className={`board mt-1.5 ${compact ? "board-compact" : ""}`}>
-            {stories.map((story) => (
-              <StoryCard
-                key={story.id}
-                story={story}
-                sources={sources}
-                onOpen={() => onOpenStory(story)}
-                onTopic={onTopic}
-                onPlace={onPlace}
-                onVendor={onVendor}
-                onSource={onSource}
-                onHide={onHide ? () => onHide(story) : undefined}
-                onRead={onRead ? () => onRead(story) : undefined}
-                onReclassify={onStoryMenu ? (event) => onStoryMenu(story, event) : undefined}
-                onChipMenu={onChipMenu}
-                read={readKeys?.includes(`story:${story.id}`)}
-              />
-            ))}
+            {stories.map((story) => homeStoryCard(story))}
             {stories.length === 0 ? (
               <p className="text-[12px] text-slate-400">Nothing in this filter. Click the chip again to clear.</p>
             ) : null}
@@ -339,25 +362,8 @@ export function HomeDashboard({
                     </button>
                   </Tip>
                 </div>
-                <div className="mt-2 space-y-1.5">
-                  {lane.stories.slice(0, 4).map((story) => (
-                    <Tip key={story.id} text="Read this story in place">
-                      <button
-                        type="button"
-                        onClick={() => onOpenStory(story)}
-                        className="block w-full rounded px-1 py-1 text-left hover:bg-slate-50"
-                      >
-                        <span className="block text-[12.5px] leading-snug font-medium text-slate-800">
-                          {story.title}
-                        </span>
-                        <span className="text-[10px] text-slate-400">
-                          {independentSourceCount(story.items)} sources
-                          {story.locations[0] ? ` · ${story.locations[0]}` : ""} ·{" "}
-                          <Ago ts={story.latestAt} />
-                        </span>
-                      </button>
-                    </Tip>
-                  ))}
+                <div className={`board mt-2 ${compact ? "board-compact" : ""}`}>
+                  {lane.stories.slice(0, 4).map((story) => homeStoryCard(story))}
                   {lane.stories.length === 0 ? (
                     <p className="text-[12px] text-slate-400">No items in this window.</p>
                   ) : null}

@@ -28,7 +28,16 @@ function parseFeed(raw: unknown): IntelFeed | null {
   const row = raw as IntelFeed;
   if (!row.id?.trim() || !row.name?.trim() || !row.url?.trim() || !row.feedUrl?.trim()) return null;
   const pack = row.pack as IntelPack;
-  const packs: IntelPack[] = ["core", "relief", "security", "hazard", "tech", "markets", "sports"];
+  const packs: IntelPack[] = [
+    "core",
+    "relief",
+    "security",
+    "politics",
+    "hazard",
+    "tech",
+    "markets",
+    "sports",
+  ];
   return {
     id: row.id.trim(),
     name: row.name.trim(),

@@ -74,6 +74,7 @@ const PACKS: IntelPack[] = [
   "core",
   "relief",
   "security",
+  "politics",
   "hazard",
   "tech",
   "markets",

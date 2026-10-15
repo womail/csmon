@@ -11,6 +11,8 @@ export type ArticleRead = {
   related: { href: string; label: string }[];
   /** CVE IDs mined from copy and NVD links on the page. */
   cveIds: string[];
+  /** How the main body was extracted from HTML. */
+  extractEngine?: "readability" | "cheerio";
 };
 
 const NOISE_COPY =

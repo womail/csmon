@@ -82,6 +82,7 @@ import { homeCity, type MapMarker } from "@/lib/geo";
 import { matchesStack, type KevEntry, type PatchRisk } from "@/lib/kev";
 import { matchesLane, type SituationLane } from "@/lib/lanes";
 import { kevForStory, itemsForCve, relatedStories, similarStories } from "@/lib/link";
+import { collectBoardCveIds } from "@/lib/card-cves";
 import { kevCatalogSet, storyCorroboration } from "@/lib/story-corroboration";
 import { countBoardItemsForTrend } from "@/lib/trend-board-bridge";
 import type { TrendRow } from "@/lib/trends";
@@ -97,6 +98,7 @@ import { withItemLimitQuery } from "@/lib/board-limit";
 import {
   groupItemsByTag,
   groupItemsByTopic,
+  groupStoriesForBrief,
   loadBoardSort,
   saveBoardSort,
   sortItems,
@@ -189,6 +191,7 @@ import {
   guessDeskTitleFromItem,
 } from "@/lib/desk-from-item";
 import { itemInTimeRange } from "@/lib/item-freshness";
+import { ensurePoliticsUserDesk, findPoliticsUserDesk } from "@/lib/desk-presets";
 import {
   createUserDesk,
   deleteUserDesk,
@@ -877,11 +880,14 @@ export function Monitor({
   }, [query, ransomware, riskFilter, stack, state.kev, triage.hidden, vendor]);
 
   useEffect(() => {
-    if (viewDesk !== "patch") return;
-    const wanted = kevFiltered
-      .slice(0, 400)
-      .map((entry) => entry.cveId)
-      .filter((id) => !epssRequested.current.has(id));
+    const fromBoard = collectBoardCveIds(
+      viewDesk,
+      items,
+      stories,
+      boardCap,
+      kevFiltered.slice(0, 400).map((entry) => entry.cveId),
+    );
+    const wanted = fromBoard.filter((id) => !epssRequested.current.has(id)).slice(0, 48);
     if (!wanted.length) return;
     for (const id of wanted) epssRequested.current.add(id);
     void json<{ scores: EpssScore[] }>(`/api/epss?cves=${encodeURIComponent(wanted.join(","))}`)
@@ -895,7 +901,7 @@ export function Monitor({
       .catch(() => {
         for (const id of wanted) epssRequested.current.delete(id);
       });
-  }, [kevFiltered, viewDesk]);
+  }, [boardCap, items, kevFiltered, stories, viewDesk]);
 
   const kev = useMemo(() => {
     if (patchOrder !== "epss") return kevFiltered;
@@ -1455,11 +1461,18 @@ export function Monitor({
     watchName: string;
     watchQuery: string;
     createWatch: boolean;
+    pinPoliticsDesk: boolean;
+    openPoliticsDesk: boolean;
   }) {
     setBusy(true);
     setError(null);
     try {
       changeHomePlace(opts.homePlace);
+      let desks = customDesks;
+      if (opts.pinPoliticsDesk || opts.packs.includes("politics")) {
+        desks = ensurePoliticsUserDesk(desks);
+        setCustomDesks(desks);
+      }
       for (const pack of opts.packs) {
         setState(
           await json<MonitorState>(statePath("/api/intel", boardItemLimit), {
@@ -1491,7 +1504,15 @@ export function Monitor({
         if (!res.ok) throw new Error(data.error || res.statusText);
         if (data.watches) setStateRaw((current) => ({ ...current, watches: data.watches ?? [] }));
       }
-      setDesk("home");
+      const politicsDesk = findPoliticsUserDesk(desks);
+      if (opts.openPoliticsDesk && politicsDesk) {
+        applyFilters({ ...politicsDesk.filters, desk: politicsDesk.id });
+      } else if (opts.packs.includes("politics")) {
+        setDesk("brief");
+        setTopic("politics");
+      } else {
+        setDesk("home");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Setup failed");
     } finally {
@@ -1510,6 +1531,11 @@ export function Monitor({
         }),
       );
       if (pack === "security") setDesk("advisories");
+      if (pack === "politics") {
+        setCustomDesks((prev) => ensurePoliticsUserDesk(prev));
+        setDesk("brief");
+        setTopic("politics");
+      }
       if (pack === "hazard") setDesk("home");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Intel pack failed");
@@ -2777,9 +2803,14 @@ export function Monitor({
                     World RSS
                   </Button>
                 </Tip>
-                <Tip text="CISA, Krebs, NCSC, and other security desks">
+                <Tip text="CISA, CSIRTS KEV, CCCS, Krebs, NCSC, and other security desks">
                   <Button size="xs" variant="outline" onClick={() => loadIntel("security")} disabled={busy}>
                     Security RSS
+                  </Button>
+                </Tip>
+                <Tip text="Politico, Foreign Affairs, BBC Politics, Euronews, Reuters World">
+                  <Button size="xs" variant="outline" onClick={() => loadIntel("politics")} disabled={busy}>
+                    Politics RSS
                   </Button>
                 </Tip>
                 <Tip text="USGS quakes, NWS/Met Office warnings, Crisis Group">
@@ -2899,6 +2930,22 @@ export function Monitor({
                   <Button size="sm" variant="outline" onClick={() => loadIntel("security")} disabled={busy}>
                     Load security RSS
                   </Button>
+                  <Button size="sm" variant="outline" onClick={() => loadIntel("politics")} disabled={busy}>
+                    Load politics RSS
+                  </Button>
+                  {findPoliticsUserDesk(customDesks) ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => {
+                        const politics = findPoliticsUserDesk(customDesks);
+                        if (politics) applyFilters({ ...politics.filters, desk: politics.id });
+                      }}
+                    >
+                      Open Politics desk
+                    </Button>
+                  ) : null}
                   <Button size="sm" variant="outline" onClick={() => loadIntel("hazard")} disabled={busy}>
                     Load hazards
                   </Button>
@@ -3065,6 +3112,17 @@ export function Monitor({
                 trends={[...trends.rising, ...trends.fresh].slice(0, 8)}
                 trendHint={trends.compared}
                 onTrend={openTrend}
+                corroborationFor={storyCorr}
+                kevCveIds={kevCveIds}
+                epss={epss}
+                onCve={focusCve}
+                onCopyLinkForStory={(story) => {
+                  const head = story.items[0];
+                  if (head) void copyCardLinkFor(head);
+                }}
+                cardAnchorForStory={(story) =>
+                  story.items[0] ? cardAnchorId(story.items[0].id) : undefined
+                }
               />
             ) : viewDesk === "flights" ? (
               <FlightDesk
@@ -3251,16 +3309,17 @@ export function Monitor({
                             cardAnchorId={cardAnchorId(item.id)}
                             read={triage.read.includes(itemKey(item.id))}
                             focused={focusIndex === cardIndex}
+                            kevCveIds={kevCveIds}
+                            epss={epss}
+                            onCve={focusCve}
                           />
                         );
                       };
                       if (!grouped || grouped.length <= 1) return slice.map((item) => renderItem(item));
                       return grouped.flatMap((group) => [
-                        <div
-                          key={`scan-head-${group.key}`}
-                          className="board-section-head sm:col-span-2 lg:col-span-3"
-                        >
-                          {group.key}
+                        <div key={`scan-head-${group.key}`} className="board-section-head">
+                          <span>{group.key}</span>
+                          <span className="board-section-head-count">{group.items.length}</span>
                         </div>,
                         ...group.items.map((item) => renderItem(item)),
                       ]);
@@ -3293,37 +3352,59 @@ export function Monitor({
                           read={triage.read.includes(`story:${story.id}`)}
                           focused={focusIndex === index}
                           corroboration={storyCorr(story)}
+                          kevCveIds={kevCveIds}
+                          epss={epss}
+                          onCve={focusCve}
                         />
                       ))
-                    : stories.slice(0, boardCap).map((story, index) => (
-                        <StoryCard
-                          key={story.id}
-                          story={story}
-                          sources={byId}
-                          corroboration={storyCorr(story)}
-                          onOpen={() => openReader(story)}
-                          onTopic={toggleTopic}
-                          onPlace={focusPlace}
-                          onVendor={toggleVendor}
-                          onSource={focusSource}
-                          onHide={() => hideStory(story)}
-                          onRead={() => readStory(story)}
-                          onReclassify={(event) => {
-                            const head = story.items[0];
-                            if (head) openCardMenu(head, event, story);
-                          }}
-                          onChipMenu={openChipMenu}
-                          onCopyLink={() => {
-                            const head = story.items[0];
-                            if (head) void copyCardLinkFor(head);
-                          }}
-                          cardAnchorId={
-                            story.items[0] ? cardAnchorId(story.items[0].id) : undefined
-                          }
-                          read={triage.read.includes(`story:${story.id}`)}
-                          focused={focusIndex === index}
-                        />
-                      ))}
+                    : (() => {
+                        const slice = stories.slice(0, boardCap);
+                        let index = 0;
+                        const renderStory = (story: Story) => {
+                          const cardIndex = index++;
+                          return (
+                            <StoryCard
+                              key={story.id}
+                              story={story}
+                              sources={byId}
+                              corroboration={storyCorr(story)}
+                              onOpen={() => openReader(story)}
+                              onTopic={toggleTopic}
+                              onPlace={focusPlace}
+                              onVendor={toggleVendor}
+                              onSource={focusSource}
+                              onHide={() => hideStory(story)}
+                              onRead={() => readStory(story)}
+                              onReclassify={(event) => {
+                                const head = story.items[0];
+                                if (head) openCardMenu(head, event, story);
+                              }}
+                              onChipMenu={openChipMenu}
+                              onCopyLink={() => {
+                                const head = story.items[0];
+                                if (head) void copyCardLinkFor(head);
+                              }}
+                              cardAnchorId={
+                                story.items[0] ? cardAnchorId(story.items[0].id) : undefined
+                              }
+                              read={triage.read.includes(`story:${story.id}`)}
+                              focused={focusIndex === cardIndex}
+                              kevCveIds={kevCveIds}
+                              epss={epss}
+                              onCve={focusCve}
+                            />
+                          );
+                        };
+                        if (viewDesk !== "brief") return slice.map((story) => renderStory(story));
+                        const groups = groupStoriesForBrief(slice, boardSort, byId);
+                        return groups.flatMap((group) => [
+                          <div key={`brief-head-${group.key}`} className="board-section-head">
+                            <span>{group.key}</span>
+                            <span className="board-section-head-count">{group.stories.length}</span>
+                          </div>,
+                          ...group.stories.map((story) => renderStory(story)),
+                        ]);
+                      })()}
               </div>
               {viewDesk !== "pulse" &&
               (viewDesk === "scan" ? items.length : stories.length) > boardCap ? (

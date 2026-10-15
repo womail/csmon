@@ -142,13 +142,33 @@
 }
 
 .board-section-head {
-  grid-column: 1 / -1;
-  padding: 0.35rem 0.25rem 0;
+  column-span: all;
+  break-inside: avoid;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+  padding: 0.35rem 0.35rem 0.2rem;
+  border-top: 1px solid color-mix(in oklch, var(--border), transparent 30%);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: #64748b;
+}
+
+.board-section-head:first-child {
+  margin-top: 0;
+  border-top: none;
+  padding-top: 0.15rem;
+}
+
+.board-section-head-count {
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: #94a3b8;
 }
 
 .board > * {

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cacheStats } from "./cache";
-import { applySourceTopics, classifyItem } from "./classify";
+import { applySourceTopics, applyWeatherSourceTopics, classifyItem } from "./classify";
 import { colorFor } from "./colors";
 import { getDb, withTransaction } from "./db";
 import { entitiesForItemIds, indexItemEntities } from "./entities";
@@ -324,6 +324,11 @@ export function insertItems(
         handle: source?.handle,
         feedUrl: source?.feedUrl,
       });
+      classified = applyWeatherSourceTopics(
+        classified,
+        { handle: source?.handle, feedUrl: source?.feedUrl },
+        `${item.title} ${item.summary ?? ""} ${item.url ?? ""}`,
+      );
       const topics = item.topics.length ? item.topics : classified.topics;
       const tags = item.tags.length ? item.tags : classified.tags;
       if (!exists.get(sourceId, item.externalId)) created += 1;

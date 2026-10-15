@@ -346,5 +346,6 @@ export function getSystemStats(): SystemStats {
     })),
     gdelt,
     acled,
+    advisoryProbes: [],
   };
 }

@@ -9,6 +9,9 @@ import type { Story } from "@/lib/cluster";
 import { personName } from "@/lib/people";
 import { mineItem } from "@/lib/mine";
 import { StoryCorroborationBadges } from "@/components/monitor/story-corroboration-badges";
+import { VulnCardChips } from "@/components/monitor/vuln-card-chips";
+import { boardCvesForItem, boardCvesForStory } from "@/lib/card-cves";
+import type { EpssScore } from "@/lib/vuln-intel";
 import { shortSourceName } from "@/lib/source-label";
 import type { StoryCorroboration } from "@/lib/story-corroboration";
 import type { Item, OriginReason, Source } from "@/lib/types";
@@ -194,10 +197,16 @@ export function StoryCard({
   cardAnchorId,
   corroboration,
   onChipMenu,
+  kevCveIds,
+  epss,
+  onCve,
 }: {
   story: Story;
   sources: Map<number, Source>;
   corroboration?: StoryCorroboration;
+  kevCveIds?: ReadonlySet<string>;
+  epss?: ReadonlyMap<string, EpssScore>;
+  onCve?: (cve: string) => void;
   onOpen: () => void;
   onTopic: (topic: string) => void;
   onPlace: (place: string) => void;
@@ -216,6 +225,7 @@ export function StoryCard({
   const shownIds = story.sourceIds.slice(0, 3);
   const extra = story.sourceIds.length - shownIds.length;
   const vendors = [...new Set(story.items.flatMap((item) => mineItem(item).vendors))].slice(0, 4);
+  const boardCves = boardCvesForStory(story);
 
   return (
     <article
@@ -292,6 +302,9 @@ export function StoryCard({
           {story.summary}
         </p>
       ) : null}
+      {kevCveIds && epss ? (
+        <VulnCardChips cves={boardCves} kevCveIds={kevCveIds} epss={epss} onCve={onCve} />
+      ) : null}
       {corroboration ? <StoryCorroborationBadges corroboration={corroboration} /> : null}
       <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
         {shownIds.map((id) => {
@@ -335,9 +348,15 @@ export function ItemCard({
   focused,
   cardAnchorId,
   onChipMenu,
+  kevCveIds,
+  epss,
+  onCve,
 }: {
   item: Item;
   source?: Source;
+  kevCveIds?: ReadonlySet<string>;
+  epss?: ReadonlyMap<string, EpssScore>;
+  onCve?: (cve: string) => void;
   onTag: (tag: string, event: MouseEvent) => void;
   onPlace?: (place: string) => void;
   onVendor?: (vendor: string) => void;
@@ -355,6 +374,7 @@ export function ItemCard({
 }) {
   const author = personName(item, source) ?? undefined;
   const vendors = mineItem(item).vendors.slice(0, 4);
+  const boardCves = boardCvesForItem(item);
 
   return (
     <article
@@ -434,6 +454,9 @@ export function ItemCard({
           <p className="mt-1 line-clamp-2 text-[10.5px] leading-snug text-muted-foreground">
             {item.summary}
           </p>
+        ) : null}
+        {kevCveIds && epss ? (
+          <VulnCardChips cves={boardCves} kevCveIds={kevCveIds} epss={epss} onCve={onCve} />
         ) : null}
       </div>
       <div className="mt-2 min-w-0 overflow-hidden">

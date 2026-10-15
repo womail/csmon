@@ -6,7 +6,13 @@ import { Ago } from "@/components/monitor/ago";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api-client";
 import { formatBytes } from "@/lib/format-bytes";
-import type { AcledLayerStats, GdeltLayerStats, IngestLayerStatus, SystemStats } from "@/lib/stats-types";
+import type {
+  AcledLayerStats,
+  AdvisoryProbeStats,
+  GdeltLayerStats,
+  IngestLayerStatus,
+  SystemStats,
+} from "@/lib/stats-types";
 
 const STATUS_LABEL: Record<IngestLayerStatus, string> = {
   data: "Has articles",
@@ -32,6 +38,38 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
       <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">{label}</div>
       <div className="mt-0.5 text-[15px] font-semibold text-slate-900 dark:text-slate-100">{value}</div>
       {hint ? <p className="mt-1 text-[10px] leading-snug text-slate-500">{hint}</p> : null}
+    </div>
+  );
+}
+
+function AdvisoryProbeRow({ row }: { row: AdvisoryProbeStats }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-2.5 dark:border-border dark:bg-background">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[13px] font-semibold">{row.label}</span>
+        <span
+          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+            row.ok ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-900"
+          }`}
+        >
+          {row.ok ? "OK" : "Failed"}
+        </span>
+        {row.status != null ? (
+          <span className="font-mono text-[10px] text-slate-500">HTTP {row.status}</span>
+        ) : null}
+        {row.bytes != null ? (
+          <span className="text-[10px] text-slate-400">{formatBytes(row.bytes)}</span>
+        ) : null}
+        <span className="text-[10px] text-slate-400">
+          <Ago ts={row.checkedAt} />
+        </span>
+      </div>
+      <p className="mt-1 truncate font-mono text-[10px] text-slate-500" title={row.feedUrl}>
+        {row.feedUrl}
+      </p>
+      {row.hint ? (
+        <p className="mt-1.5 text-[11px] leading-snug text-slate-600 dark:text-slate-400">{row.hint}</p>
+      ) : null}
     </div>
   );
 }
@@ -114,12 +152,14 @@ export function StatsView() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [retryId, setRetryId] = useState<number | null>(null);
+  const [probingAdvisories, setProbingAdvisories] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { forceAdvisoryProbe?: boolean }) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch("/api/stats");
+      const qs = opts?.forceAdvisoryProbe ? "?force=1" : "";
+      const res = await apiFetch(`/api/stats${qs}`);
       const text = await res.text();
       if (!text.trim()) {
         throw new Error(
@@ -281,6 +321,40 @@ export function StatsView() {
                   hint={`${stats.acledCache.entries} cached read response(s)`}
                 />
               </div>
+            </section>
+
+            <section>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+                  Advisory feed health
+                </h2>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  disabled={loading || probingAdvisories}
+                  onClick={() => {
+                    setProbingAdvisories(true);
+                    void load({ forceAdvisoryProbe: true }).finally(() => setProbingAdvisories(false));
+                  }}
+                >
+                  <RefreshCw className={`size-3 ${probingAdvisories ? "animate-spin" : ""}`} />
+                  Probe now
+                </Button>
+              </div>
+              <p className="mb-2 text-[11px] leading-snug text-slate-500">
+                Live HEAD/GET checks on CISA, CSIRTS exploited, and CCCS RSS (cached 15 minutes). Security
+                pack refresh also updates probes.
+              </p>
+              {stats.advisoryProbes.length === 0 ? (
+                <p className="text-[12px] text-slate-500">No probe data yet — click Probe now.</p>
+              ) : (
+                <div className="space-y-2">
+                  {stats.advisoryProbes.map((row) => (
+                    <AdvisoryProbeRow key={row.id} row={row} />
+                  ))}
+                </div>
+              )}
             </section>
 
             <section>

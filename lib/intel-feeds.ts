@@ -1,4 +1,12 @@
-export type IntelPack = "core" | "relief" | "security" | "hazard" | "tech" | "markets" | "sports";
+export type IntelPack =
+  | "core"
+  | "relief"
+  | "security"
+  | "politics"
+  | "hazard"
+  | "tech"
+  | "markets"
+  | "sports";
 
 export type IntelFeed = {
   id: string;
@@ -174,9 +182,25 @@ export const INTEL_FEEDS: IntelFeed[] = [
     id: "ncsc",
     name: "NCSC UK",
     url: "https://www.ncsc.gov.uk",
-    feedUrl: "https://www.ncsc.gov.uk/api/1/services/v1/report-rss-feed.xml",
+    feedUrl: "https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml",
     pack: "security",
-    blurb: "UK advisories",
+    blurb: "UK advisories (all)",
+  },
+  {
+    id: "csirts-kev",
+    name: "CSIRTS exploited",
+    url: "https://www.csirts.com",
+    feedUrl: "https://www.csirts.com/rss?exploited=1",
+    pack: "security",
+    blurb: "KEV-flagged advisories (aggregator)",
+  },
+  {
+    id: "cccs",
+    name: "CCCS Canada",
+    url: "https://www.cyber.gc.ca",
+    feedUrl: "https://www.cyber.gc.ca/api/cccs/atom/v1/get?feed=alerts_advisories&lang=en",
+    pack: "security",
+    blurb: "Canadian alerts & advisories",
   },
   {
     id: "schneier",
@@ -225,6 +249,46 @@ export const INTEL_FEEDS: IntelFeed[] = [
     feedUrl: "https://cert.europa.eu/publications/security-advisories-rss",
     pack: "security",
     blurb: "EU advisories",
+  },
+  {
+    id: "politico",
+    name: "Politico",
+    url: "https://www.politico.com",
+    feedUrl: "https://rss.politico.com/politics08.xml",
+    pack: "politics",
+    blurb: "US politics",
+  },
+  {
+    id: "foreign-affairs",
+    name: "Foreign Affairs",
+    url: "https://www.foreignaffairs.com",
+    feedUrl: "https://www.foreignaffairs.com/rss.xml",
+    pack: "politics",
+    blurb: "Foreign policy analysis",
+  },
+  {
+    id: "euronews",
+    name: "Euronews",
+    url: "https://www.euronews.com",
+    feedUrl: "https://www.euronews.com/rss?format=xml",
+    pack: "politics",
+    blurb: "Europe & world",
+  },
+  {
+    id: "bbc-politics",
+    name: "BBC Politics",
+    url: "https://www.bbc.com/news/politics",
+    feedUrl: "https://feeds.bbci.co.uk/news/politics/rss.xml",
+    pack: "politics",
+    blurb: "UK & Westminster",
+  },
+  {
+    id: "reuters-world",
+    name: "Reuters World",
+    url: "https://www.reuters.com/world/",
+    feedUrl: "https://feeds.reuters.com/reuters/worldNews",
+    pack: "politics",
+    blurb: "Wire — world",
   },
   {
     id: "usgs-m45",

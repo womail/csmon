@@ -7,7 +7,7 @@ export type Classification = {
 const TOPICS: { tag: string; re: RegExp }[] = [
   {
     tag: "weather",
-    re: /\b(storm|blizzard|tornado|cyclone|typhoon|hurricane|flood|heatwave|wildfire|severe weather|weather warning|weather watch|winter storm|thunderstorm|hail|landfall)\b/i,
+    re: /\b(storm|blizzard|tornado|cyclone|typhoon|hurricane|flood|flood advisory|flash flood|heatwave|wildfire|severe weather|weather warning|weather watch|winter storm|thunderstorm|hail|landfall|advisory issued|warning issued|watch issued|by nws|national weather service)\b/i,
   },
   {
     tag: "quake",
@@ -27,7 +27,7 @@ const TOPICS: { tag: string; re: RegExp }[] = [
   },
   {
     tag: "cyber",
-    re: /\b(hack|ransomware|malware|phishing|zero[- ]day|data breach|cyberattack|cve-\d|advisory|exploit|vulnerability|cisa|kev|patch tuesday|threat actor|apt\d|botnet|wiper|lockbit|outage)\b/i,
+    re: /\b(hack|ransomware|malware|phishing|zero[- ]day|data breach|cyberattack|cve-\d|(?:security|cyber|vendor|software|patch|cisa|ics) advisory|exploit|vulnerability|cisa|kev|patch tuesday|threat actor|apt\d|botnet|wiper|lockbit)\b/i,
   },
   {
     tag: "markets",
@@ -175,6 +175,70 @@ function defaultSportSubtag(hint: { handle?: string | null; feedUrl?: string | n
 }
 
 /** Sport RSS layers should carry topic sports, not the generic world fallback. */
+/** Intel RSS layers in the hazard pack that are official weather/warning feeds. */
+export const WEATHER_INTEL_HANDLES = new Set([
+  "nws-alerts",
+  "met-eireann",
+  "metoffice-uk",
+  "nhc-atlantic",
+]);
+
+const WEATHER_FEED_RE =
+  /api\.weather\.gov|alerts\.weather\.gov|met\.ie\/warnings|metoffice\.gov\.uk.*Warnings|nhc\.noaa\.gov|meteoalarm/i;
+
+export function isWeatherSource(hint: { handle?: string | null; feedUrl?: string | null }) {
+  if (hint.handle && WEATHER_INTEL_HANDLES.has(hint.handle)) return true;
+  const feed = hint.feedUrl ?? "";
+  if (WEATHER_FEED_RE.test(feed)) return true;
+  return false;
+}
+
+/** NWS-style headlines and CAP alert URLs — not cyber advisories. */
+export function textLooksLikeOfficialWeatherAlert(text: string) {
+  return (
+    /\bby nws\b/i.test(text) ||
+    /\b(?:flood|flash flood|severe thunderstorm|tornado|hurricane|winter storm|heat|wind|red flag|special weather)\s+(?:advisory|warning|watch)\b/i.test(
+      text,
+    ) ||
+    /api\.weather\.gov\/alerts\//i.test(text)
+  );
+}
+
+function stripCyberWhenWeatherHeadline(classified: Classification, text: string): Classification {
+  if (!textLooksLikeOfficialWeatherAlert(text)) return classified;
+  const drop = new Set(["cyber"]);
+  const topics = classified.topics.filter((topic) => !drop.has(topic));
+  const tags = classified.tags.filter((tag) => !drop.has(tag));
+  const withWeather = topics.includes("weather") ? topics : ["weather", ...topics];
+  const withWeatherTags = tags.includes("weather") ? tags : ["weather", ...tags];
+  return {
+    ...classified,
+    topics: [...new Set(withWeather)].slice(0, 6),
+    tags: [...new Set(withWeatherTags)].slice(0, 8),
+  };
+}
+
+export function applyWeatherSourceTopics(
+  classified: Classification,
+  hint: { handle?: string | null; feedUrl?: string | null },
+  text = "",
+): Classification {
+  let next = classified;
+  if (isWeatherSource(hint) || textLooksLikeOfficialWeatherAlert(text)) {
+    const drop = new Set(["cyber", "world"]);
+    const topics = ["weather", ...next.topics.filter((topic) => !drop.has(topic) && topic !== "weather")].slice(
+      0,
+      6,
+    );
+    const tags = [...new Set(["weather", ...next.tags.filter((tag) => !drop.has(tag) && tag !== "weather")])].slice(
+      0,
+      8,
+    );
+    next = { ...next, topics, tags };
+  }
+  return stripCyberWhenWeatherHeadline(next, text);
+}
+
 export function applySourceTopics(
   classified: Classification,
   hint: { handle?: string | null; feedUrl?: string | null },
@@ -295,7 +359,9 @@ export function classifyText(text: string) {
 }
 
 export function classifyItem(title: string, summary?: string | null) {
-  return classify(`${title} ${summary ?? ""}`);
+  const text = `${title} ${summary ?? ""}`;
+  const base = classify(text);
+  return stripCyberWhenWeatherHeadline(base, text);
 }
 
 export function textHasTopic(text: string, topic: string) {
