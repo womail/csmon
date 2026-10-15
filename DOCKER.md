@@ -72,6 +72,53 @@ Stop using the remote engine: `eval "$(docker-machine env -u)"` or a fresh shell
 
 Plain Docker Engine on a Proxmox guest at **10.1.1.244** (no legacy docker-machine). Build on that host; open [http://10.1.1.244:3000](http://10.1.1.244:3000).
 
+### Community Scripts (recommended — full create from scratch)
+
+[Community Scripts](https://community-scripts.org/) use a **CT script** on the Proxmox host (wizard: CTID, hostname, CPU/RAM/disk, **static IP or DHCP**, bridge, password/SSH) plus an **install script** inside the new LXC. Same model as the [Script Generator](https://community-scripts.org/generator).
+
+On the **Proxmox node** as root:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/womail/csmon/main/scripts/community-scripts/ct/csmon.sh)"
+```
+
+Files live in `scripts/community-scripts/` (`ct/csmon.sh`, `install/csmon-install.sh`). Defaults: Debian 13, 4 cores, 4 GiB RAM, 32 GiB disk, nesting + fuse for Docker, app on **http://&lt;container-ip&gt;:3000**.
+
+**Update:** re-run the CT script and choose update, or run `update` inside the container (`git pull` + compose rebuild; `csmon-data` volume kept).
+
+To contribute csmon to the public catalog, copy those files into [community-scripts/ProxmoxVE](https://github.com/community-scripts/ProxmoxVE) per `scripts/community-scripts/README.md`.
+
+### Legacy host script (env file, no wizard)
+
+`scripts/proxmox-create.sh` still works for a minimal flow: `/etc/csmon/proxmox-create.env` with `CSMON_IP` / `CSMON_GW`, then `create` / `update`. Prefer Community Scripts above for the usual Proxmox UX.
+
+### Guest starter script (install + update on an existing VM/LXC)
+
+On a fresh **Ubuntu 24.04** LXC or VM (Docker on the guest, not the Proxmox hypervisor):
+
+```bash
+git clone https://github.com/womail/csmon.git /opt/csmon
+sudo /opt/csmon/scripts/proxmox-starter.sh install
+```
+
+One-liner (clones to `/opt/csmon`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/womail/csmon/main/scripts/proxmox-starter.sh | sudo bash -s -- install
+```
+
+Update after `git push`:
+
+```bash
+sudo /opt/csmon/scripts/proxmox-starter.sh update
+```
+
+The script installs Docker if needed, uses `docker-compose.yml` + `docker-compose.lan.yml` (port **3000** on all interfaces), keeps SQLite in the **`csmon-data`** volume, and waits on `/api/health`. Other commands: `status`, `logs`, `restart`, `stop`. Override `CSMON_INSTALL_DIR`, `CSMON_GIT_REPO`, or `CSMON_GIT_BRANCH` if needed.
+
+**LXC:** turn on **Nesting** under the container’s Options → Features if `docker build` fails. Restrict LAN access with Proxmox firewall or set **`CSMON_TOKEN`** in `.env` (see `SECURITY.md`).
+
+For production/pre-production slots on the same host, use `scripts/csmon-deploy.sh` instead.
+
 ### A — Build on the VM (simplest)
 
 SSH in, install Docker if needed, copy or clone the repo, then build there:
