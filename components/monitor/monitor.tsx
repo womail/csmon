@@ -39,6 +39,9 @@ import {
 } from "@/components/monitor/setup-monitoring-wizard";
 import { EntityDesk, HomeDashboard } from "@/components/monitor/dashboard";
 import { PeopleDesk } from "@/components/monitor/people-desk";
+import { LiveFilterForm } from "@/components/monitor/live-filter-form";
+import { SourceContextMenu } from "@/components/monitor/source-context-menu";
+import { RssLibrary } from "@/components/rss/library";
 import { PlacePane } from "@/components/monitor/place-pane";
 import { SourcePane } from "@/components/monitor/source-pane";
 import { placeMarkers } from "@/components/monitor/map";
@@ -47,6 +50,7 @@ const SituationMap = dynamic(
   () => import("@/components/monitor/situation-map").then((mod) => ({ default: mod.SituationMap })),
   { ssr: false, loading: () => null },
 );
+import { DeskNestList } from "@/components/monitor/desk-nests";
 import { DeskRail, DeskTabs } from "@/components/monitor/nav";
 import { GdeltButton } from "@/components/monitor/gdelt-panel";
 import { RedditButton } from "@/components/monitor/reddit-panel";
@@ -64,7 +68,7 @@ import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api-client";
 import type { BoardFilters } from "@/lib/board-state";
 import { defaultBoardFilters, normalizeBoardFilters, syncBoardUrl } from "@/lib/board-state";
-import { isKnownTopic, itemHasTopic } from "@/lib/classify";
+import { isKnownTopic, isSportSubtag, itemHasTopic } from "@/lib/classify";
 import {
   clusterItems,
   itemAsStory,
@@ -106,6 +110,8 @@ import {
   type BoardSort,
 } from "@/lib/board-sort";
 import { applyBoardItemFilters } from "@/lib/board-item-filter";
+import { itemMatchesAnyNest, suggestDeskFacets } from "@/lib/desk-nests";
+import { rssFeedCategory } from "@/lib/rss-library";
 import { activeFilterCount, deskLabel as investigationDeskLabel } from "@/lib/investigation-summary";
 import { loadMyBriefing, type MyBriefingProfile } from "@/lib/briefing-profile";
 import { applyTopicOverride, loadItemTopicOverrides, saveItemTopicOverride } from "@/lib/item-overrides";
@@ -193,10 +199,12 @@ import {
 import { itemInTimeRange } from "@/lib/item-freshness";
 import { ensurePoliticsUserDesk, findPoliticsUserDesk } from "@/lib/desk-presets";
 import {
+  addDeskNest,
   createUserDesk,
   deleteUserDesk,
   findUserDesk,
   loadUserDesks,
+  removeDeskNest,
   updateUserDesk,
   type UserDesk,
 } from "@/lib/user-desks";
@@ -309,6 +317,7 @@ export function Monitor({
   const [topic, setTopic] = useState<string | null>(seed.topic);
   const [filterTopics, setFilterTopics] = useState<string[]>(seed.topics ?? []);
   const [filterTags, setFilterTags] = useState<string[]>(seed.tags ?? []);
+  const [nest, setNest] = useState<string[]>(seed.nest ?? []);
   const [place, setPlace] = useState<string | null>(seed.place);
   const [range, setRange] = useState<TimeRange>(seed.range);
   const [desk, setDesk] = useState<Desk>(seed.desk);
@@ -377,6 +386,9 @@ export function Monitor({
   const [topicOverrides, setTopicOverrides] = useState<Record<string, { topics: string[]; updatedAt: number }>>(
     {},
   );
+  const [liveFilterOpen, setLiveFilterOpen] = useState(false);
+  const [liveFilterSeed, setLiveFilterSeed] = useState({ name: "", criteria: "" });
+  const [poolMenu, setPoolMenu] = useState<{ x: number; y: number; sourceId: number } | null>(null);
   const [cardMenu, setCardMenu] = useState<{
     item: Item;
     story: Story | null;
@@ -512,6 +524,7 @@ export function Monitor({
       topics: filterTopics,
       place,
       tags: filterTags,
+      nest,
       range,
       cross,
       stack,
@@ -531,6 +544,7 @@ export function Monitor({
     desk,
     filterTags,
     filterTopics,
+    nest,
     focusItem,
     layer,
     origin,
@@ -615,6 +629,7 @@ export function Monitor({
     displayCollection,
     filterTags,
     filterTopics,
+    nest,
     layer,
     origin,
     person,
@@ -668,6 +683,7 @@ export function Monitor({
       topics: filterTopics,
       place,
       tags: filterTags,
+      nest: [],
       range,
       cross,
       stack,
@@ -753,12 +769,18 @@ export function Monitor({
   }, [byId, deskEditorOpen, state.items, topicOverrides, tunerDraft]);
   const cveHits = useMemo(() => minedCves(baseItems).slice(0, 6), [baseItems]);
 
+  const nestFacets = useMemo(
+    () => suggestDeskFacets(baseItems, activeCustom?.filters.topic ?? null),
+    [activeCustom, baseItems],
+  );
+
   const items = useMemo(() => {
+    const pool = baseItems.filter((item) => itemMatchesAnyNest(item, nest));
     const filtered = !rising
-      ? baseItems
-      : baseItems.filter((item) => itemMatchesRising(item, hotKeys, byId.get(item.sourceId)));
+      ? pool
+      : pool.filter((item) => itemMatchesRising(item, hotKeys, byId.get(item.sourceId)));
     return sortItems(filtered, boardSort);
-  }, [baseItems, boardSort, byId, hotKeys, rising]);
+  }, [baseItems, boardSort, byId, hotKeys, nest, rising]);
 
   const stories = useMemo(() => {
     const allowed = new Set(items.map((item) => item.id));
@@ -962,14 +984,36 @@ export function Monitor({
   const brief = situationLine(stories, state.sources);
   const p0 = state.kev.filter((k) => k.risk === "p0").length;
   const ransomwareCount = kev.filter((k) => k.ransomware).length;
-  const advisoryCount = useMemo(
+  const advisoryCount = useMemo(() => {
+    if (viewDesk === "advisories") return stories.length;
+    return rangedItems.filter((item) => isAdvisoryItem(item, byId.get(item.sourceId))).length;
+  }, [byId, rangedItems, stories.length, viewDesk]);
+  const rssFeeds = useMemo(
     () =>
-      state.items.filter((item) => {
-        const source = byId.get(item.sourceId);
-        return source?.enabled && isAdvisoryItem(item, source);
-      }).length,
-    [byId, state.items],
+      state.sources
+        .filter((source) => source.enabled && source.platform === "rss")
+        .map((source) => ({
+          id: source.id,
+          name: source.name,
+          category: rssFeedCategory(source),
+          url: source.feedUrl ?? source.url,
+        }))
+        .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name)),
+    [state.sources],
   );
+  const rssArticles = useMemo(() => {
+    const ids = new Set(rssFeeds.map((feed) => feed.id));
+    return rangedItems
+      .filter((item) => ids.has(item.sourceId))
+      .map((item) => ({
+        id: item.id,
+        feedId: item.sourceId,
+        title: item.title,
+        summary: item.summary ?? "",
+        url: item.url,
+        publishedAt: item.publishedAt,
+      }));
+  }, [rangedItems, rssFeeds]);
 
   async function scrape(input: string, mode: "auto" | "rss" | "bsky" = "auto") {
     setBusy(true);
@@ -1225,6 +1269,7 @@ export function Monitor({
       topics: filterTopics,
       place,
       tags: filterTags,
+      nest,
       range,
       cross,
       stack,
@@ -1384,6 +1429,7 @@ export function Monitor({
       topics: [],
       place: profile.place,
       tags: [],
+      nest: [],
       range: profile.range,
       cross: profile.cross,
       rising: profile.rising,
@@ -1544,6 +1590,24 @@ export function Monitor({
     }
   }
 
+  function openLiveFilter(name = "", criteria = "") {
+    setLiveFilterSeed({ name, criteria });
+    setLiveFilterOpen(true);
+  }
+
+  function saveLiveFilter(name: string, criteria: string) {
+    const filters = normalizeBoardFilters({
+      ...defaultBoardFilters(stack),
+      q: criteria,
+      range,
+      desk: "brief",
+    });
+    const next = createUserDesk(name, filters, customDesks, "brief");
+    setCustomDesks(next);
+    const created = next.find((row) => row.label.toLowerCase() === name.trim().toLowerCase()) ?? next[0];
+    if (created) applyFilters(created.filters);
+  }
+
   function applyFilters(next: BoardFilters) {
     const filters = normalizeBoardFilters(next);
     setDesk(filters.desk);
@@ -1551,6 +1615,7 @@ export function Monitor({
     setTopic(filters.topic);
     setFilterTopics(filters.topics);
     setFilterTags(filters.tags);
+    setNest(filters.nest);
     setPlace(filters.place);
     setRange(filters.range);
     setCross(filters.cross);
@@ -1572,6 +1637,7 @@ export function Monitor({
     setTopic(null);
     setFilterTopics([]);
     setFilterTags([]);
+    setNest([]);
     setPlace(null);
     setCross(false);
     setVendor(null);
@@ -1599,6 +1665,7 @@ export function Monitor({
     Boolean(topic) ||
     filterTopics.length > 0 ||
     filterTags.length > 0 ||
+    nest.length > 0 ||
     Boolean(displayCollection?.itemIds.length) ||
     Boolean(origin) ||
     cross ||
@@ -1742,17 +1809,31 @@ export function Monitor({
     setVendor((current) => (current === canon ? null : canon));
   }
 
+  function toggleNest(name: string) {
+    const key = name.trim().toLowerCase();
+    if (!key) return;
+    setNest((current) => (current.includes(key) ? current.filter((row) => row !== key) : [...current, key]));
+  }
+
   function clickChip(name: string) {
     const vendor = matchVendorName(name);
     if (vendor) {
       toggleVendor(vendor);
       return;
     }
+    if (isKnownPlace(name) && !isKnownTopic(name) && !isSportSubtag(name)) {
+      focusPlace(name);
+      return;
+    }
+    if (activeCustom || isSportSubtag(name)) {
+      toggleNest(name);
+      return;
+    }
     if (name.toLowerCase() === "ai" || isKnownTopic(name)) {
       toggleTopic(name.toLowerCase() === "ai" ? "ai" : name);
       return;
     }
-    focusPlace(name);
+    toggleNest(name);
   }
 
   function applyTriage(next: { state: TriageState; undo: TriageUndo[] }) {
@@ -2014,7 +2095,8 @@ export function Monitor({
     viewDesk !== "sources" &&
     viewDesk !== "home" &&
     viewDesk !== "flights" &&
-    viewDesk !== "reports";
+    viewDesk !== "reports" &&
+    viewDesk !== "feeds";
 
   useEffect(() => {
     if (typeof window === "undefined" || !emptyBoard) return;
@@ -2029,6 +2111,7 @@ export function Monitor({
     topics: filterTopics,
     place,
     tags: filterTags,
+    nest,
     range,
     cross,
     stack,
@@ -2159,7 +2242,10 @@ export function Monitor({
     viewDesk !== "flights" &&
     (Boolean(place) || (openSourceId != null && Boolean(byId.get(openSourceId))));
   const showFollowRail =
-    !openStory && !showDossierColumn && !(viewDesk === "flights" && selectedFlight);
+    viewDesk !== "feeds" &&
+    !openStory &&
+    !showDossierColumn &&
+    !(viewDesk === "flights" && selectedFlight);
   const workspaceMultiColumn = openStory || showDossierColumn;
 
   const investigationContextLine =
@@ -2175,6 +2261,8 @@ export function Monitor({
             ? homeCity(homePlace)
               ? `${flights.length} airborne within 100 km of ${homeCity(homePlace)?.name}`
               : `${flights.length} airborne tracks (world sample)`
+            : viewDesk === "feeds"
+              ? `${rssFeeds.length} RSS feeds · ${rssArticles.length} titles in this window`
             : viewDesk === "people"
               ? `${people.length} people on the board`
               : viewDesk === "documents"
@@ -2258,9 +2346,10 @@ export function Monitor({
   function changeDesk(next: Desk) {
     if (next === desk) return;
     const custom = findUserDesk(next, customDesks);
-    if (custom) applyFilters(custom.filters);
+    if (custom) applyFilters({ ...custom.filters, nest: [] });
     else {
       setQb(emptyQuery());
+      setNest([]);
       setDesk(next);
     }
     if (next === "flights") void loadFlights();
@@ -2312,6 +2401,7 @@ export function Monitor({
           flights: flights.length,
           advisories: advisoryCount,
           patch: p0,
+          feeds: rssFeeds.length,
           sources: enabled.length,
           reports: reports.filter((row) => row.status === "open").length,
         }}
@@ -2320,6 +2410,23 @@ export function Monitor({
           setEditingDesk(null);
           setDeskEditorOpen(true);
         }}
+        onCreateFilter={() => openLiveFilter()}
+        nestFacets={nestFacets}
+        nestSaved={activeCustom?.nests ?? []}
+        nestActive={nest}
+        onToggleNest={toggleNest}
+        onClearNest={() => setNest([])}
+        onAddNest={(label) => {
+          if (!activeCustom) return;
+          setCustomDesks(addDeskNest(activeCustom.id, label, customDesks));
+          toggleNest(label);
+        }}
+        onRemoveNest={(id) => {
+          if (!activeCustom) return;
+          const removed = activeCustom.nests.find((row) => row.id === id);
+          setCustomDesks(removeDeskNest(activeCustom.id, id, customDesks));
+          if (removed) setNest((current) => current.filter((value) => value !== removed.query.toLowerCase()));
+        }}
         onEditDesk={(id) => {
           setEditingDesk(findUserDesk(id, customDesks));
           setDeskEditorOpen(true);
@@ -2327,7 +2434,10 @@ export function Monitor({
         onDeleteDesk={(id) => {
           const next = deleteUserDesk(id, customDesks);
           setCustomDesks(next);
-          if (desk === id) setDesk("home");
+          if (desk === id) {
+            setDesk("home");
+            setQuery("");
+          }
         }}
         onClearFilters={clearBoardFilters}
       />
@@ -2342,6 +2452,7 @@ export function Monitor({
             desk={desk}
             onDeskChange={changeDesk}
             customDesks={customDesks}
+            onCreateFilter={() => openLiveFilter()}
             range={range}
             onRangeChange={setRange}
             ranges={RANGES}
@@ -2449,6 +2560,29 @@ export function Monitor({
             />
           ) : null}
           <div className="board-filter-strip">
+            {activeCustom ? (
+              <DeskNestList
+                deskLabel={activeCustom.label}
+                facets={nestFacets}
+                saved={activeCustom.nests}
+                active={nest}
+                layout="bar"
+                onToggle={toggleNest}
+                onClear={() => setNest([])}
+                onAdd={(label) => {
+                  const next = addDeskNest(activeCustom.id, label, customDesks);
+                  setCustomDesks(next);
+                  toggleNest(label);
+                }}
+                onRemoveSaved={(id) => {
+                  const removed = activeCustom.nests.find((row) => row.id === id);
+                  setCustomDesks(removeDeskNest(activeCustom.id, id, customDesks));
+                  if (removed) {
+                    setNest((current) => current.filter((value) => value !== removed.query.toLowerCase()));
+                  }
+                }}
+              />
+            ) : null}
             {query.trim() ||
             (state.watches ?? []).some((watch) => watch.newHits > 0) ||
             topic ||
@@ -2493,6 +2627,15 @@ export function Monitor({
                 key={`ft-${name}`}
                 label={`Topic: ${name}`}
                 onDismiss={() => setFilterTopics((rows) => rows.filter((row) => row !== name))}
+                variant="topic"
+              />
+            ))}
+            {nest.map((name) => (
+              <DismissFilterChip
+                key={`nest-${name}`}
+                label={name}
+                tip="Remove this nested filter. The rest of the desk stays."
+                onDismiss={() => setNest((rows) => rows.filter((row) => row !== name))}
                 variant="topic"
               />
             ))}
@@ -2913,7 +3056,9 @@ export function Monitor({
           <main
             className={`min-w-0 flex-1 ${viewDesk === "flights" ? "flex min-h-0 flex-col" : ""}`}
           >
-            {emptyBoard ? (
+            {viewDesk === "feeds" ? (
+              <RssLibrary feeds={rssFeeds} articles={rssArticles} />
+            ) : emptyBoard ? (
               <div className="mx-auto max-w-lg px-6 py-20 text-center">
                 <div className="text-lg font-semibold">Start from a desk, not a firehose</div>
                 <p className="mt-2 text-[13px] text-slate-500">
@@ -3099,7 +3244,8 @@ export function Monitor({
                 onResetFilter={clearHomeDashboard}
                 onOpenStory={openReader}
                 onLane={openLane}
-                onTopic={toggleTopic}
+                activeTags={nest}
+                onTopic={clickChip}
                 onPlace={focusPlace}
                 onSource={focusSource}
                 onPerson={togglePerson}
@@ -3146,6 +3292,11 @@ export function Monitor({
                 onPerson={togglePerson}
                 onPreviewSource={openSourcePreview}
                 onToggleSource={(id, enabledNow) => void toggleLayer(id, enabledNow)}
+                onPersonAction={(name, action) => {
+                  if (action === "filter") setPerson(name);
+                  if (action === "copy") void navigator.clipboard.writeText(name);
+                  if (action === "live") openLiveFilter(name, name);
+                }}
               />
             ) : viewDesk === "documents" ? (
               <EntityDesk
@@ -3296,6 +3447,7 @@ export function Monitor({
                             key={item.id}
                             item={item}
                             source={byId.get(item.sourceId)}
+                            activeTags={nest}
                             onTag={(tag, event) => clickItemTag(item, tag, event)}
                             onPlace={focusPlace}
                             onVendor={toggleVendor}
@@ -3330,8 +3482,9 @@ export function Monitor({
                           key={story.id}
                           story={story}
                           sources={byId}
+                          activeTags={nest}
                           onOpen={() => openReader(story)}
-                          onTopic={toggleTopic}
+                          onTopic={clickChip}
                           onPlace={focusPlace}
                           onVendor={toggleVendor}
                           onSource={focusSource}
@@ -3367,9 +3520,10 @@ export function Monitor({
                               key={story.id}
                               story={story}
                               sources={byId}
+                              activeTags={nest}
                               corroboration={storyCorr(story)}
                               onOpen={() => openReader(story)}
-                              onTopic={toggleTopic}
+                              onTopic={clickChip}
                               onPlace={focusPlace}
                               onVendor={toggleVendor}
                               onSource={focusSource}
@@ -3463,7 +3617,7 @@ export function Monitor({
                   onBack={backReader}
                   onClose={closeReader}
                   onFollow={followHint}
-                  onTopic={toggleTopic}
+                  onTopic={clickChip}
                   onPlace={focusPlace}
                   onVendor={toggleVendor}
                   onCve={focusCve}
@@ -3526,7 +3680,7 @@ export function Monitor({
                     setDesk("scan");
                     setPlace(place);
                   }}
-                  onTopic={toggleTopic}
+                  onTopic={clickChip}
                   onSource={focusSource}
                 />
               ) : openSourceId && byId.get(openSourceId) ? (
@@ -3594,10 +3748,14 @@ export function Monitor({
                 <div className="mt-4 text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
                   Source pool
                 </div>
+                <p className="mt-1 text-[10px] leading-snug text-slate-500">
+                  Layers already collected but turned off. Click to subscribe. Right-click to preview
+                  without turning the layer on.
+                </p>
                 <Input
                   value={layerQuery}
                   onChange={(e) => setLayerQuery(e.target.value)}
-                  placeholder="Unused sources"
+                  placeholder="Find an unused source"
                   className="mt-2 h-7 text-[12px]"
                 />
                 <div className="mt-2 max-h-[calc(100vh-280px)] space-y-1 overflow-y-auto">
@@ -3606,6 +3764,10 @@ export function Monitor({
                       key={source.id}
                       type="button"
                       onClick={() => toggleLayer(source.id, false)}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        setPoolMenu({ x: event.clientX, y: event.clientY, sourceId: source.id });
+                      }}
                       className="flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left hover:bg-slate-50"
                     >
                       <span
@@ -3634,6 +3796,13 @@ export function Monitor({
         </div>
       </div>
 
+      <LiveFilterForm
+        open={liveFilterOpen}
+        initialName={liveFilterSeed.name}
+        initialCriteria={liveFilterSeed.criteria}
+        onOpenChange={setLiveFilterOpen}
+        onSave={saveLiveFilter}
+      />
       <FilterTuner
         open={deskEditorOpen}
         onOpenChange={(open) => {
@@ -3672,6 +3841,22 @@ export function Monitor({
         onScrape={scrape}
         onAdd={addLayers}
       />
+      {poolMenu && byId.get(poolMenu.sourceId) ? (
+        <SourceContextMenu
+          x={poolMenu.x}
+          y={poolMenu.y}
+          sourceName={byId.get(poolMenu.sourceId)!.name}
+          subscribed={Boolean(byId.get(poolMenu.sourceId)?.enabled)}
+          onAction={(action) => {
+            const id = poolMenu.sourceId;
+            if (action.kind === "preview") openSourcePreview(id);
+            if (action.kind === "subscribe") void toggleLayer(id, false);
+            if (action.kind === "unsubscribe") void toggleLayer(id, true);
+            setPoolMenu(null);
+          }}
+          onClose={() => setPoolMenu(null)}
+        />
+      ) : null}
       {cardMenu ? (
         <CardContextMenu
           key={`${cardMenu.item.id}:${cardMenu.x}:${cardMenu.y}`}

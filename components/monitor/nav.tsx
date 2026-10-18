@@ -13,10 +13,14 @@ import {
   NotebookPen,
   Plane,
   Plus,
+  Rss,
   Shield,
   Users,
 } from "lucide-react";
+import { DeskNestList } from "@/components/monitor/desk-nests";
 import { Tip } from "@/components/monitor/tip";
+import type { DeskFacet } from "@/lib/desk-nests";
+import type { DeskNest } from "@/lib/user-desks";
 import {
   DESK_GROUP_LABEL,
   groupedBuiltinDesks,
@@ -37,6 +41,7 @@ const ICONS: Record<string, typeof Newspaper> = {
   flights: Plane,
   advisories: FileWarning,
   patch: Shield,
+  feeds: Rss,
   sources: Layers,
 };
 
@@ -71,7 +76,11 @@ function DeskRailItem({
           if (item.id === "home") onHome?.();
           onChange(item.id);
         }}
-        title={item.hint}
+        title={
+          isBuiltinDesk(item.id)
+            ? item.hint
+            : `${item.label} is a desk you made. Filters nested under the name narrow it. Click a nested filter to turn it on, and click it again to show all of ${item.label}.`
+        }
         className={`flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5 text-left ${
           active ? "" : "hover:bg-muted"
         }`}
@@ -123,8 +132,16 @@ export function DeskRail({
   onHome,
   customDesks,
   onCreateDesk,
+  onCreateFilter,
   onDeleteDesk,
   onEditDesk,
+  nestFacets,
+  nestSaved,
+  nestActive,
+  onToggleNest,
+  onClearNest,
+  onAddNest,
+  onRemoveNest,
 }: {
   desk: Desk;
   onChange: (desk: Desk) => void;
@@ -133,8 +150,16 @@ export function DeskRail({
   onHome?: () => void;
   customDesks?: UserDesk[];
   onCreateDesk?: () => void;
+  onCreateFilter?: () => void;
   onDeleteDesk?: (id: string) => void;
   onEditDesk?: (id: string) => void;
+  nestFacets?: DeskFacet[];
+  nestSaved?: DeskNest[];
+  nestActive?: string[];
+  onToggleNest?: (value: string) => void;
+  onClearNest?: () => void;
+  onAddNest?: (label: string) => void;
+  onRemoveNest?: (id: string) => void;
 }) {
   const groups = groupedBuiltinDesks();
   const yours: DeskNavRow[] = (customDesks ?? []).map((item) => ({
@@ -165,25 +190,55 @@ export function DeskRail({
           ))}
         </div>
       ))}
-      {yours.length > 0 ? (
-        <div>
-          <div className="desk-rail-yours-label">Yours</div>
-          {yours.map((item) => (
-            <DeskRailItem
-              key={item.id}
-              item={item}
-              desk={desk}
-              count={counts[item.id]}
-              onChange={onChange}
-              onHome={onHome}
-              onEditDesk={onEditDesk}
-              onDeleteDesk={onDeleteDesk}
-            />
-          ))}
-        </div>
-      ) : null}
+      <div>
+        <div className="desk-rail-yours-label">Live filters</div>
+        {yours.length === 0 ? (
+          <p className="mx-3 mb-1 text-[10px] leading-snug text-muted-foreground">
+            Named searches live here. New filter saves the criteria you type.
+          </p>
+        ) : (
+          yours.map((item) => (
+            <div key={item.id}>
+              <DeskRailItem
+                item={item}
+                desk={desk}
+                count={counts[item.id]}
+                onChange={onChange}
+                onHome={onHome}
+                onEditDesk={onEditDesk}
+                onDeleteDesk={onDeleteDesk}
+              />
+              {desk === item.id && onToggleNest && onClearNest && onAddNest && onRemoveNest ? (
+                <DeskNestList
+                  deskLabel={item.label}
+                  facets={nestFacets ?? []}
+                  saved={nestSaved ?? []}
+                  active={nestActive ?? []}
+                  layout="rail"
+                  onToggle={onToggleNest}
+                  onClear={onClearNest}
+                  onAdd={onAddNest}
+                  onRemoveSaved={onRemoveNest}
+                />
+              ) : null}
+            </div>
+          ))
+        )}
+        {onCreateFilter ? (
+          <Tip text="Name a search and keep it on this rail. Open it, then add narrower names underneath, such as a team inside a sport.">
+            <button
+              type="button"
+              onClick={onCreateFilter}
+              className="mx-2 mt-0.5 flex items-center gap-1 rounded-md px-2 py-1.5 text-left text-[11px] text-muted-foreground hover:bg-muted"
+            >
+              <Plus className="size-3.5" />
+              New filter
+            </button>
+          </Tip>
+        ) : null}
+      </div>
       {onCreateDesk ? (
-        <Tip text="Save the current filters as a new desk, or open Tune to edit place, RSS, and topic">
+        <Tip text="Save the current board as a desk you name. After it is on the rail, add nested filters under it, such as NFL or Chelsea inside Sport.">
           <button
             type="button"
             onClick={onCreateDesk}
@@ -216,10 +271,12 @@ export function DeskTabs({
   desk,
   onChange,
   customDesks,
+  onCreateFilter,
 }: {
   desk: Desk;
   onChange: (desk: Desk) => void;
   customDesks?: UserDesk[];
+  onCreateFilter?: () => void;
 }) {
   const groups = groupedBuiltinDesks();
   const yours: DeskNavRow[] = (customDesks ?? []).map((item) => ({
@@ -248,9 +305,18 @@ export function DeskTabs({
           ))}
         </span>
       ))}
-      {yours.length > 0 ? (
+      {yours.length > 0 || onCreateFilter ? (
         <span className="flex shrink-0 items-center gap-1">
           <span className="desk-tabs-group-gap" aria-hidden />
+          {onCreateFilter ? (
+            <button
+              type="button"
+              onClick={onCreateFilter}
+              className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground"
+            >
+              + Filter
+            </button>
+          ) : null}
           {yours.map((item) => (
             <Tip key={item.id} text={item.hint}>
               <button

@@ -30,6 +30,7 @@ function asDesk(value: unknown, fallback: BoardFilters["desk"]): BoardFilters["d
     "flights",
     "advisories",
     "patch",
+    "feeds",
     "sources",
   ].includes(value))
     ? (value as BoardFilters["desk"])
@@ -56,6 +57,7 @@ function hydrate(raw: Partial<SavedFilter>, fallback: BoardFilters): SavedFilter
       topics: Array.isArray(filters.topics) ? filters.topics : fallback.topics,
       place: filters.place ?? null,
       tags: Array.isArray(filters.tags) ? filters.tags : fallback.tags,
+      nest: [],
       range: (filters.range as TimeRange) || fallback.range,
       cross: Boolean(filters.cross),
       stack: typeof filters.stack === "string" ? filters.stack : "",

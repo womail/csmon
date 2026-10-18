@@ -127,6 +127,7 @@ export function MonitorToolbar({
   desk,
   onDeskChange,
   customDesks,
+  onCreateFilter,
   range,
   onRangeChange,
   ranges,
@@ -172,6 +173,7 @@ export function MonitorToolbar({
   desk: Desk;
   onDeskChange: (desk: Desk) => void;
   customDesks: UserDesk[];
+  onCreateFilter?: () => void;
   range: TimeRange;
   onRangeChange: (range: TimeRange) => void;
   ranges: TimeRange[];
@@ -338,7 +340,12 @@ export function MonitorToolbar({
           </div>
         </div>
         <div className="w-full rounded-md border border-border bg-background p-0.5 lg:hidden">
-          <DeskTabs desk={desk} onChange={onDeskChange} customDesks={customDesks} />
+          <DeskTabs
+            desk={desk}
+            onChange={onDeskChange}
+            customDesks={customDesks}
+            onCreateFilter={onCreateFilter}
+          />
         </div>
       </div>
     </div>

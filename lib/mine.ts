@@ -1,3 +1,4 @@
+import { isWeatherSource, textLooksLikeOfficialWeatherAlert } from "./classify";
 import type { Item, Source } from "./types";
 
 const CVE_RE = /\bCVE-\d{4}-\d{4,7}\b/gi;
@@ -111,6 +112,9 @@ export function itemHasVendor(item: Pick<Item, "title" | "summary">, vendor: str
 }
 
 export function isAdvisoryItem(item: Item, source?: Source) {
+  const text = `${item.title} ${item.summary ?? ""} ${item.url}`;
+  if (textLooksLikeOfficialWeatherAlert(text)) return false;
+  if (source && isWeatherSource({ handle: source.handle, feedUrl: source.feedUrl })) return false;
   if (item.topics.includes("cyber") || item.tags.includes("cyber")) return true;
   if (source?.origins.some((origin) => origin.reason === "intel") && source.handle) {
     const securityIds = new Set([

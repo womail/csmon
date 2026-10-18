@@ -20,6 +20,8 @@ export type BoardFilters = {
   place: string | null;
   /** Tag chips (any match) for custom desks. */
   tags: string[];
+  /** Extra terms inside the current desk. Any match: NFL and Soccer both show. */
+  nest: string[];
   range: TimeRange;
   cross: boolean;
   stack: string;
@@ -56,6 +58,7 @@ export const DESKS: { id: Desk; label: string; hint: string }[] = [
   { id: "flights", label: "Flights", hint: "Live ADS-B" },
   { id: "advisories", label: "Advisories", hint: "Cyber desk" },
   { id: "patch", label: "Patch", hint: "CISA KEV" },
+  { id: "feeds", label: "Feeds", hint: "RSS by category" },
   { id: "sources", label: "Sources", hint: "Layers and cache" },
 ];
 
@@ -77,6 +80,7 @@ export function defaultBoardFilters(stack = ""): BoardFilters {
     topics: [],
     place: null,
     tags: [],
+    nest: [],
     range: "24h",
     cross: false,
     stack,
@@ -107,6 +111,9 @@ export function normalizeBoardFilters(filters: BoardFilters): BoardFilters {
     topic: nextTopic,
     topics: Array.isArray(filters.topics) ? filters.topics.map((t) => t.trim().toLowerCase()).filter(Boolean).slice(0, 8) : [],
     tags: Array.isArray(filters.tags) ? filters.tags.map((t) => t.trim().toLowerCase()).filter(Boolean).slice(0, 8) : [],
+    nest: Array.isArray(filters.nest)
+      ? filters.nest.map((t) => t.trim().toLowerCase()).filter(Boolean).slice(0, 12)
+      : [],
     place: place ? resolvePlace(place) : null,
     platform: filters.platform && PLATFORMS.has(filters.platform) ? filters.platform : null,
     qb: { rules: activeQueryRules(filters.qb).slice(0, 8) },
@@ -133,6 +140,7 @@ export function parseBoardFilters(
     topics: parseListParam(one(params.topics)),
     place: one(params.place) || null,
     tags: parseListParam(one(params.tags)),
+    nest: parseListParam(one(params.nest)),
     range: RANGES.has(rangeRaw) ? rangeRaw : "24h",
     cross: one(params.cross) === "1",
     stack: one(params.stack) || fallbackStack,
@@ -160,6 +168,7 @@ export function boardQueryString(filters: BoardFilters) {
   if (filters.topics.length) p.set("topics", filters.topics.join(","));
   if (filters.place) p.set("place", filters.place);
   if (filters.tags.length) p.set("tags", filters.tags.join(","));
+  if (filters.nest.length) p.set("nest", filters.nest.join(","));
   if (filters.range !== "24h") p.set("range", filters.range);
   if (filters.cross) p.set("cross", "1");
   if (filters.stack) p.set("stack", filters.stack);

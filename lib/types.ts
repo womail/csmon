@@ -176,6 +176,7 @@ export const BUILTIN_DESKS = [
   "flights",
   "advisories",
   "patch",
+  "feeds",
   "sources",
 ] as const;
 

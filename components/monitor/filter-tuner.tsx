@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BuiltinDesk } from "@/lib/types";
 import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";
@@ -55,16 +55,21 @@ export function FilterTuner({
   const [label, setLabel] = useState("");
   const [view, setView] = useState<BuiltinDesk>("brief");
   const [draft, setDraft] = useState<BoardFilters>(current);
+  const currentRef = useRef(current);
+  const onDraftChangeRef = useRef(onDraftChange);
+  currentRef.current = current;
+  onDraftChangeRef.current = onDraftChange;
 
   useEffect(() => {
     if (!open) return;
-    setDraft(editing?.filters ?? current);
+    const source = currentRef.current;
+    setDraft(editing?.filters ?? source);
     setLabel(editing?.label ?? "");
     setView(
       editing?.view ??
-        (isBuiltinDesk(current.desk) && VIEW_DESKS.includes(current.desk) ? current.desk : "brief"),
+        (isBuiltinDesk(source.desk) && VIEW_DESKS.includes(source.desk) ? source.desk : "brief"),
     );
-  }, [open, current, editing]);
+  }, [open, editing]);
 
   function prepared() {
     return normalizeBoardFilters({
@@ -79,9 +84,9 @@ export function FilterTuner({
   }
 
   useEffect(() => {
-    if (!open || !onDraftChange) return;
-    onDraftChange(normalizeBoardFilters({ ...draft, desk: view }), view);
-  }, [draft, onDraftChange, open, view]);
+    if (!open) return;
+    onDraftChangeRef.current?.(normalizeBoardFilters({ ...draft, desk: view }), view);
+  }, [draft, open, view]);
 
   function saveDesk() {
     const filters = prepared();

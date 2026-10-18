@@ -16,7 +16,7 @@ export const DESK_GROUP_LABEL: Record<DeskGroupId, string> = {
 export const DESK_GROUP_MEMBERS: Record<DeskGroupId, Desk[]> = {
   situation: ["home", "brief", "pulse", "weather"],
   cyber: ["advisories", "patch"],
-  tools: ["scan", "people", "documents", "reports", "flights", "sources"],
+  tools: ["scan", "people", "documents", "reports", "flights", "feeds", "sources"],
 };
 
 export type DeskNavRow = { id: Desk; label: string; hint: string };

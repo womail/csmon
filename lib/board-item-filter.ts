@@ -3,6 +3,7 @@ import { isKnownTopic, itemHasTopic } from "./classify";
 import { isDocumentItem } from "./documents";
 import { matchesLane } from "./lanes";
 import { isAdvisoryItem, itemHasVendor, mineItem } from "./mine";
+import { itemMatchesAnyNest } from "./desk-nests";
 import { itemHasPerson } from "./people";
 import { isKnownPlace, itemHasPlace } from "./places";
 import { itemMatchesQuery, parseQueryLine } from "./query-builder";
@@ -68,6 +69,7 @@ export function applyBoardItemFilters(
     if (ctx.displayItemIds?.length && !ctx.displayItemIds.includes(item.id)) return false;
     if (filters.place && !itemHasPlace(item, filters.place)) return false;
     if (filters.person && !itemHasPerson(item, filters.person, source)) return false;
+    if (!itemMatchesAnyNest(item, filters.nest)) return false;
     if (triageHidden.includes(itemKey(item.id))) return false;
     if (filters.vendor && !itemHasVendor(item, filters.vendor)) return false;
     if (needMine) {

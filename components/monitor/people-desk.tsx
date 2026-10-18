@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { SourceChip } from "@/components/monitor/cards";
+import { ContextMenu } from "@/components/monitor/context-menu";
 import {
   SourceContextMenu,
   type SourceMenuAction,
@@ -15,6 +16,14 @@ type SourceMenuState = {
   sourceId: number;
 };
 
+type PersonMenuState = {
+  x: number;
+  y: number;
+  name: string;
+};
+
+export type PersonMenuAction = "filter" | "live" | "copy";
+
 export function PeopleDesk({
   rows,
   items,
@@ -23,6 +32,7 @@ export function PeopleDesk({
   onPerson,
   onPreviewSource,
   onToggleSource,
+  onPersonAction,
 }: {
   rows: PersonRow[];
   items: Item[];
@@ -31,8 +41,10 @@ export function PeopleDesk({
   onPerson: (name: string) => void;
   onPreviewSource: (sourceId: number) => void;
   onToggleSource: (sourceId: number, enabledNow: boolean) => void;
+  onPersonAction: (name: string, action: PersonMenuAction) => void;
 }) {
   const [menu, setMenu] = useState<SourceMenuState | null>(null);
+  const [personMenu, setPersonMenu] = useState<PersonMenuState | null>(null);
 
   const countsByPersonSource = useMemo(() => {
     const map = new Map<string, Map<number, number>>();
@@ -76,9 +88,9 @@ export function PeopleDesk({
       <div>
         <div className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">People</div>
         <p className="mt-1 text-[12px] text-slate-600">
-          Authors and named voices on the current board. Click a person to filter the board. Source
-          chips show whether that layer is subscribed (filled) or in the pool only (outline). Right-click
-          a source to preview or subscribe.
+          Authors and named voices on the current board. Click a person to filter the board. Right-click
+          a person to save that name as a live filter. Source chips show whether that layer is subscribed
+          (filled) or in the pool only (outline). Right-click a source to preview or subscribe.
         </p>
       </div>
       <div className="board">
@@ -97,7 +109,16 @@ export function PeopleDesk({
               key={row.name}
               className={`card-tile w-full text-left ${active ? "ring-1 ring-violet-600" : ""}`}
             >
-              <button type="button" className="w-full text-left" onClick={() => onPerson(row.name)}>
+              <button
+                type="button"
+                className="w-full text-left"
+                onClick={() => onPerson(row.name)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setPersonMenu({ x: event.clientX, y: event.clientY, name: row.name });
+                }}
+              >
                 <p className="text-[13px] leading-snug font-medium text-slate-800">{row.name}</p>
                 <p className="mt-1 text-[11px] text-slate-500">
                   {row.count} items · {row.topics.slice(0, 3).join(" · ") || "no topic"}
@@ -138,6 +159,47 @@ export function PeopleDesk({
           );
         })}
       </div>
+      {personMenu ? (
+        <ContextMenu
+          x={personMenu.x}
+          y={personMenu.y}
+          title={personMenu.name}
+          onClose={() => setPersonMenu(null)}
+          sections={[
+            {
+              items: [
+                {
+                  id: "filter",
+                  label: "Filter the board to this person",
+                  onSelect: () => {
+                    const name = personMenu.name;
+                    setPersonMenu(null);
+                    onPersonAction(name, "filter");
+                  },
+                },
+                {
+                  id: "live",
+                  label: "Save as a live filter",
+                  onSelect: () => {
+                    const name = personMenu.name;
+                    setPersonMenu(null);
+                    onPersonAction(name, "live");
+                  },
+                },
+                {
+                  id: "copy",
+                  label: "Copy name",
+                  onSelect: () => {
+                    const name = personMenu.name;
+                    setPersonMenu(null);
+                    onPersonAction(name, "copy");
+                  },
+                },
+              ],
+            },
+          ]}
+        />
+      ) : null}
       {menu && menuSource ? (
         <SourceContextMenu
           x={menu.x}

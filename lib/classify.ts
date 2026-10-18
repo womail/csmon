@@ -23,7 +23,7 @@ const TOPICS: { tag: string; re: RegExp }[] = [
   },
   {
     tag: "conflict",
-    re: /\b(war|warfare|attack|missile|troop|airstrike|combat|invasion|ceasefire|frontline|drone|shelling|casualt)/i,
+    re: /\b(?:warfare|airstrike|combat|invasion|ceasefire|frontline|shelling|missile|troop|drone|war)\b|\battack|\bcasualt/i,
   },
   {
     tag: "cyber",
@@ -115,7 +115,7 @@ const SPORT_SUBTAGS: { tag: string; re: RegExp }[] = [
   },
   {
     tag: "basketball",
-    re: /\b(\bnba\b|basketball|march madness|ncaa basketball|wnba\b|lakers|celtics|warriors|knicks|nets|bulls|heat|bucks|nuggets|suns|mavericks)\b/i,
+    re: /\b(\bnba\b|basketball|march madness|ncaa basketball|wnba\b|lakers|celtics|warriors|knicks|nets|bulls|miami heat|bucks|nuggets|suns|mavericks)\b|\bheat\b(?!\s+(?:advisory|warning|watch|index))/i,
   },
   {
     tag: "baseball",
@@ -133,6 +133,15 @@ const SPORT_SUBTAGS: { tag: string; re: RegExp }[] = [
 
 export function sportSubtags(text: string): string[] {
   return SPORT_SUBTAGS.filter(({ re }) => re.test(text)).map(({ tag }) => tag);
+}
+
+export function sportSubtagNames() {
+  return SPORT_SUBTAGS.map((entry) => entry.tag);
+}
+
+export function isSportSubtag(name: string) {
+  const needle = name.trim().toLowerCase();
+  return SPORT_SUBTAGS.some((entry) => entry.tag === needle);
 }
 
 export function textLooksLikeSports(text: string) {
@@ -195,20 +204,33 @@ export function isWeatherSource(hint: { handle?: string | null; feedUrl?: string
 
 /** NWS-style headlines and CAP alert URLs — not cyber advisories. */
 export function textLooksLikeOfficialWeatherAlert(text: string) {
-  return (
-    /\bby nws\b/i.test(text) ||
-    /\b(?:flood|flash flood|severe thunderstorm|tornado|hurricane|winter storm|heat|wind|red flag|special weather)\s+(?:advisory|warning|watch)\b/i.test(
-      text,
-    ) ||
-    /api\.weather\.gov\/alerts\//i.test(text)
+  if (/\bby nws\b|\bnational weather service\b/i.test(text)) return true;
+  if (/api\.weather\.gov\/alerts|alerts\.weather\.gov/i.test(text)) return true;
+  if (/\bnws\b/i.test(text) && /\b(?:advisory|warning|watch|statement)\b/i.test(text)) return true;
+  return /\b(?:flood|flash flood|severe thunderstorm|tornado|hurricane|typhoon|tropical storm|winter storm|heat|wind|wind chill|red flag|special weather|small craft|dense fog|frost|freeze|gale|high surf|rip current|coastal flood|lake wind|blizzard|ice storm|dust storm|special marine|beach hazards|storm surge)\s+(?:advisory|warning|watch|statement)\b/i.test(
+    text,
   );
+}
+
+/** Drop a stored cyber tag when the row is an NWS/weather product. */
+export function withoutWeatherCyberTags(topics: string[], tags: string[], text: string) {
+  if (!textLooksLikeOfficialWeatherAlert(text)) return { topics, tags };
+  const keep = (tag: string) => tag !== "cyber" && tag !== "weather" && !isSportTag(tag);
+  return {
+    topics: ["weather", ...topics.filter(keep)].slice(0, 6),
+    tags: [...new Set(["weather", ...tags.filter(keep)])].slice(0, 8),
+  };
+}
+
+function isSportTag(tag: string) {
+  return tag === "sports" || SPORT_SUBTAGS.some((entry) => entry.tag === tag);
 }
 
 function stripCyberWhenWeatherHeadline(classified: Classification, text: string): Classification {
   if (!textLooksLikeOfficialWeatherAlert(text)) return classified;
-  const drop = new Set(["cyber"]);
-  const topics = classified.topics.filter((topic) => !drop.has(topic));
-  const tags = classified.tags.filter((tag) => !drop.has(tag));
+  const keep = (tag: string) => tag !== "cyber" && !isSportTag(tag);
+  const topics = classified.topics.filter(keep);
+  const tags = classified.tags.filter(keep);
   const withWeather = topics.includes("weather") ? topics : ["weather", ...topics];
   const withWeatherTags = tags.includes("weather") ? tags : ["weather", ...tags];
   return {
@@ -392,12 +414,21 @@ export function listClassifyTopics() {
 }
 
 export function itemHasTopic(
-  item: { title: string; summary?: string | null; topics: string[]; tags: string[]; extractText?: string | null },
+  item: {
+    title: string;
+    summary?: string | null;
+    url?: string;
+    topics: string[];
+    tags: string[];
+    extractText?: string | null;
+  },
   topic: string | null,
 ) {
   if (!topic) return true;
+  const text = `${item.title} ${item.summary ?? ""} ${item.extractText ?? ""} ${item.url ?? ""}`;
+  if (topic === "cyber" && textLooksLikeOfficialWeatherAlert(text)) return false;
   if (item.topics.includes(topic) || item.tags.includes(topic)) return true;
-  return textHasTopic(`${item.title} ${item.summary ?? ""} ${item.extractText ?? ""}`, topic);
+  return textHasTopic(text, topic);
 }
 
 export function textHasPlace(text: string, place: string) {

@@ -685,6 +685,84 @@
   color: var(--muted-foreground);
 }
 
+.desk-nest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.desk-nest-rail {
+  margin: 0 8px 8px 16px;
+}
+
+.desk-nest-bar {
+  margin-top: 6px;
+}
+
+.desk-nest-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.desk-nest-pair {
+  display: inline-flex;
+  align-items: center;
+}
+
+.desk-nest-chip {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--foreground);
+}
+
+.desk-nest-chip[data-active="true"] {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.desk-nest-count {
+  margin-left: 4px;
+  opacity: 0.65;
+}
+
+.desk-nest-remove,
+.desk-nest-clear,
+.desk-nest-add button {
+  border: 0;
+  background: transparent;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+.desk-nest-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.desk-nest-add input {
+  width: 5.5rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  padding: 1px 2px;
+  font-size: 11px;
+  color: var(--foreground);
+}
+
+.tag-on {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
 .desk-rail-yours-label {
   padding: 0.65rem 0.75rem 0.15rem;
   font-size: 9px;

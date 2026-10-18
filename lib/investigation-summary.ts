@@ -45,6 +45,7 @@ export function deskLabel(desk: Desk, customName?: string) {
     flights: "Flights",
     advisories: "Advisories",
     patch: "Patch",
+    feeds: "Feeds",
     sources: "Sources",
   };
   return labels[desk] ?? desk;

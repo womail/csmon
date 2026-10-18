@@ -6,6 +6,13 @@ import { isBuiltinDesk, isDeskId, type BuiltinDesk } from "./types";
 const LABEL_MAX = 32;
 const HINT_MAX = 40;
 
+/** A named narrower search kept under a desk, such as Chelsea under Sport. */
+export type DeskNest = {
+  id: string;
+  label: string;
+  query: string;
+};
+
 export type UserDesk = {
   id: `c-${string}`;
   label: string;
@@ -13,6 +20,7 @@ export type UserDesk = {
   view: BuiltinDesk;
   filters: BoardFilters;
   createdAt: number;
+  nests: DeskNest[];
 };
 
 export const USER_DESKS_KEY = "csmon.user-desks";
@@ -91,6 +99,18 @@ export function loadUserDesks(): UserDesk[] {
       const label = resolveDeskLabel(row.label, filters);
       const hint = summarizeDesk(filters);
       if (label !== row.label || hint !== row.hint) dirty = true;
+      const nests = Array.isArray(row.nests)
+        ? row.nests
+            .filter(
+              (nest): nest is DeskNest =>
+                Boolean(nest) &&
+                typeof nest.id === "string" &&
+                typeof nest.label === "string" &&
+                typeof nest.query === "string" &&
+                nest.label.trim().length > 0,
+            )
+            .slice(0, 24)
+        : [];
       rows.push({
         id,
         label,
@@ -98,6 +118,7 @@ export function loadUserDesks(): UserDesk[] {
         view,
         createdAt: typeof row.createdAt === "number" ? row.createdAt : Date.now(),
         filters,
+        nests,
       });
     }
     const list = rows.slice(0, 12);
@@ -123,6 +144,7 @@ export function createUserDesk(
   if (!name) return existing ?? loadUserDesks();
   const id = `c-${Date.now().toString(36)}` as const;
   saved.desk = id;
+  saved.nest = [];
   const next: UserDesk = {
     id,
     label: name,
@@ -130,6 +152,7 @@ export function createUserDesk(
     view,
     createdAt: Date.now(),
     filters: saved,
+    nests: [],
   };
   const rows = [
     next,
@@ -150,6 +173,7 @@ export function updateUserDesk(
       ? normalizeBoardFilters({ ...patch.filters, desk: row.id })
       : row.filters;
     const label = resolveDeskLabel(patch.label ?? row.label, filters);
+    filters.nest = [];
     return {
       ...row,
       label,
@@ -164,6 +188,31 @@ export function updateUserDesk(
 
 export function deleteUserDesk(id: string, existing?: UserDesk[]) {
   const rows = (existing ?? loadUserDesks()).filter((row) => row.id !== id);
+  saveUserDesks(rows);
+  return rows;
+}
+
+export function addDeskNest(deskId: string, label: string, existing?: UserDesk[]) {
+  const name = label.trim().slice(0, 32);
+  if (!name) return existing ?? loadUserDesks();
+  const rows = (existing ?? loadUserDesks()).map((row) => {
+    if (row.id !== deskId) return row;
+    if (row.nests.some((nest) => nest.label.toLowerCase() === name.toLowerCase())) return row;
+    const nest: DeskNest = {
+      id: `n-${Date.now().toString(36)}`,
+      label: name,
+      query: name.toLowerCase(),
+    };
+    return { ...row, nests: [...row.nests, nest].slice(0, 24) };
+  });
+  saveUserDesks(rows);
+  return rows;
+}
+
+export function removeDeskNest(deskId: string, nestId: string, existing?: UserDesk[]) {
+  const rows = (existing ?? loadUserDesks()).map((row) =>
+    row.id === deskId ? { ...row, nests: row.nests.filter((nest) => nest.id !== nestId) } : row,
+  );
   saveUserDesks(rows);
   return rows;
 }

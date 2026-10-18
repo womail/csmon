@@ -1,3 +1,4 @@
+import { textLooksLikeOfficialWeatherAlert } from "./classify";
 import type { Item } from "./types";
 
 const DOC_RE =
@@ -12,6 +13,7 @@ export type DocumentLink = {
 
 export function isDocumentItem(item: Pick<Item, "title" | "summary" | "url" | "topics" | "tags">) {
   if (DOC_URL_RE.test(item.url)) return true;
+  if (textLooksLikeOfficialWeatherAlert(`${item.title} ${item.summary ?? ""} ${item.url}`)) return false;
   if (item.topics.includes("cyber") && /\b(advisory|cve-|kev)\b/i.test(item.title)) return true;
   return DOC_RE.test(`${item.title} ${item.summary ?? ""}`);
 }

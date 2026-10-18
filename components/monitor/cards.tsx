@@ -185,6 +185,7 @@ export function StoryCard({
   sources,
   onOpen,
   onTopic,
+  activeTags,
   onPlace,
   onVendor,
   onSource,
@@ -209,6 +210,8 @@ export function StoryCard({
   onCve?: (cve: string) => void;
   onOpen: () => void;
   onTopic: (topic: string) => void;
+  /** Tags currently narrowing the desk. Clicking one again clears it. */
+  activeTags?: string[];
   onPlace: (place: string) => void;
   onVendor?: (vendor: string) => void;
   onSource?: (sourceId: number) => void;
@@ -242,11 +245,19 @@ export function StoryCard({
         <div className="flex min-w-0 flex-wrap gap-1">
           {storyTopicChips(story).slice(0, 4).map((topic) => {
             const style = tagStyle(topic);
+            const on = activeTags?.some((tag) => tag.toLowerCase() === topic.toLowerCase()) ?? false;
             return (
-              <Tip key={topic} text={`Filter to topic ${topic}`}>
+              <Tip
+                key={topic}
+                text={
+                  on
+                    ? `Remove ${topic}. Click to show the rest of this desk.`
+                    : `Show ${topic} inside this desk. Click again to clear. Choose more than one to see all of them.`
+                }
+              >
               <button
                 type="button"
-                className="tag"
+                className={on ? "tag tag-on" : "tag"}
                 style={{ background: style.bg, color: style.fg }}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -336,6 +347,7 @@ export function ItemCard({
   item,
   source,
   onTag,
+  activeTags,
   onPlace,
   onVendor,
   onOpen,
@@ -358,6 +370,7 @@ export function ItemCard({
   epss?: ReadonlyMap<string, EpssScore>;
   onCve?: (cve: string) => void;
   onTag: (tag: string, event: MouseEvent) => void;
+  activeTags?: string[];
   onPlace?: (place: string) => void;
   onVendor?: (vendor: string) => void;
   onOpen?: () => void;
@@ -391,11 +404,19 @@ export function ItemCard({
         <div className="flex min-w-0 flex-wrap gap-1">
           {itemTopicChips(item).map((tag) => {
             const style = tagStyle(tag);
+            const on = activeTags?.some((name) => name.toLowerCase() === tag.toLowerCase()) ?? false;
             return (
-              <Tip key={tag} text={`Filter to ${tag} · Shift+click to remove from this card`}>
+              <Tip
+                key={tag}
+                text={
+                  on
+                    ? `Remove ${tag}. Shift+click still drops the tag from this card.`
+                    : `Show ${tag} inside this desk. Click again to clear. Shift+click removes the tag from this card.`
+                }
+              >
               <button
                 type="button"
-                className="tag"
+                className={on ? "tag tag-on" : "tag"}
                 style={{ background: style.bg, color: style.fg }}
                 onClick={(event) => {
                   event.stopPropagation();

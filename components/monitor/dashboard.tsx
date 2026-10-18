@@ -54,6 +54,7 @@ export function HomeDashboard({
   onOpenStory,
   onLane,
   onTopic,
+  activeTags,
   onPlace,
   onSource,
   onPerson,
@@ -104,6 +105,7 @@ export function HomeDashboard({
   onOpenStory: (story: Story) => void;
   onLane: (lane: SituationLane) => void;
   onTopic: (topic: string) => void;
+  activeTags?: string[];
   onPlace: (place: string) => void;
   onSource: (sourceId: number) => void;
   onPerson: (name: string) => void;
@@ -129,6 +131,7 @@ export function HomeDashboard({
         onCve={onCve}
         onOpen={() => onOpenStory(story)}
         onTopic={onTopic}
+        activeTags={activeTags}
         onPlace={onPlace}
         onVendor={onVendor}
         onSource={onSource}

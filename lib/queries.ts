@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cacheStats } from "./cache";
-import { applySourceTopics, applyWeatherSourceTopics, classifyItem } from "./classify";
+import { applySourceTopics, applyWeatherSourceTopics, classifyItem, withoutWeatherCyberTags } from "./classify";
 import { colorFor } from "./colors";
 import { getDb, withTransaction } from "./db";
 import { entitiesForItemIds, indexItemEntities } from "./entities";
@@ -140,6 +140,11 @@ function mapItem(row: ItemRow, entities?: Item["entities"]): Item {
   const tags = parseJsonArray(row.tags);
   const classified =
     topics.length || locations.length || tags.length ? null : classifyItem(row.title, row.summary);
+  const cleaned = withoutWeatherCyberTags(
+    topics.length ? topics : (classified?.topics ?? []),
+    tags.length ? tags : (classified?.tags ?? []),
+    `${row.title} ${row.summary ?? ""} ${row.url}`,
+  );
   const extractText = extractSnippet(row.extract_body);
   return {
     id: row.id,
@@ -150,8 +155,8 @@ function mapItem(row: ItemRow, entities?: Item["entities"]): Item {
     url: row.url,
     author: row.author,
     publishedAt: row.published_at,
-    tags: tags.length ? tags : (classified?.tags ?? []),
-    topics: topics.length ? topics : (classified?.topics ?? []),
+    tags: cleaned.tags,
+    topics: cleaned.topics,
     locations: locations.length ? locations : (classified?.locations ?? []),
     fetchedAt: row.fetched_at,
     extractText,
@@ -329,8 +334,13 @@ export function insertItems(
         { handle: source?.handle, feedUrl: source?.feedUrl },
         `${item.title} ${item.summary ?? ""} ${item.url ?? ""}`,
       );
-      const topics = item.topics.length ? item.topics : classified.topics;
-      const tags = item.tags.length ? item.tags : classified.tags;
+      const cleaned = withoutWeatherCyberTags(
+        item.topics.length ? item.topics : classified.topics,
+        item.tags.length ? item.tags : classified.tags,
+        `${item.title} ${item.summary ?? ""} ${item.url ?? ""}`,
+      );
+      const topics = cleaned.topics;
+      const tags = cleaned.tags;
       if (!exists.get(sourceId, item.externalId)) created += 1;
       const row = stmt.get(
         sourceId,
