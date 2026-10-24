@@ -348,7 +348,7 @@ export function insertItems(
         item.title,
         item.summary,
         item.url,
-        item.author,
+        typeof item.author === "string" ? item.author : null,
         item.publishedAt,
         JSON.stringify(tags),
         JSON.stringify(topics),

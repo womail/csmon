@@ -7,6 +7,7 @@ Paste one of these at the start of an agent session. They assume the repo root a
 | [develop.md](develop.md) | Adding or changing a desk, feed, filter, or reader behavior |
 | [keep.md](keep.md) | Reviewing a change, or starting work that must not undo what already works |
 | [harden.md](harden.md) | Checking or tightening the local-operator threat model |
+| [taxonomy-ux/](taxonomy-ux/README.md) | Eleven ordered tasks: correct topics and places, source categories, people and orgs, one facet model, connections, topic families, palette and trail |
 
 Security checks the harden prompt runs:
 

@@ -9,6 +9,7 @@ import { Tip } from "@/components/monitor/tip";
 import { leafletCenter, leafletWorld, leafletZoomBy } from "@/lib/map-leaflet-controls";
 import type { MapMarker } from "@/lib/geo";
 import type { MapCamera } from "@/lib/map-camera";
+import type { MapFrame } from "@/lib/situation-brief";
 
 const GeoMapCanvas = dynamic(() => import("./geo-map-canvas"), {
   ssr: false,
@@ -36,6 +37,7 @@ export function TiledMapPanel({
   overlay,
   camera,
   onCamera,
+  onFrame,
   heat = false,
   onToggleHeat,
 }: {
@@ -55,6 +57,7 @@ export function TiledMapPanel({
   overlay?: ReactNode;
   camera?: MapCamera | null;
   onCamera?: (camera: MapCamera) => void;
+  onFrame?: (frame: MapFrame) => void;
   heat?: boolean;
   onToggleHeat?: () => void;
 }) {
@@ -73,6 +76,7 @@ export function TiledMapPanel({
       anchor={anchor}
       camera={camera}
       onCamera={onCamera}
+      onFrame={onFrame}
       heat={heat}
     />
   );

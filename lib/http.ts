@@ -134,6 +134,9 @@ export async function fetchText(url: string, timeoutMs = 10000): Promise<string>
   );
 }
 
+/** CISA all-advisories is ~6 MB: each of ~30 items embeds the full advisory HTML. */
+export const RSS_MAX_BYTES = 12_000_000;
+
 export async function fetchRssXml(url: string, timeoutMs = 12000): Promise<string> {
   return cachedGet(
     `rss:${url}`,
@@ -141,7 +144,7 @@ export async function fetchRssXml(url: string, timeoutMs = 12000): Promise<strin
     url,
     "application/rss+xml,application/atom+xml,application/xml,text/xml,*/*",
     timeoutMs,
-    4_000_000,
+    RSS_MAX_BYTES,
   );
 }
 

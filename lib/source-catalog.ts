@@ -300,8 +300,9 @@ function manualSeedUserId() {
 
 export function importManualSources(
   inputs: CreateSourceInput[],
-): { ids: number[]; created: number; skipped: number; errors: string[] } {
+): { ids: number[]; createdIds: number[]; created: number; skipped: number; errors: string[] } {
   const ids: number[] = [];
+  const createdIds: number[] = [];
   let created = 0;
   let skipped = 0;
   const errors: string[] = [];
@@ -320,6 +321,7 @@ export function importManualSources(
       }
       const id = createManualSource(input);
       created += 1;
+      createdIds.push(id);
       ids.push(id);
     } catch (err) {
       errors.push(
@@ -327,7 +329,7 @@ export function importManualSources(
       );
     }
   }
-  return { ids, created, skipped, errors };
+  return { ids, createdIds, created, skipped, errors };
 }
 
 export function createManualSource(input: CreateSourceInput): number {

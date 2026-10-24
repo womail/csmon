@@ -1792,6 +1792,39 @@
   color: var(--muted-foreground);
 }
 
+.map-drawer.is-brief {
+  max-height: min(360px, 72%);
+}
+
+.map-brief-line {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.map-brief-places {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.map-brief-hypotheses {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.map-brief-action {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--foreground);
+  color: var(--background);
+  font-size: 12px;
+  padding: 6px 8px;
+  text-align: left;
+}
+
 .map-stat-title {
   font-size: 10px;
   font-weight: 600;

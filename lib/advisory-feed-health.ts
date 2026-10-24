@@ -2,7 +2,7 @@ import "server-only";
 
 import { getDb } from "./db";
 import { fetchOutbound, readLimited } from "./safe-url";
-import { UA } from "./http";
+import { RSS_MAX_BYTES, UA } from "./http";
 
 export type AdvisoryProbeTarget = {
   id: string;
@@ -80,11 +80,11 @@ async function probeOne(target: AdvisoryProbeTarget): Promise<AdvisoryProbeResul
     const res = await fetchOutbound(target.feedUrl, {
       headers: { "User-Agent": UA, Accept: "application/rss+xml,application/atom+xml,application/xml,*/*" },
       timeoutMs: 12_000,
-      maxBytes: 512_000,
+      maxBytes: RSS_MAX_BYTES,
     });
     let bytes: number | null = null;
     if (res.ok) {
-      const text = await readLimited(res, 512_000);
+      const text = await readLimited(res, 512_000, { prefix: true });
       bytes = text.length;
       const looksLikeFeed = /<(rss|feed|rdf:RDF)\b/i.test(text) || text.includes("<item") || text.includes("<entry");
       return {

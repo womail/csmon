@@ -18,6 +18,7 @@ import { tagStyle } from "@/lib/colors";
 import { SITUATION_LANES, type SituationLane } from "@/lib/lanes";
 import type { PersonRow } from "@/lib/people";
 import type { QuakeEvent } from "@/lib/quakes";
+import type { BriefRising, BriefWatch } from "@/lib/situation-brief";
 import type { TrendRow } from "@/lib/trends";
 import type { StoryCorroboration } from "@/lib/story-corroboration";
 import type { Item, Source, TimeRange } from "@/lib/types";
@@ -69,6 +70,9 @@ export function HomeDashboard({
   trends,
   trendHint,
   onTrend,
+  briefContext,
+  onStartReport,
+  onOpenWatch,
   onStoryMenu,
   onChipMenu,
   corroborationFor,
@@ -122,6 +126,16 @@ export function HomeDashboard({
   trends?: TrendRow[];
   trendHint?: string;
   onTrend?: (row: TrendRow) => void;
+  briefContext?: {
+    rising: BriefRising[];
+    watches: BriefWatch[];
+    hypotheses: string[];
+    hypothesisName?: string | null;
+    desks: string[];
+    sources: Map<number, Source>;
+  };
+  onStartReport?: (stories: Story[]) => void;
+  onOpenWatch?: (watch: BriefWatch) => void;
 }) {
   function homeStoryCard(story: Story) {
     return (
@@ -314,6 +328,9 @@ export function HomeDashboard({
         onCategory={onCategory}
         topic={topic}
         range={range}
+        briefContext={briefContext}
+        onStartReport={onStartReport}
+        onOpenWatch={onOpenWatch}
         empty="Load world or hazard RSS to plot places, weather, and USGS quakes."
       />
 

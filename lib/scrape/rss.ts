@@ -25,6 +25,25 @@ function isRedditUrl(url: string) {
   }
 }
 
+/** Atom `<author><name>` arrives as `{ name: string[] }`, which SQLite cannot bind. */
+function authorText(value: unknown, fallback: string | null): string | null {
+  if (typeof value === "string") {
+    const text = value.replace(/\s+/g, " ").trim();
+    return text ? text.slice(0, 180) : fallback;
+  }
+  if (Array.isArray(value)) {
+    const joined = value
+      .map((part) => authorText(part, null))
+      .filter((part): part is string => Boolean(part))
+      .join(", ");
+    return joined ? joined.slice(0, 180) : fallback;
+  }
+  if (value && typeof value === "object" && "name" in value) {
+    return authorText((value as { name: unknown }).name, fallback);
+  }
+  return fallback;
+}
+
 function asItems(feed: Parser.Output<Parser.Item>, fallbackUrl: string): ScrapedItem[] {
   return (feed.items ?? []).slice(0, 40).map((item, index) => {
     const title = (item.title || item.contentSnippet || "Untitled").replace(/\s+/g, " ").slice(0, 220);
@@ -43,7 +62,7 @@ function asItems(feed: Parser.Output<Parser.Item>, fallbackUrl: string): Scraped
       title,
       summary,
       url,
-      author: item.creator || feed.title || null,
+      author: authorText(item.creator, feed.title || null),
       publishedAt: publishDateFromRssEntry(item as unknown as Record<string, unknown>),
       tags: classified.tags,
       topics: classified.topics,

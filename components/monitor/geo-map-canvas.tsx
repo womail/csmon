@@ -15,6 +15,7 @@ import {
 import { KIND_COLOR } from "@/components/monitor/map-colors";
 import type { MapMarker } from "@/lib/geo";
 import type { MapCamera } from "@/lib/map-camera";
+import type { MapFrame } from "@/lib/situation-brief";
 import { clusterByCell, type MarkerCluster } from "@/lib/map-clusters";
 import {
   MAP_TILE_MAX_ZOOM,
@@ -116,6 +117,33 @@ function FitAndFly({
     };
   }, [map]);
 
+  return null;
+}
+
+function FrameWatch({ onFrame }: { onFrame: (frame: MapFrame) => void }) {
+  const map = useMap();
+  const onFrameRef = useRef(onFrame);
+  onFrameRef.current = onFrame;
+  useEffect(() => {
+    const bounds = map.getBounds();
+    onFrameRef.current({
+      south: bounds.getSouth(),
+      west: bounds.getWest(),
+      north: bounds.getNorth(),
+      east: bounds.getEast(),
+    });
+  }, [map]);
+  useMapEvents({
+    moveend: () => {
+      const bounds = map.getBounds();
+      onFrameRef.current({
+        south: bounds.getSouth(),
+        west: bounds.getWest(),
+        north: bounds.getNorth(),
+        east: bounds.getEast(),
+      });
+    },
+  });
   return null;
 }
 
@@ -426,6 +454,7 @@ export default function GeoMapCanvas({
   anchor,
   camera,
   onCamera,
+  onFrame,
   heat = false,
 }: {
   markers: MapMarker[];
@@ -438,6 +467,7 @@ export default function GeoMapCanvas({
   anchor?: { lat: number; lng: number } | null;
   camera?: MapCamera | null;
   onCamera?: (camera: MapCamera) => void;
+  onFrame?: (frame: MapFrame) => void;
   heat?: boolean;
 }) {
   const dark = useDark();
@@ -479,6 +509,7 @@ export default function GeoMapCanvas({
       {interactive ? <ZoomControl position="topleft" /> : null}
       <FitAndFly markers={markers} focus={focus} interactive={interactive} anchor={anchor} camera={camera} />
       {onCamera ? <CameraWatch onCamera={onCamera} /> : null}
+      {onFrame ? <FrameWatch onFrame={onFrame} /> : null}
       {heat ? <HeatCanvas markers={markers} /> : null}
       {anchor ? (
         <Circle

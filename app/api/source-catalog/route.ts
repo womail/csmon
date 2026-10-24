@@ -1,7 +1,10 @@
 import { fail, gate, jsonOk, readJson } from "@/lib/guard";
 import { deleteSource } from "@/lib/queries";
 import { monitorStateFromRequest } from "@/lib/monitor-state";
+import { OPML_MAX_BYTES, parseOpml } from "@/lib/opml";
 import { parsePublicHttpUrl } from "@/lib/public-url";
+import { assertOutboundUrl, fetchOutbound, readLimited } from "@/lib/safe-url";
+import { APP_UA } from "@/lib/version";
 import {
   buildSourceCatalog,
   createManualSource,
@@ -60,6 +63,51 @@ export async function GET(request: Request) {
   );
 }
 
+async function acceptLayers(rows: CreateSourceInput[]) {
+  const layers: CreateSourceInput[] = [];
+  const warnings: string[] = [];
+  for (const row of rows) {
+    if (!row?.name?.trim() || !row.url?.trim() || !row.feedUrl?.trim()) continue;
+    try {
+      parsePublicHttpUrl(row.url.trim());
+      parsePublicHttpUrl(row.feedUrl.trim());
+    } catch (error) {
+      warnings.push(
+        `${row.name.trim() || row.feedUrl.trim()}: ${error instanceof Error ? error.message : "URL not allowed."}`,
+      );
+      continue;
+    }
+    layers.push({
+      name: row.name.trim(),
+      url: row.url.trim(),
+      feedUrl: row.feedUrl.trim(),
+      description: row.description?.trim() || null,
+      enabled: row.enabled !== false,
+      retentionDays: row.retentionDays ?? null,
+    });
+  }
+  return { layers, warnings };
+}
+
+async function loadOpml(body: { opmlUrl?: string; opml?: string }) {
+  if (body.opmlUrl?.trim()) {
+    const url = body.opmlUrl.trim();
+    await assertOutboundUrl(url);
+    const res = await fetchOutbound(url, {
+      headers: {
+        "User-Agent": APP_UA,
+        Accept: "text/x-opml,application/xml,text/xml,*/*",
+      },
+      timeoutMs: 15_000,
+      maxBytes: OPML_MAX_BYTES,
+    });
+    if (!res.ok) throw new Error(`Upstream ${res.status}`);
+    return readLimited(res, OPML_MAX_BYTES);
+  }
+  if (typeof body.opml === "string" && body.opml.trim()) return body.opml;
+  return null;
+}
+
 export async function POST(request: Request) {
   const blocked = gate(request, "source-catalog", 15);
   if (blocked) return blocked;
@@ -67,35 +115,30 @@ export async function POST(request: Request) {
     const body = await readJson<{
       create?: CreateSourceInput;
       import?: CreateSourceInput[];
+      opmlUrl?: string;
+      opml?: string;
       refresh?: boolean;
-    }>(request);
+    }>(request, OPML_MAX_BYTES + 64_000);
 
-    if (Array.isArray(body.import) && body.import.length) {
-      const layers: CreateSourceInput[] = [];
-      for (const row of body.import) {
-        if (!row?.name?.trim() || !row.url?.trim() || !row.feedUrl?.trim()) continue;
-        await parsePublicHttpUrl(row.url.trim());
-        await parsePublicHttpUrl(row.feedUrl.trim());
-        layers.push({
-          name: row.name.trim(),
-          url: row.url.trim(),
-          feedUrl: row.feedUrl.trim(),
-          description: row.description?.trim() || null,
-          enabled: row.enabled !== false,
-          retentionDays: row.retentionDays ?? null,
-        });
+    const opmlXml = await loadOpml(body);
+    if (opmlXml != null || (Array.isArray(body.import) && body.import.length)) {
+      const parsed = opmlXml != null ? parseOpml(opmlXml) : null;
+      const accepted = await acceptLayers(parsed ? parsed.layers : (body.import ?? []));
+      const warnings = [...(parsed?.warnings ?? []), ...accepted.warnings];
+      if (!accepted.layers.length) {
+        return fail(new Error("Empty import"), warnings[0] || "No valid layers in import.", 400);
       }
-      if (!layers.length) {
-        return fail(new Error("Empty import"), "No valid layers in import.", 400);
-      }
-      const result = importManualSources(layers);
-      if (body.refresh !== false && result.ids.length) {
-        await refreshSources(result.ids);
+      const result = importManualSources(accepted.layers);
+      const refreshIds = opmlXml != null ? result.createdIds : result.ids;
+      if (body.refresh !== false && refreshIds.length) {
+        await refreshSources(refreshIds);
       }
       return jsonOk({
         catalog: buildSourceCatalog(),
         state: monitorStateFromRequest(request),
         import: result,
+        opmlTitle: parsed?.title ?? null,
+        warnings,
       });
     }
 
@@ -118,7 +161,7 @@ export async function POST(request: Request) {
     }
     return jsonOk({ catalog: buildSourceCatalog(), state: monitorStateFromRequest(request), id });
   } catch (error) {
-    return fail(error, "Could not add source");
+    return fail(error, error instanceof Error ? error.message : "Could not add source");
   }
 }
 

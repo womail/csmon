@@ -179,7 +179,10 @@ export function SourceWorkbenchBody({
   const [purgeDays, setPurgeDays] = useState(30);
   const [defaultRetention, setDefaultRetention] = useState<number | null>(30);
   const [showAdd, setShowAdd] = useState(false);
+  const [showOpml, setShowOpml] = useState(false);
+  const [opmlUrl, setOpmlUrl] = useState("");
   const importInputRef = useRef<HTMLInputElement>(null);
+  const opmlFileRef = useRef<HTMLInputElement>(null);
   const [newLayer, setNewLayer] = useState({
     name: "",
     url: "",
@@ -329,6 +332,87 @@ export function SourceWorkbenchBody({
     } finally {
       setBusy(false);
       if (importInputRef.current) importInputRef.current.value = "";
+    }
+  }
+
+  function importSummary(
+    imp: { created: number; skipped: number; errors: string[] } | undefined,
+    warnings: string[],
+    title?: string | null,
+  ) {
+    const parts = [
+      title ? title : "",
+      imp ? `Added ${imp.created} layer${imp.created === 1 ? "" : "s"}` : "Import finished",
+      imp?.skipped ? `${imp.skipped} already present` : "",
+      imp?.errors?.length ? `${imp.errors.length} failed` : "",
+    ].filter(Boolean);
+    const warn =
+      warnings.length > 0
+        ? ` · ${warnings.slice(0, 3).join(" ")}${warnings.length > 3 ? "…" : ""}`
+        : "";
+    return `${parts.join(", ")}.${warn}`;
+  }
+
+  async function finishImport(res: Response) {
+    const data = (await res.json()) as {
+      error?: string;
+      catalog?: CatalogResponse;
+      state?: MonitorState;
+      import?: { created: number; skipped: number; errors: string[] };
+      opmlTitle?: string | null;
+      warnings?: string[];
+    };
+    if (!res.ok) throw new Error(data.error || "Import failed");
+    if (data.catalog) {
+      setCatalog(data.catalog);
+      setDrafts(mergeDrafts(data.catalog, loadSourceLibrary()));
+    }
+    if (data.state && onApplied) onApplied(data.state);
+    setMessage(importSummary(data.import, data.warnings ?? [], data.opmlTitle));
+    setShowOpml(false);
+  }
+
+  async function importOpmlUrl() {
+    const url = opmlUrl.trim();
+    if (!url) {
+      setError("Paste an OPML URL, or choose an .opml file.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await apiFetch("/api/source-catalog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opmlUrl: url, refresh: true }),
+      });
+      await finishImport(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "OPML import failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importOpmlFile(file: File) {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      if (file.size > 1_000_000) throw new Error("That OPML file is larger than 1 MB.");
+      const opml = await file.text();
+      const res = await apiFetch("/api/source-catalog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opml, refresh: true }),
+      });
+      await finishImport(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "OPML import failed");
+    } finally {
+      setBusy(false);
+      if (opmlFileRef.current) opmlFileRef.current.value = "";
     }
   }
 
@@ -681,6 +765,15 @@ export function SourceWorkbenchBody({
               size="xs"
               variant="outline"
               disabled={busy}
+              title="Import an OPML subscription list from a URL or a file"
+              onClick={() => setShowOpml((open) => !open)}
+            >
+              Import OPML
+            </Button>
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={busy}
               title="Write intel-layer edits to data/overrides/feeds.json on this server"
               onClick={() => void saveInstanceOverrides()}
             >
@@ -696,6 +789,48 @@ export function SourceWorkbenchBody({
             </Button>
           </div>
         </div>
+
+        {showOpml ? (
+          <div className="border-b border-slate-100 bg-white px-4 py-3">
+            <p className="text-[11px] font-medium text-slate-700">OPML subscription list</p>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Paste a list URL, such as https://threatfilter.dev/feeds.opml, or choose an .opml file.
+              New feeds are enabled and fetched. Feeds already in the library stay as they are.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Input
+                className="h-8 min-w-[16rem] flex-1 text-[12px]"
+                placeholder="https://threatfilter.dev/feeds.opml"
+                value={opmlUrl}
+                onChange={(e) => setOpmlUrl(e.target.value)}
+              />
+              <Button size="xs" disabled={busy} onClick={() => void importOpmlUrl()}>
+                Import URL & fetch
+              </Button>
+              <input
+                ref={opmlFileRef}
+                type="file"
+                accept=".opml,text/x-opml,application/xml,text/xml,.xml"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void importOpmlFile(file);
+                }}
+              />
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={busy}
+                onClick={() => opmlFileRef.current?.click()}
+              >
+                Choose file
+              </Button>
+              <Button size="xs" variant="outline" onClick={() => setShowOpml(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
 
         {showAdd ? (
           <div className="border-b border-slate-100 bg-white px-4 py-3">

@@ -2020,6 +2020,39 @@ export function Monitor({
     flashReportToast(next.report.id, next.rows);
   }
 
+  function startSituationReport(picked: Story[]) {
+    if (!picked.length) return;
+    const place = picked
+      .map((story) => story.locations.find((name) => coordsForPlace(name)))
+      .find((name): name is string => Boolean(name));
+    const title = place ? `Situation · ${place}` : "Situation";
+    const created = createReport(title, snapshotStory(picked[0]!, byId), reports);
+    let rows = created.rows;
+    for (const story of picked.slice(1)) {
+      rows = addStoryToReport(created.report.id, snapshotStory(story, byId), rows);
+    }
+    handleReportsChange(rows);
+    flashReportToast(created.report.id, rows);
+    openCompiledReport(created.report.id);
+  }
+
+  function reopenWatch(watch: { id: number; query: string; desk: string | null }) {
+    const full = (state.watches ?? []).find((row) => row.id === watch.id);
+    if (!full) return;
+    setQuery(full.query);
+    if (full.desk) setDesk(full.desk as Desk);
+    void apiFetch("/api/watchlists", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ack: full.id }),
+    })
+      .then((res) => res.json())
+      .then((data: { watches?: Watchlist[] }) => {
+        if (data.watches) setStateRaw((current) => ({ ...current, watches: data.watches ?? [] }));
+      })
+      .catch(() => undefined);
+  }
+
   function hideFocused() {
     const story = focusedStory();
     if (!story) return;
@@ -2377,6 +2410,27 @@ export function Monitor({
   const matchingSavedFilter = useMemo(
     () => findMatchingSavedFilter(currentFilters),
     [currentFilters],
+  );
+
+  const situationBrief = useMemo(
+    () => ({
+      rising: [...trends.rising, ...trends.fresh].map((row) => ({
+        kind: row.kind,
+        id: row.id,
+        label: row.label,
+      })),
+      watches: (state.watches ?? []).map((watch) => ({
+        id: watch.id,
+        name: watch.name,
+        query: watch.query,
+        desk: watch.desk,
+      })),
+      hypotheses: matchingSavedFilter?.hypotheses ?? [],
+      hypothesisName: matchingSavedFilter?.name ?? null,
+      desks: [desk, viewDesk],
+      sources: byId,
+    }),
+    [byId, desk, matchingSavedFilter, state.watches, trends, viewDesk],
   );
 
   function changeDesk(next: Desk) {
@@ -3297,6 +3351,9 @@ export function Monitor({
                 trends={[...trends.rising, ...trends.fresh].slice(0, 8)}
                 trendHint={trends.compared}
                 onTrend={openTrend}
+                briefContext={situationBrief}
+                onStartReport={startSituationReport}
+                onOpenWatch={reopenWatch}
                 corroborationFor={storyCorr}
                 kevCveIds={kevCveIds}
                 epss={epss}
@@ -3462,6 +3519,9 @@ export function Monitor({
                         onCategory={setTopic}
                         topic={topic}
                         range={range}
+                        briefContext={situationBrief}
+                        onStartReport={startSituationReport}
+                        onOpenWatch={reopenWatch}
                       />
                     ) : null}
                     {stats.placeRows.length > 0 ? (

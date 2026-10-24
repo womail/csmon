@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { MapBrief } from "@/components/monitor/map-brief";
 import type { Story } from "@/lib/cluster";
 import { coordsForPlace } from "@/lib/geo";
+import type { SituationBrief } from "@/lib/situation-brief";
 import { independentSourceCount } from "@/lib/syndication";
 
 function hourBuckets(stories: Story[]) {
@@ -57,13 +59,21 @@ export function MapDrawers({
   pinnedIds,
   onClearPin,
   onOpenStory,
+  brief,
+  onSelectPlace,
+  onOpenWatch,
+  onStartReport,
 }: {
   stories: Story[];
   pinnedIds: string[] | null;
   onClearPin: () => void;
   onOpenStory?: (storyId: string) => void;
+  brief?: SituationBrief | null;
+  onSelectPlace?: (name: string) => void;
+  onOpenWatch?: (watch: SituationBrief["watches"][number]) => void;
+  onStartReport?: () => void;
 }) {
-  const [drawer, setDrawer] = useState<"feed" | "stats" | null>(null);
+  const [drawer, setDrawer] = useState<"feed" | "stats" | "brief" | null>(null);
   useEffect(() => {
     if (pinnedIds) setDrawer("feed");
   }, [pinnedIds]);
@@ -100,15 +110,24 @@ export function MapDrawers({
         >
           Stats
         </button>
+        {brief ? (
+          <button
+            type="button"
+            className={`map-overlay-tab ${drawer === "brief" ? "is-active" : ""}`}
+            onClick={() => setDrawer((current) => (current === "brief" ? null : "brief"))}
+          >
+            Brief
+          </button>
+        ) : null}
       </div>
       {drawer === "feed" ? (
-        <div className="map-drawer" role="region" aria-label="Stories on this map">
+        <div className="map-drawer" role="region" aria-label="Stories in this frame">
           <div className="map-drawer-head">
-            <span>{pinnedIds ? "This cluster" : "On this map"}</span>
+            <span>{pinnedIds ? "This cluster" : "In this frame"}</span>
             <span className="text-slate-400">{shown.length}</span>
             {pinnedIds ? (
               <button type="button" className="map-overlay-tab" onClick={onClearPin}>
-                All
+                Frame
               </button>
             ) : null}
           </div>
@@ -131,14 +150,14 @@ export function MapDrawers({
                 </button>
               );
             })}
-            {shown.length === 0 ? <p className="map-drawer-empty">Nothing on the map in this view.</p> : null}
+            {shown.length === 0 ? <p className="map-drawer-empty">Nothing in this frame.</p> : null}
           </div>
         </div>
       ) : null}
       {drawer === "stats" ? (
         <div className="map-drawer" role="region" aria-label="Map statistics">
           <div className="map-drawer-head">
-            <span>On this map</span>
+            <span>In this frame</span>
             <span className="text-slate-400">{shown.length}</span>
           </div>
           <div className="map-drawer-body map-drawer-stats">
@@ -156,6 +175,15 @@ export function MapDrawers({
             </div>
           </div>
         </div>
+      ) : null}
+      {drawer === "brief" && brief ? (
+        <MapBrief
+          brief={brief}
+          onOpenStory={onOpenStory}
+          onSelectPlace={onSelectPlace}
+          onOpenWatch={onOpenWatch}
+          onStartReport={onStartReport}
+        />
       ) : null}
     </div>
   );

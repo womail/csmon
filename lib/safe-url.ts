@@ -81,11 +81,18 @@ export async function fetchOutbound(
   throw new OutboundBlockedError("Too many redirects.");
 }
 
-export async function readLimited(res: Response, maxBytes: number): Promise<string> {
+export async function readLimited(
+  res: Response,
+  maxBytes: number,
+  options?: { prefix?: boolean },
+): Promise<string> {
   const reader = res.body?.getReader();
   if (!reader) {
     const text = await res.text();
-    if (text.length > maxBytes) throw new Error("Response too large");
+    if (text.length > maxBytes) {
+      if (options?.prefix) return text.slice(0, maxBytes);
+      throw new Error("Response too large");
+    }
     return text;
   }
   const chunks: Uint8Array[] = [];
@@ -96,6 +103,11 @@ export async function readLimited(res: Response, maxBytes: number): Promise<stri
     size += value.byteLength;
     if (size > maxBytes) {
       await reader.cancel();
+      if (options?.prefix) {
+        const keep = value.byteLength - (size - maxBytes);
+        if (keep > 0) chunks.push(value.subarray(0, keep));
+        return Buffer.concat(chunks).toString("utf8");
+      }
       throw new Error("Response too large");
     }
     chunks.push(value);

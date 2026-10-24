@@ -9,8 +9,16 @@ import { MapLaneBar, MapScrubber } from "@/components/monitor/map-tools";
 import type { Story } from "@/lib/cluster";
 import type { MapMarker } from "@/lib/geo";
 import { parseMapCamera, writeMapCamera, type MapCamera } from "@/lib/map-camera";
+import {
+  buildSituationBrief,
+  sameFrame,
+  storiesInFrame,
+  type BriefRising,
+  type BriefWatch,
+  type MapFrame,
+} from "@/lib/situation-brief";
 import { rangeStart } from "@/lib/time";
-import type { TimeRange } from "@/lib/types";
+import type { Source, TimeRange } from "@/lib/types";
 
 export function SituationMap({
   title,
@@ -21,6 +29,9 @@ export function SituationMap({
   onCategory,
   topic = null,
   range,
+  briefContext,
+  onStartReport,
+  onOpenWatch,
   empty = "No mapped places in this view.",
   resizeKey = "csmon.map-height.situation",
   lazy = true,
@@ -33,6 +44,16 @@ export function SituationMap({
   onCategory?: (topic: string | null) => void;
   topic?: string | null;
   range?: TimeRange;
+  briefContext?: {
+    rising: BriefRising[];
+    watches: BriefWatch[];
+    hypotheses: string[];
+    hypothesisName?: string | null;
+    desks: string[];
+    sources: Map<number, Source>;
+  };
+  onStartReport?: (stories: Story[]) => void;
+  onOpenWatch?: (watch: BriefWatch) => void;
   empty?: string;
   resizeKey?: string;
   lazy?: boolean;
@@ -40,6 +61,10 @@ export function SituationMap({
   const [pinnedIds, setPinnedIds] = useState<string[] | null>(null);
   const [heat, setHeat] = useState(false);
   const [playhead, setPlayhead] = useState<number | null>(null);
+  const [frame, setFrame] = useState<MapFrame | null>(null);
+  const onFrame = useCallback((next: MapFrame) => {
+    setFrame((current) => (current && sameFrame(current, next) ? current : next));
+  }, []);
   const camera = useMemo(
     () => (typeof window === "undefined" ? null : parseMapCamera(window.location.search)),
     [],
@@ -80,9 +105,21 @@ export function SituationMap({
     [inWindow, markers],
   );
   const shownStories = useMemo(
-    () => (stories ?? []).filter((story) => inWindow(story.latestAt)),
-    [inWindow, stories],
+    () => storiesInFrame((stories ?? []).filter((story) => inWindow(story.latestAt)), frame),
+    [frame, inWindow, stories],
   );
+  const brief = useMemo(() => {
+    if (!briefContext) return null;
+    return buildSituationBrief({
+      stories: shownStories,
+      rising: briefContext.rising,
+      watches: briefContext.watches,
+      hypotheses: briefContext.hypotheses,
+      hypothesisName: briefContext.hypothesisName,
+      desks: briefContext.desks,
+      sources: briefContext.sources,
+    });
+  }, [briefContext, shownStories]);
   const placeChips = useMemo(() => {
     const counts = new Map<string, { name: string; count: number; kind: MapMarker["kind"]; marker: MapMarker }>();
     for (const marker of shownMarkers) {
@@ -104,6 +141,19 @@ export function SituationMap({
         pinnedIds={pinnedIds}
         onClearPin={() => setPinnedIds(null)}
         onOpenStory={onOpenStory}
+        brief={brief}
+        onSelectPlace={(name) => onSelect?.(name)}
+        onOpenWatch={onOpenWatch}
+        onStartReport={
+          onStartReport && brief && brief.stories.length
+            ? () => {
+                const ranked = brief.stories
+                  .map((row) => shownStories.find((story) => story.id === row.id))
+                  .filter((story): story is Story => Boolean(story));
+                if (ranked.length) onStartReport(ranked);
+              }
+            : undefined
+        }
       />
       {onCategory ? <MapLaneBar topic={topic} onCategory={onCategory} /> : null}
     </>
@@ -126,6 +176,7 @@ export function SituationMap({
             overlay={overlay}
             camera={camera}
             onCamera={tools ? onCamera : undefined}
+            onFrame={tools ? onFrame : undefined}
             heat={heat}
             onToggleHeat={tools ? () => setHeat((current) => !current) : undefined}
             lazy={lazy}
