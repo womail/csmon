@@ -22,7 +22,7 @@ import type { TrendRow } from "@/lib/trends";
 import type { StoryCorroboration } from "@/lib/story-corroboration";
 import type { Item, Source } from "@/lib/types";
 import type { EpssScore } from "@/lib/vuln-intel";
-import type { WeatherEvent } from "@/lib/weather";
+import { uniqueById, type WeatherEvent } from "@/lib/weather";
 import type { NaturalEvent, OutageRow } from "@/lib/hazards";
 
 const LANE_ICON = {
@@ -383,7 +383,7 @@ export function HomeDashboard({
             Weather events
           </div>
           <div className="mt-2 space-y-1">
-            {weatherEvents.slice(0, 8).map((event) => (
+            {uniqueById(weatherEvents).slice(0, 8).map((event) => (
               <Tip key={event.id} text={event.hint || "Open the warning"}>
                 <a
                   href={event.url}
@@ -509,7 +509,7 @@ function homeMarkers(
       kind: "quake" as const,
       hint: `M${quake.mag.toFixed(1)} · ${quake.place}`,
     })),
-    ...weatherEvents
+    ...uniqueById(weatherEvents)
       .filter((event) => event.lat != null && event.lng != null)
       .slice(0, 16)
       .map((event) => ({

@@ -48,3 +48,14 @@ export function weatherSummary(code: number | null) {
   if (code == null) return "Local conditions";
   return WMO[code] ?? `Weather code ${code}`;
 }
+
+export function uniqueById<T extends { id: string }>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const row of rows) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    out.push(row);
+  }
+  return out;
+}

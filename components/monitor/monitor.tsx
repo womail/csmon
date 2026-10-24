@@ -182,7 +182,7 @@ import {
   snapshotStory,
   type Report,
 } from "@/lib/reports";
-import type { WeatherEvent } from "@/lib/weather";
+import { uniqueById, type WeatherEvent } from "@/lib/weather";
 import type { NaturalEvent, OutageRow } from "@/lib/hazards";
 import { SourcesTable } from "@/components/monitor/sources-table";
 import {
@@ -357,6 +357,7 @@ export function Monitor({
   const [homePlace, setHomePlace] = useState("Dublin");
   const [weatherEvents, setWeatherEvents] = useState<WeatherEvent[]>([]);
   const [followOpen, setFollowOpen] = useState(true);
+  const [skippedFollow, setSkippedFollow] = useState<string[]>([]);
   const [boardItemLimit, setBoardItemLimit] = useState(() => loadOptions().boardItemLimit);
   const [triage, setTriage] = useState<TriageState>({ hidden: [], read: [] });
   const [triageUndo, setTriageUndo] = useState<TriageUndo[]>([]);
@@ -443,6 +444,13 @@ export function Monitor({
     setOpenReportId(loadActiveReportId());
     setReaderWidth(loadReaderWidth());
     setFollowOpen(window.localStorage.getItem("csmon.follow-open") !== "0");
+    try {
+      const raw = window.localStorage.getItem("csmon.follow-skip");
+      const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+      setSkippedFollow(Array.isArray(parsed) ? parsed.filter((row) => typeof row === "string") : []);
+    } catch {
+      setSkippedFollow([]);
+    }
     setUnreadOnly(window.localStorage.getItem("csmon.unread-only") === "1");
     setSourcesView(window.localStorage.getItem("csmon.sources-view") === "table" ? "table" : "tiles");
     setBoardItemLimit(opts.boardItemLimit);
@@ -505,7 +513,7 @@ export function Monitor({
         }
         if (weatherRes.ok) {
           const data = (await weatherRes.json()) as { events?: WeatherEvent[] };
-          if (!cancelled) setWeatherEvents(data.events ?? []);
+          if (!cancelled) setWeatherEvents(uniqueById(data.events ?? []));
         }
       } catch {
         /* options bootstrap is best-effort */
@@ -980,6 +988,9 @@ export function Monitor({
     const q = layerQuery.toLowerCase();
     return s.name.toLowerCase().includes(q) || (s.handle ?? "").toLowerCase().includes(q);
   });
+  const followHints = state.hints
+    .filter((hint) => !skippedFollow.includes(hint.host))
+    .slice(0, 6);
 
   const brief = situationLine(stories, state.sources);
   const p0 = state.kev.filter((k) => k.risk === "p0").length;
@@ -1726,7 +1737,7 @@ export function Monitor({
       const res = await apiFetch(`/api/weather${qs}`);
       if (!res.ok) return;
       const data = (await res.json()) as { events?: WeatherEvent[] };
-      setWeatherEvents(data.events ?? []);
+      setWeatherEvents(uniqueById(data.events ?? []));
     } catch {
       /* weather is best-effort */
     }
@@ -1751,7 +1762,7 @@ export function Monitor({
         }
         if (weatherRes.ok) {
           const data = (await weatherRes.json()) as { events?: WeatherEvent[] };
-          setWeatherEvents(data.events ?? []);
+          setWeatherEvents(uniqueById(data.events ?? []));
         }
       } catch {
         setFlightError("ADS-B failed");
@@ -1789,6 +1800,7 @@ export function Monitor({
   async function followHint(url: string) {
     const host = url.replace(/^https?:\/\//, "").split("/")[0];
     setBusy(true);
+    setError(null);
     try {
       setState(
         await json<MonitorState>(statePath("/api/explore", boardItemLimit), {
@@ -1797,11 +1809,21 @@ export function Monitor({
           body: JSON.stringify({ host, url }),
         }),
       );
+      flashNotice(`Added ${host} as a layer`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Follow failed");
     } finally {
       setBusy(false);
     }
+  }
+
+  function skipFollowHost(host: string) {
+    setSkippedFollow((current) => {
+      const next = [...new Set([...current, host])].slice(-240);
+      window.localStorage.setItem("csmon.follow-skip", JSON.stringify(next));
+      return next;
+    });
+    flashNotice(`Skipped ${host}`);
   }
 
   function toggleVendor(name: string) {
@@ -2305,7 +2327,7 @@ export function Monitor({
             hint: `${flight.country} · ${flight.altitude != null ? `${Math.round(flight.altitude)}m` : "airborne"}`,
           }))
         : []),
-      ...weatherEvents
+      ...uniqueById(weatherEvents)
         .filter((event) => event.lat != null && event.lng != null)
         .slice(0, 24)
         .map((event) => ({
@@ -3359,7 +3381,7 @@ export function Monitor({
                       Weather events
                     </div>
                     <div className="mt-2 space-y-1">
-                      {weatherEvents.slice(0, 12).map((event) => (
+                      {uniqueById(weatherEvents).slice(0, 12).map((event) => (
                         <a
                           key={event.id}
                           href={event.url}
@@ -3731,47 +3753,73 @@ export function Monitor({
                 </button>
                 {followOpen ? (
                   <>
-                <div className="mt-2 space-y-1">
-                  {state.hints.slice(0, 6).map((hint) => (
-                    <button
-                      key={hint.host}
-                      type="button"
-                      onClick={() => followHint(hint.url)}
-                      className="block w-full truncate rounded px-1 py-1 text-left text-[11px] hover:bg-slate-50"
-                    >
+                <p className="mt-1 text-[10px] leading-snug text-slate-500">
+                  Hosts that keep showing up and are not layers yet.
+                </p>
+                <div className="mt-2 space-y-2">
+                  {followHints.length === 0 ? (
+                    <p className="text-[11px] text-slate-400">No new hosts in this window.</p>
+                  ) : null}
+                  {followHints.map((hint) => (
+                    <div key={hint.host} className="rounded px-1 py-1 text-[11px]">
                       <span className="font-medium text-slate-800">{hint.host}</span>
                       <span className="text-slate-400"> · {hint.count}</span>
                       <span className="block truncate text-slate-400">{hint.sample}</span>
-                    </button>
+                      <span className="mt-1 flex gap-1">
+                        <Tip text="Discover a feed and add this host as a layer">
+                          <button
+                            type="button"
+                            className="card-action"
+                            disabled={busy}
+                            onClick={() => void followHint(hint.url)}
+                          >
+                            Add
+                          </button>
+                        </Tip>
+                        <Tip text="Hide this host from Follow next">
+                          <button
+                            type="button"
+                            className="card-action"
+                            onClick={() => skipFollowHost(hint.host)}
+                          >
+                            Skip
+                          </button>
+                        </Tip>
+                      </span>
+                    </div>
                   ))}
                 </div>
                 <div className="mt-4 text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
-                  Source pool
+                  Unused sources
                 </div>
                 <p className="mt-1 text-[10px] leading-snug text-slate-500">
-                  Layers already collected but turned off. Click to subscribe. Right-click to preview
-                  without turning the layer on.
+                  Layers already collected with the switch off. Subscribe turns one on. Preview lists
+                  its items without turning it on.
                 </p>
                 <Input
                   value={layerQuery}
                   onChange={(e) => setLayerQuery(e.target.value)}
-                  placeholder="Find an unused source"
+                  placeholder="Find unused sources"
+                  aria-label="Find unused sources"
                   className="mt-2 h-7 text-[12px]"
                 />
-                <div className="mt-2 max-h-[calc(100vh-280px)] space-y-1 overflow-y-auto">
+                <div className="mt-2 max-h-[calc(100vh-320px)] space-y-1 overflow-y-auto">
+                  {hiddenLayers.length === 0 ? (
+                    <p className="px-1 text-[11px] text-slate-400">
+                      {layerQuery.trim() ? "No unused sources match that search." : "Every collected layer is on."}
+                    </p>
+                  ) : null}
                   {hiddenLayers.slice(0, 60).map((source) => (
-                    <button
+                    <div
                       key={source.id}
-                      type="button"
-                      onClick={() => toggleLayer(source.id, false)}
                       onContextMenu={(event) => {
                         event.preventDefault();
                         setPoolMenu({ x: event.clientX, y: event.clientY, sourceId: source.id });
                       }}
-                      className="flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left hover:bg-slate-50"
+                      className="flex items-start gap-2 rounded-md px-1.5 py-1 hover:bg-slate-50"
                     >
                       <span
-                        className="mt-1 size-1.5 shrink-0 rounded-full"
+                        className="mt-1.5 size-1.5 shrink-0 rounded-full"
                         style={{ background: source.color }}
                       />
                       <span className="min-w-0 flex-1">
@@ -3781,14 +3829,34 @@ export function Monitor({
                         <span className="block truncate text-[10px] text-slate-400">
                           {source.origins[0]?.reason ?? source.kind}
                         </span>
+                        <span className="mt-1 flex gap-1">
+                          <button
+                            type="button"
+                            className="card-action"
+                            onClick={() => void toggleLayer(source.id, false)}
+                          >
+                            Subscribe
+                          </button>
+                          <button
+                            type="button"
+                            className="card-action"
+                            onClick={() => openSourcePreview(source.id)}
+                          >
+                            Preview
+                          </button>
+                        </span>
                       </span>
-                      <span className="text-[10px] text-slate-400">on</span>
-                    </button>
+                    </div>
                   ))}
                 </div>
+                {hiddenLayers.length > 60 ? (
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    Showing 60 of {hiddenLayers.length}. Search to narrow the list.
+                  </p>
+                ) : null}
                   </>
                 ) : (
-                  <p className="mt-2 text-[11px] text-slate-400">Collapsed. Click to expand the source pool.</p>
+                  <p className="mt-2 text-[11px] text-slate-400">Collapsed. Click to expand Follow next and unused sources.</p>
                 )}
               </div>
             </aside>

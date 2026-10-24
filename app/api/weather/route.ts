@@ -3,7 +3,7 @@ import { fetchJson, fetchRssXml } from "@/lib/http";
 import { coordsForPlace } from "@/lib/geo";
 import { asCoords, gate, jsonOk } from "@/lib/guard";
 import { meteoalarmCountryFor, parseMeteoalarmAtom, type MeteoalarmWarning } from "@/lib/hazards";
-import { weatherSummary, type LocalWeather, type WeatherEvent } from "@/lib/weather";
+import { uniqueById, weatherSummary, type LocalWeather, type WeatherEvent } from "@/lib/weather";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,6 +84,7 @@ async function rssWarnings(
 ): Promise<WeatherEvent[]> {
   const xml = await fetchRssXml(url, 10000);
   const events: WeatherEvent[] = [];
+  const seen = new Set<string>();
   for (const match of xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)) {
     const block = match[1];
     const title = decodeXml(block.match(/<title>([\s\S]*?)<\/title>/i)?.[1] ?? "Weather warning");
@@ -94,8 +95,11 @@ async function rssWarnings(
       title.match(/\b(Dublin|Cork|Galway|Limerick|Belfast|London|Manchester|Scotland|Wales|Ireland|UK)\b/i)?.[0] ??
       fallbackPlace;
     const point = coordsForPlace(placeGuess) ?? fallbackPoint;
+    const id = `${source}-${link || title}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
     events.push({
-      id: `${source}-${link || title}`,
+      id,
       title,
       severity: /red|severe|extreme/i.test(`${title} ${desc}`)
         ? "Severe"
@@ -241,5 +245,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return jsonOk({ events, local });
+  return jsonOk({ events: uniqueById(events), local });
 }
