@@ -82,7 +82,8 @@ import { copyCardLink } from "@/lib/card-link";
 import { tagStyle } from "@/lib/colors";
 import { documentsFromItems, isDocumentItem } from "@/lib/documents";
 import type { AircraftProfile, Flight } from "@/lib/flights";
-import { homeCity, type MapMarker } from "@/lib/geo";
+import { coordsForPlace, homeCity, type MapMarker } from "@/lib/geo";
+import { markersForStories } from "@/lib/story-markers";
 import { matchesStack, type KevEntry, type PatchRisk } from "@/lib/kev";
 import { matchesLane, type SituationLane } from "@/lib/lanes";
 import { kevForStory, itemsForCve, relatedStories, similarStories } from "@/lib/link";
@@ -2291,6 +2292,19 @@ export function Monitor({
                 ? `${documents.length} reports and advisories`
                 : brief;
 
+  const coverageLine = useMemo(() => {
+    if (!["home", "brief", "pulse", "weather", "scan", "advisories"].includes(viewDesk)) return undefined;
+    let onMap = 0;
+    for (const story of stories) {
+      if (story.locations.some((name) => coordsForPlace(name))) onMap += 1;
+    }
+    let noPlace = 0;
+    for (const item of items) {
+      if (!item.locations.some((name) => coordsForPlace(name))) noPlace += 1;
+    }
+    return `${onMap} on the map · ${stats.fresh} sources fresh · ${noPlace} with no place`;
+  }, [items, stats.fresh, stories, viewDesk]);
+
   const secondaryFiltersActive =
     Boolean(origin) ||
     Boolean(platform) ||
@@ -2565,6 +2579,7 @@ export function Monitor({
             onOpenActiveReport={openActiveReportDesk}
             filtersActive={boardFiltersActive}
             contextLine={investigationContextLine}
+            coverageLine={coverageLine}
           />
           {!firstRunDismissed ? (
             <FirstRunChecklist
@@ -3266,6 +3281,8 @@ export function Monitor({
                 onResetFilter={clearHomeDashboard}
                 onOpenStory={openReader}
                 onLane={openLane}
+                onCategory={setTopic}
+                range={range}
                 activeTags={nest}
                 onTopic={clickChip}
                 onPlace={focusPlace}
@@ -3435,13 +3452,16 @@ export function Monitor({
                     {stats.placeRows.length > 0 ? (
                       <SituationMap
                         title="Where coverage relates"
-                        markers={placeMarkers(
-                          stats.placeRows.map((row) => ({
-                            name: row.label,
-                            count: row.value,
-                          })),
-                        )}
+                        markers={markersForStories(stories)}
+                        stories={stories}
+                        onOpenStory={(storyId) => {
+                          const story = stories.find((row) => row.id === storyId);
+                          if (story) openReader(story);
+                        }}
                         onSelect={focusPlace}
+                        onCategory={setTopic}
+                        topic={topic}
+                        range={range}
                       />
                     ) : null}
                     {stats.placeRows.length > 0 ? (

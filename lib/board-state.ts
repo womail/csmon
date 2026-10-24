@@ -9,6 +9,7 @@ import {
   parseQueryTree,
   type QueryTree,
 } from "./query-builder";
+import { retainMapCamera } from "./map-camera";
 import { isDeskId, type Desk, type OriginReason, type Platform, type TimeRange } from "./types";
 
 export type BoardFilters = {
@@ -188,7 +189,10 @@ export function boardQueryString(filters: BoardFilters) {
 
 export function syncBoardUrl(filters: BoardFilters) {
   if (typeof window === "undefined") return;
-  const next = `${window.location.pathname}${boardQueryString(filters)}`;
+  const params = new URLSearchParams(boardQueryString(filters));
+  retainMapCamera(params);
+  const qs = params.toString();
+  const next = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
   if (next !== `${window.location.pathname}${window.location.search}`) {
     window.history.replaceState(null, "", next);
   }

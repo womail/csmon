@@ -7,6 +7,7 @@ import { Globe2, LocateFixed, Minus, Plus, X } from "lucide-react";
 import { Tip } from "@/components/monitor/tip";
 import { leafletCenter, leafletWorld, leafletZoomBy } from "@/lib/map-leaflet-controls";
 import type { MapMarker } from "@/lib/geo";
+import type { MapCamera } from "@/lib/map-camera";
 
 const GeoMapCanvas = dynamic(() => import("./geo-map-canvas"), {
   ssr: false,
@@ -19,6 +20,11 @@ export function LeafletPopout({
   focusId,
   anchor,
   onSelect,
+  onOpenStory,
+  onInspect,
+  camera,
+  onCamera,
+  heat = false,
   onClose,
 }: {
   title: string;
@@ -26,6 +32,11 @@ export function LeafletPopout({
   focusId?: string | null;
   anchor?: { lat: number; lng: number } | null;
   onSelect?: (name: string, marker?: MapMarker) => void;
+  onOpenStory?: (storyId: string) => void;
+  onInspect?: (markers: MapMarker[]) => void;
+  camera?: MapCamera | null;
+  onCamera?: (camera: MapCamera) => void;
+  heat?: boolean;
   onClose: () => void;
 }) {
   const mapRef = useRef<LeafletMap | null>(null);
@@ -71,8 +82,13 @@ export function LeafletPopout({
             focusId={focusId}
             interactive
             onSelect={onSelect}
+            onOpenStory={onOpenStory}
+            onInspect={onInspect}
             mapRef={mapRef}
             anchor={anchor}
+            camera={camera}
+            onCamera={onCamera}
+            heat={heat}
           />
         </div>
       </div>

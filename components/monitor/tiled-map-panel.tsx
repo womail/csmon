@@ -8,6 +8,7 @@ import { LazyMapGate } from "@/components/monitor/lazy-map-gate";
 import { Tip } from "@/components/monitor/tip";
 import { leafletCenter, leafletWorld, leafletZoomBy } from "@/lib/map-leaflet-controls";
 import type { MapMarker } from "@/lib/geo";
+import type { MapCamera } from "@/lib/map-camera";
 
 const GeoMapCanvas = dynamic(() => import("./geo-map-canvas"), {
   ssr: false,
@@ -26,10 +27,17 @@ export function TiledMapPanel({
   focusId,
   anchor,
   onSelect,
+  onOpenStory,
+  onInspect,
   frameClassName = "",
   lazy = false,
   centerDisabled,
   footer,
+  overlay,
+  camera,
+  onCamera,
+  heat = false,
+  onToggleHeat,
 }: {
   title: string;
   hint: string;
@@ -37,11 +45,18 @@ export function TiledMapPanel({
   focusId?: string | null;
   anchor?: { lat: number; lng: number } | null;
   onSelect?: (name: string, marker?: MapMarker) => void;
+  onOpenStory?: (storyId: string) => void;
+  onInspect?: (markers: MapMarker[]) => void;
   frameClassName?: string;
   /** Defer Leaflet until the frame is near the viewport (Home board). */
   lazy?: boolean;
   centerDisabled?: boolean;
   footer?: ReactNode;
+  overlay?: ReactNode;
+  camera?: MapCamera | null;
+  onCamera?: (camera: MapCamera) => void;
+  heat?: boolean;
+  onToggleHeat?: () => void;
 }) {
   const [popout, setPopout] = useState(false);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -52,8 +67,13 @@ export function TiledMapPanel({
       focusId={focusId}
       interactive
       onSelect={onSelect}
+      onOpenStory={onOpenStory}
+      onInspect={onInspect}
       mapRef={mapRef}
       anchor={anchor}
+      camera={camera}
+      onCamera={onCamera}
+      heat={heat}
     />
   );
 
@@ -92,6 +112,18 @@ export function TiledMapPanel({
               <Globe2 className="size-3.5" />
             </button>
           </Tip>
+          {onToggleHeat ? (
+            <Tip text={heat ? "Show count bubbles" : "Show density instead of bubbles"}>
+              <button
+                type="button"
+                className={`map-tool map-tool-text ${heat ? "is-active" : ""}`}
+                aria-pressed={heat}
+                onClick={onToggleHeat}
+              >
+                Heat
+              </button>
+            </Tip>
+          ) : null}
           <Tip text="Expand map">
             <button type="button" className="map-tool" onClick={() => setPopout(true)}>
               <Expand className="size-3.5" />
@@ -101,6 +133,7 @@ export function TiledMapPanel({
       </div>
       <div className={`geo-map-frame min-h-0 h-full min-h-[120px] ${frameClassName}`.trim()}>
         {lazy ? <LazyMapGate placeholder="Map loads when visible…">{map}</LazyMapGate> : map}
+        {overlay}
       </div>
       {footer}
       {popout ? (
@@ -110,6 +143,11 @@ export function TiledMapPanel({
           focusId={focusId}
           anchor={anchor}
           onSelect={onSelect}
+          onOpenStory={onOpenStory}
+          onInspect={onInspect}
+          camera={camera}
+          onCamera={onCamera}
+          heat={heat}
           onClose={() => setPopout(false)}
         />
       ) : null}

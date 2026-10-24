@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Check, Copy, X } from "lucide-react";
 import { Tip } from "@/components/monitor/tip";
 import { boardQueryString, type BoardFilters } from "@/lib/board-state";
+import { retainMapCamera } from "@/lib/map-camera";
 import { activeFilterCount, deskLabel, filterSummaryLine } from "@/lib/investigation-summary";
 import type { Desk, TimeRange } from "@/lib/types";
 
@@ -25,6 +26,7 @@ export function InvestigationBar({
   onOpenActiveReport,
   filtersActive,
   contextLine,
+  coverageLine,
 }: {
   desk: Desk;
   deskTitle?: string;
@@ -43,6 +45,7 @@ export function InvestigationBar({
   onOpenActiveReport?: () => void;
   filtersActive: boolean;
   contextLine?: string;
+  coverageLine?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const filterCount = activeFilterCount(filters, {
@@ -56,7 +59,10 @@ export function InvestigationBar({
 
   async function copyLink() {
     if (typeof window === "undefined") return;
-    const url = `${window.location.origin}${window.location.pathname}${boardQueryString(filters)}`;
+    const params = new URLSearchParams(boardQueryString(filters));
+    retainMapCamera(params);
+    const qs = params.toString();
+    const url = `${window.location.origin}${window.location.pathname}${qs ? `?${qs}` : ""}`;
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
@@ -73,6 +79,16 @@ export function InvestigationBar({
           <span className="investigation-bar-desk">{title}</span>
           <span className="investigation-bar-meta">
             <span>{range}</span>
+            {coverageLine ? (
+              <>
+                <span className="investigation-bar-sep" aria-hidden>
+                  ·
+                </span>
+                <span className="investigation-bar-summary" title="Stories with a mapped place, enabled sources fetched in the last 6 hours, and items with no geocoded place">
+                  {coverageLine}
+                </span>
+              </>
+            ) : null}
             {filterCount > 0 ? (
               <>
                 <span className="investigation-bar-sep" aria-hidden>

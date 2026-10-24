@@ -135,6 +135,10 @@ export type MapMarker = {
   count?: number;
   hint?: string;
   heading?: number | null;
+  /** Set when this pin is one story, so a zoomed-in cluster can open it. */
+  storyId?: string;
+  /** Event time, so the map scrubber can hide pins that have not happened yet. */
+  at?: number;
 };
 
 export function coordsForPlace(name: string) {

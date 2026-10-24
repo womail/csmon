@@ -5,7 +5,7 @@ import { CloudLightning, Landmark, Siren, Waves } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
 import type { MouseEvent } from "react";
 import { SourceChip, StoryCard, type CardChip } from "@/components/monitor/cards";
-import { placeMarkers } from "@/components/monitor/map";
+import { markersForStories } from "@/lib/story-markers";
 
 const SituationMap = dynamic(
   () => import("@/components/monitor/situation-map").then((mod) => ({ default: mod.SituationMap })),
@@ -20,7 +20,7 @@ import type { PersonRow } from "@/lib/people";
 import type { QuakeEvent } from "@/lib/quakes";
 import type { TrendRow } from "@/lib/trends";
 import type { StoryCorroboration } from "@/lib/story-corroboration";
-import type { Item, Source } from "@/lib/types";
+import type { Item, Source, TimeRange } from "@/lib/types";
 import type { EpssScore } from "@/lib/vuln-intel";
 import { uniqueById, type WeatherEvent } from "@/lib/weather";
 import type { NaturalEvent, OutageRow } from "@/lib/hazards";
@@ -53,6 +53,8 @@ export function HomeDashboard({
   onResetFilter,
   onOpenStory,
   onLane,
+  onCategory,
+  range,
   onTopic,
   activeTags,
   onPlace,
@@ -104,6 +106,8 @@ export function HomeDashboard({
   onResetFilter?: () => void;
   onOpenStory: (story: Story) => void;
   onLane: (lane: SituationLane) => void;
+  onCategory?: (topic: string | null) => void;
+  range?: TimeRange;
   onTopic: (topic: string) => void;
   activeTags?: string[];
   onPlace: (place: string) => void;
@@ -300,8 +304,16 @@ export function HomeDashboard({
 
       <SituationMap
         title="Where coverage relates"
-        markers={homeMarkers(items, quakes, weatherEvents, naturalEvents)}
+        markers={homeMarkers(stories, quakes, weatherEvents, naturalEvents)}
+        stories={stories}
+        onOpenStory={(storyId) => {
+          const story = stories.find((row) => row.id === storyId);
+          if (story) onOpenStory(story);
+        }}
         onSelect={onPlace}
+        onCategory={onCategory}
+        topic={topic}
+        range={range}
         empty="Load world or hazard RSS to plot places, weather, and USGS quakes."
       />
 
@@ -487,20 +499,13 @@ export function HomeDashboard({
 }
 
 function homeMarkers(
-  items: Item[],
+  stories: Story[],
   quakes: QuakeEvent[],
   weatherEvents: WeatherEvent[],
   naturalEvents: NaturalEvent[],
 ): MapMarker[] {
-  const places = new Map<string, number>();
-  for (const item of items) {
-    for (const name of item.locations) places.set(name, (places.get(name) ?? 0) + 1);
-  }
   return [
-    ...placeMarkers(
-      [...places.entries()].map(([name, count]) => ({ name, count })),
-      "place",
-    ),
+    ...markersForStories(stories),
     ...quakes.slice(0, 20).map((quake) => ({
       id: quake.id,
       name: quake.place.split(",").at(-1)?.trim() || quake.place,
@@ -508,6 +513,7 @@ function homeMarkers(
       lng: quake.lng,
       kind: "quake" as const,
       hint: `M${quake.mag.toFixed(1)} · ${quake.place}`,
+      at: quake.time,
     })),
     ...uniqueById(weatherEvents)
       .filter((event) => event.lat != null && event.lng != null)
@@ -519,6 +525,7 @@ function homeMarkers(
         lng: event.lng as number,
         kind: "weather" as const,
         hint: `${event.severity} · ${event.title}`,
+        at: event.time,
       })),
     ...naturalEvents
       .filter((event) => event.lat != null && event.lng != null)
@@ -530,6 +537,7 @@ function homeMarkers(
         lng: event.lng as number,
         kind: "weather" as const,
         hint: `${event.category} · ${event.title} (NASA EONET)`,
+        at: event.time,
       })),
   ];
 }
