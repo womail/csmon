@@ -5,9 +5,14 @@ import { Ago } from "@/components/monitor/ago";
 import { originCopy } from "@/components/monitor/cards";
 import { Tip } from "@/components/monitor/tip";
 import { shortSourceName } from "@/lib/source-label";
+import { SOURCE_TYPE_LABEL, isSourceType, sourceCategory } from "@/lib/source-types";
 import type { Source } from "@/lib/types";
 
-type SortKey = "name" | "origin" | "items" | "fetched" | "status" | "added" | "next";
+function typeLabel(source: Source) {
+  return isSourceType(source.sourceType) ? SOURCE_TYPE_LABEL[source.sourceType] : "—";
+}
+
+type SortKey = "name" | "type" | "category" | "origin" | "items" | "fetched" | "status" | "added" | "next";
 
 const STATUS_RANK = { error: 0, not_modified: 2, ok: 3 } as const;
 
@@ -57,6 +62,10 @@ export function SourcesTable({
       switch (sort.key) {
         case "name":
           return shortSourceName(source.name).toLowerCase();
+        case "type":
+          return typeLabel(source).toLowerCase();
+        case "category":
+          return sourceCategory(source).toLowerCase();
         case "origin":
           return originCopy(source).label.toLowerCase();
         case "items":
@@ -117,6 +126,8 @@ export function SourcesTable({
           <thead>
             <tr>
               {header("name", "Layer", "Feed or account name")}
+              {header("type", "Type", "Kind of publisher: wire, CERT, government, vendor, blog…")}
+              {header("category", "Category", "OPML folder, pack, or the category you set in Sources")}
               {header("origin", "Origin", "Why this layer is on the board")}
               {header("items", "Items", "Items from this layer on the current board", true)}
               {header("fetched", "Last fetch", "When the server last pulled this layer")}
@@ -148,6 +159,8 @@ export function SourcesTable({
                       </span>
                     </Tip>
                   </td>
+                  <td className="text-slate-500">{typeLabel(source)}</td>
+                  <td className="max-w-[12rem] truncate text-slate-500">{sourceCategory(source)}</td>
                   <td className="text-slate-500">{originCopy(source).label}</td>
                   <td className="text-right tabular-nums">{itemCounts.get(source.id) ?? 0}</td>
                   <td className="text-slate-500">

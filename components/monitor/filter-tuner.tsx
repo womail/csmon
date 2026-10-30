@@ -18,6 +18,8 @@ import {
   type BoardFilters,
 } from "@/lib/board-state";
 import { knownTopicTags } from "@/lib/classify";
+import { groupByFamily } from "@/lib/topic-families";
+import { FamilyDot } from "@/components/monitor/cards";
 import { knownPlaceNames } from "@/lib/places";
 import { emptyQuery } from "@/lib/query-builder";
 import { isBuiltinDesk, type OriginReason, type Platform, type TimeRange } from "@/lib/types";
@@ -238,6 +240,48 @@ function FilterFields({
           placeholder="war, unrest, cyber"
         />
       </label>
+      <div className="space-y-1" aria-label="Topics by family">
+        {groupByFamily(topics).map(({ family, topics: members }) => {
+          const familyOn = value.fam.includes(family.id);
+          return (
+            <div key={family.id} className="family-facet-row">
+              <button
+                type="button"
+                className="family-facet-name"
+                data-active={familyOn ? "true" : "false"}
+                aria-pressed={familyOn}
+                onClick={() =>
+                  patch({ fam: familyOn ? value.fam.filter((id) => id !== family.id) : [...value.fam, family.id] })
+                }
+              >
+                <FamilyDot family={family.id} />
+                {family.label}
+              </button>
+              {members.map((name) => {
+                const on = value.topics.includes(name) || value.topic === name;
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    className="filter-chip filter-chip-toggle"
+                    data-active={on ? "true" : "false"}
+                    aria-pressed={on}
+                    onClick={() =>
+                      patch(
+                        on
+                          ? { topic: value.topic === name ? null : value.topic, topics: value.topics.filter((t) => t !== name) }
+                          : { topics: [...value.topics, name].slice(0, 8) },
+                      )
+                    }
+                  >
+                    <span className="filter-chip-label">{name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
       <label className="block text-[11px] font-medium text-slate-600">
         Tags (any)
         <Input

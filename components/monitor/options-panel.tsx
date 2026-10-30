@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { BarChart3, BookOpen, Database, Settings, SlidersHorizontal } from "lucide-react";
+import { ClassifierRow } from "@/components/monitor/classifier-row";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -289,6 +290,7 @@ export function OptionsButton({
 
             {tab === "data" ? (
               <div className="space-y-3">
+                <ClassifierRow />
                 <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5">
                   <p className="text-[11px] font-medium text-slate-900">ACLED (server)</p>
                   <p className="mt-1 text-[10px] leading-snug text-slate-600">

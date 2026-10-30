@@ -192,7 +192,48 @@ const MIGRATIONS: { name: string; sql: string }[] = [
     name: "007_fetch_health",
     sql: "",
   },
+  {
+    name: "008_topic_lock",
+    sql: "",
+  },
+  {
+    name: "009_source_category",
+    sql: "",
+  },
 ];
+
+const TOPIC_LOCK_COLUMNS: { table: string; column: string; ddl: string }[] = [
+  { table: "items", column: "topics_locked", ddl: "topics_locked INTEGER NOT NULL DEFAULT 0" },
+  { table: "items", column: "classifier_version", ddl: "classifier_version INTEGER NOT NULL DEFAULT 0" },
+];
+
+const SOURCE_CATEGORY_COLUMNS: { table: string; column: string; ddl: string }[] = [
+  { table: "sources", column: "category", ddl: "category TEXT" },
+  { table: "sources", column: "source_type", ddl: "source_type TEXT" },
+];
+
+function ensureTopicLockColumns(db: DatabaseSync) {
+  for (const row of TOPIC_LOCK_COLUMNS) addColumnIfMissing(db, row.table, row.column, row.ddl);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_items_classifier ON items(classifier_version, topics_locked)");
+}
+
+/** OPML imports before 009 kept the ThreatFilter folder in `description`. */
+const OPML_FOLDER_RE =
+  /^(?:CERTs? & Government Advisories|Security News|Threat Intelligence|Threat Research|Vulnerability Management|Vendor Advisories|DevOps & CI\/CD|Email Security|Privileged Access|SIEM & Logging|Cloud Security|Identity & Access|[\w &/-]+ Vendors)$/i;
+
+function ensureSourceCategoryColumns(db: DatabaseSync, backfill: boolean) {
+  for (const row of SOURCE_CATEGORY_COLUMNS) addColumnIfMissing(db, row.table, row.column, row.ddl);
+  if (!backfill) return;
+  const rows = db
+    .prepare("SELECT id, description FROM sources WHERE handle = 'manual' AND category IS NULL AND description IS NOT NULL")
+    .all() as { id: number; description: string }[];
+  const update = db.prepare("UPDATE sources SET category = ?, description = NULL WHERE id = ?");
+  for (const row of rows) {
+    const text = row.description.trim();
+    if (text.length > 60 || !OPML_FOLDER_RE.test(text)) continue;
+    update.run(text, row.id);
+  }
+}
 
 const FETCH_HEALTH_COLUMNS: { table: string; column: string; ddl: string }[] = [
   { table: "fetch_cache", column: "etag", ddl: "etag TEXT" },
@@ -251,6 +292,10 @@ function applyMigrations(db: DatabaseSync) {
       }
     } else if (migration.name === "007_fetch_health") {
       ensureFetchHealthColumns(db);
+    } else if (migration.name === "008_topic_lock") {
+      ensureTopicLockColumns(db);
+    } else if (migration.name === "009_source_category") {
+      ensureSourceCategoryColumns(db, true);
     } else {
       db.exec(migration.sql);
     }
@@ -268,6 +313,8 @@ function applyMigrations(db: DatabaseSync) {
   if (applied.has("007_fetch_health")) {
     ensureFetchHealthColumns(db);
   }
+  if (applied.has("008_topic_lock")) ensureTopicLockColumns(db);
+  if (applied.has("009_source_category")) ensureSourceCategoryColumns(db, true);
 }
 
 function ensureFetchHealthColumns(db: DatabaseSync) {

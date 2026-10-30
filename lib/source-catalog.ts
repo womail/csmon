@@ -12,6 +12,7 @@ import type {
   SourceCatalogRow,
   SourcePatch,
 } from "./source-catalog-shared";
+import { deriveSourceType, isSourceType, sourceCategory } from "./source-types";
 import type { OriginReason, Platform, SourceKind } from "./types";
 
 export type { SourceCatalog, SourceCatalogRow, SourceCatalogSummary, SourcePatch } from "./source-catalog-shared";
@@ -47,6 +48,8 @@ export function buildSourceCatalog(options?: {
     last_fetched_at: number | null;
     created_at: number;
     retention_days: number | null;
+    category: string | null;
+    source_type: string | null;
   }[];
 
   const stats = db
@@ -117,6 +120,16 @@ export function buildSourceCatalog(options?: {
       (row.handle && intelFeedById(row.handle)) ||
       null;
     const origins = originsBySource.get(row.id) ?? [];
+    const sourceShape = {
+      platform: row.platform as Platform,
+      handle: row.handle,
+      feedUrl,
+      url: row.url,
+      name: row.name,
+      origins,
+      category: row.category,
+    };
+    const storedSourceType = isSourceType(row.source_type) ? row.source_type : null;
 
     return {
       id: row.id,
@@ -128,6 +141,10 @@ export function buildSourceCatalog(options?: {
       platform: row.platform as Platform,
       kind: row.kind as SourceKind,
       description: row.description,
+      category: sourceCategory(sourceShape),
+      storedCategory: row.category,
+      sourceType: storedSourceType ?? deriveSourceType(sourceShape),
+      storedSourceType,
       enabled,
       lastFetchedAt,
       createdAt: row.created_at,
@@ -345,8 +362,8 @@ export function createManualSource(input: CreateSourceInput): number {
   const inserted = db
     .prepare(
       `INSERT INTO sources
-       (key, name, handle, url, feed_url, platform, kind, description, avatar_url, color, enabled, created_at, retention_days)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (key, name, handle, url, feed_url, platform, kind, description, avatar_url, color, enabled, created_at, retention_days, category, source_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       key,
@@ -362,6 +379,8 @@ export function createManualSource(input: CreateSourceInput): number {
       input.enabled !== false ? 1 : 0,
       now,
       input.retentionDays ?? null,
+      input.category?.trim() || null,
+      isSourceType(input.sourceType) ? input.sourceType : null,
     );
   const id = Number(inserted.lastInsertRowid);
   const seedId = manualSeedUserId();
@@ -376,7 +395,7 @@ export function patchSources(updates: SourcePatch[]) {
   const db = getDb();
   const get = db.prepare("SELECT * FROM sources WHERE id = ?");
   const update = db.prepare(
-    `UPDATE sources SET name = ?, handle = ?, url = ?, feed_url = ?, description = ?, enabled = ?, retention_days = ?, key = ? WHERE id = ?`,
+    `UPDATE sources SET name = ?, handle = ?, url = ?, feed_url = ?, description = ?, enabled = ?, retention_days = ?, key = ?, category = ?, source_type = ? WHERE id = ?`,
   );
   for (const patch of updates) {
     if (!Number.isInteger(patch.id) || patch.id <= 0) continue;
@@ -390,6 +409,8 @@ export function patchSources(updates: SourcePatch[]) {
       description: string | null;
       enabled: number;
       retention_days: number | null;
+      category: string | null;
+      source_type: string | null;
     } | undefined;
     if (!current) continue;
 
@@ -402,6 +423,14 @@ export function patchSources(updates: SourcePatch[]) {
       patch.enabled !== undefined ? (patch.enabled ? 1 : 0) : current.enabled;
     const retentionDays =
       patch.retentionDays !== undefined ? patch.retentionDays : current.retention_days;
+    const category =
+      patch.category !== undefined ? patch.category?.trim().slice(0, 120) || null : current.category;
+    const sourceType =
+      patch.sourceType !== undefined
+        ? isSourceType(patch.sourceType)
+          ? patch.sourceType
+          : null
+        : current.source_type;
 
     let key = current.key;
     let handle = current.handle;
@@ -415,6 +444,6 @@ export function patchSources(updates: SourcePatch[]) {
       }
     }
 
-    update.run(name, handle, url, feedUrl, description, enabled, retentionDays, key, patch.id);
+    update.run(name, handle, url, feedUrl, description, enabled, retentionDays, key, category, sourceType, patch.id);
   }
 }

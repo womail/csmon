@@ -69,7 +69,7 @@ export function buildDeepDive(story: Story, article: ArticleSnippet | null): Dee
   return {
     language,
     places: [...new Set([...story.locations, ...classified.locations])].slice(0, 8),
-    topics: [...new Set([...story.topics, ...classified.topics])].filter((topic) => topic !== "world").slice(0, 8),
+    topics: [...new Set([...story.topics, ...classified.topics])].slice(0, 8),
     quotes,
     dates: unique((copy.match(DATE_RE) ?? []).map((value) => value.trim()), 8),
     bullets,

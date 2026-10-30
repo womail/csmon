@@ -1,19 +1,29 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { headers } from "next/headers";
 import { THEME_BOOTSTRAP } from "@/lib/theme-bootstrap";
 import "./globals.css";
 
-const plex = IBM_Plex_Sans({
+// Self-hosted. next/font/google fails when Google returns a /l/font?kit= URL
+// (Turbopack splits the query on "&"). See vercel/next.js#99114.
+const plex = localFont({
   variable: "--font-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  display: "swap",
+  src: [
+    { path: "./fonts/ibm-plex-sans-latin-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/ibm-plex-sans-latin-500-normal.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/ibm-plex-sans-latin-600-normal.woff2", weight: "600", style: "normal" },
+    { path: "./fonts/ibm-plex-sans-latin-700-normal.woff2", weight: "700", style: "normal" },
+  ],
 });
 
-const plexMono = IBM_Plex_Mono({
+const plexMono = localFont({
   variable: "--font-geist-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
+  display: "swap",
+  src: [
+    { path: "./fonts/ibm-plex-mono-latin-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/ibm-plex-mono-latin-500-normal.woff2", weight: "500", style: "normal" },
+  ],
 });
 
 export const metadata: Metadata = {

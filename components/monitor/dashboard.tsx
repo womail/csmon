@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { CloudLightning, Landmark, Siren, Waves } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
-import type { MouseEvent } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { SourceChip, StoryCard, type CardChip } from "@/components/monitor/cards";
 import { markersForStories } from "@/lib/story-markers";
 
@@ -15,7 +15,7 @@ import { Tip } from "@/components/monitor/tip";
 import type { MapMarker } from "@/lib/geo";
 import type { Story } from "@/lib/cluster";
 import { tagStyle } from "@/lib/colors";
-import { SITUATION_LANES, type SituationLane } from "@/lib/lanes";
+import { SITUATION_LANES, matchesLane, type SituationLane } from "@/lib/lanes";
 import type { PersonRow } from "@/lib/people";
 import type { QuakeEvent } from "@/lib/quakes";
 import type { BriefRising, BriefWatch } from "@/lib/situation-brief";
@@ -54,6 +54,7 @@ export function HomeDashboard({
   onResetFilter,
   onOpenStory,
   onLane,
+  familiesStrip,
   onCategory,
   range,
   onTopic,
@@ -110,6 +111,8 @@ export function HomeDashboard({
   onResetFilter?: () => void;
   onOpenStory: (story: Story) => void;
   onLane: (lane: SituationLane) => void;
+  /** Families strip under the lanes (task 10). */
+  familiesStrip?: ReactNode;
   onCategory?: (topic: string | null) => void;
   range?: TimeRange;
   onTopic: (topic: string) => void;
@@ -182,9 +185,7 @@ export function HomeDashboard({
   const lanes = SITUATION_LANES.map((lane) => {
     const laneStories = stories.filter(
       (story) =>
-        story.items.some((item) => item.topics.includes(lane.id) || item.tags.includes(lane.id)) ||
-        story.topics.includes(lane.id) ||
-        lane.re.test(`${story.title} ${story.summary ?? ""}`),
+        story.topics.includes(lane.id) || story.items.some((item) => matchesLane(item, lane.id)),
     );
     return { ...lane, stories: laneStories, count: laneStories.length };
   });
@@ -377,6 +378,7 @@ export function HomeDashboard({
               );
             })}
           </div>
+          {familiesStrip}
           <div className="grid gap-1.5 lg:grid-cols-2">
             {lanes.map((lane) => (
               <section key={lane.id} className="card-tile">

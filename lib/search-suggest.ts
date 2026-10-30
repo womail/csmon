@@ -4,6 +4,12 @@ export type SearchSuggestData = {
   topic: string[];
   vendor: string[];
   author: string[];
+  person?: string[];
+  org?: string[];
+  cve?: string[];
+  type?: string[];
+  category?: string[];
+  family?: string[];
 };
 
 export type SearchSuggestion = {
@@ -21,7 +27,12 @@ const FIELD_HINTS: { field: string; hint: string; data?: keyof SearchSuggestData
   { field: "topic", hint: "Topic tag", data: "topic" },
   { field: "vendor", hint: "Vendor or product", data: "vendor" },
   { field: "author", hint: "Byline or handle", data: "author" },
-  { field: "cve", hint: "CVE id fragment, e.g. 2024-" },
+  { field: "person", hint: "Person named in the story", data: "person" },
+  { field: "org", hint: "Organisation or threat actor", data: "org" },
+  { field: "type", hint: "Source type: cert, wire, government…", data: "type" },
+  { field: "category", hint: "Source category (OPML folder or pack)", data: "category" },
+  { field: "family", hint: "Topic family: security, conflict, hazards…", data: "family" },
+  { field: "cve", hint: "CVE id fragment, e.g. 2024-", data: "cve" },
   { field: "ioc", hint: "Indicator: ip, domain, sha256" },
   { field: "title", hint: "Title contains" },
   { field: "summary", hint: "Summary contains" },
@@ -63,7 +74,7 @@ export function searchSuggestions(query: string, data: SearchSuggestData, limit 
   if (!spec?.data) return [];
   const seen = new Set<string>();
   const out: SearchSuggestion[] = [];
-  for (const value of data[spec.data]) {
+  for (const value of data[spec.data] ?? []) {
     const key = value.toLowerCase();
     if (seen.has(key)) continue;
     if (partial && !key.includes(partial)) continue;

@@ -21,6 +21,7 @@ import {
 } from "@/lib/feed-overrides";
 import { refreshSources } from "@/lib/scrape/refresh";
 import type { CreateSourceInput } from "@/lib/source-catalog-shared";
+import { isSourceType } from "@/lib/source-types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +42,9 @@ function validatePatch(row: SourcePatch): row is SourcePatch {
     (row.enabled === undefined || typeof row.enabled === "boolean") &&
     (row.retentionDays === undefined ||
       row.retentionDays === null ||
-      (typeof row.retentionDays === "number" && row.retentionDays >= 0))
+      (typeof row.retentionDays === "number" && row.retentionDays >= 0)) &&
+    (row.category === undefined || row.category === null || typeof row.category === "string") &&
+    (row.sourceType === undefined || row.sourceType === null || isSourceType(row.sourceType))
   );
 }
 
@@ -82,6 +85,8 @@ async function acceptLayers(rows: CreateSourceInput[]) {
       url: row.url.trim(),
       feedUrl: row.feedUrl.trim(),
       description: row.description?.trim() || null,
+      category: typeof row.category === "string" ? row.category.trim().slice(0, 120) || null : null,
+      sourceType: isSourceType(row.sourceType) ? row.sourceType : null,
       enabled: row.enabled !== false,
       retentionDays: row.retentionDays ?? null,
     });
@@ -153,6 +158,8 @@ export async function POST(request: Request) {
       url: create.url,
       feedUrl: create.feedUrl,
       description: create.description,
+      category: typeof create.category === "string" ? create.category : null,
+      sourceType: isSourceType(create.sourceType) ? create.sourceType : null,
       enabled: create.enabled,
       retentionDays: create.retentionDays,
     });
@@ -229,6 +236,8 @@ export async function PATCH(request: Request) {
           description: row.description,
           enabled: row.enabled,
           retentionDays: row.retentionDays,
+          category: row.category,
+          sourceType: row.sourceType,
         })),
       );
       if (body.refresh !== false) {

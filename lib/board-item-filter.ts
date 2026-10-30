@@ -8,6 +8,62 @@ import { itemHasPerson } from "./people";
 import { isKnownPlace, itemHasPlace } from "./places";
 import { itemMatchesQuery, parseQueryLine } from "./query-builder";
 import type { Desk, Item, Source } from "./types";
+import { parseFacetToken, type FacetInput } from "./facets";
+import { orgByName } from "./gazetteer/orgs";
+import { itemOrgs } from "./people";
+import { sourceCategory } from "./source-types";
+import { familiesForItem, itemInFamilies } from "./topic-families";
+
+function itemHasOrg(item: Item, name: string) {
+  const canonical = (orgByName(name)?.name ?? name).toLowerCase();
+  return itemOrgs(item).some((org) => org.name.toLowerCase() === canonical);
+}
+
+function itemHasCve(item: Item, cve: string) {
+  const needle = cve.toUpperCase();
+  return mineItem(item).cves.some((row) => row.toUpperCase() === needle);
+}
+
+/** True when the item carries the facet; used for `not=` negations. */
+export function itemMatchesFacet(item: Item, facet: FacetInput, source: Source | undefined): boolean {
+  const v = facet.value;
+  switch (facet.kind) {
+    case "topic":
+      return itemHasTopic(item, v);
+    case "tag":
+      return item.tags.includes(v.toLowerCase()) || item.topics.includes(v.toLowerCase());
+    case "family":
+      return familiesForItem(item).includes(v.toLowerCase() as never);
+    case "place":
+      return itemHasPlace(item, v);
+    case "person":
+      return itemHasPerson(item, v, source);
+    case "org":
+      return itemHasOrg(item, v);
+    case "vendor":
+      return itemHasVendor(item, v);
+    case "cve":
+      return itemHasCve(item, v);
+    case "source": {
+      const id = Number(v);
+      if (Number.isFinite(id) && id > 0) return item.sourceId === id;
+      const lower = v.toLowerCase();
+      return Boolean(source && (source.name.toLowerCase().includes(lower) || source.handle?.toLowerCase() === lower));
+    }
+    case "stype":
+      return source?.sourceType === v;
+    case "category":
+      return Boolean(source && sourceCategory(source).toLowerCase() === v.toLowerCase());
+    case "origin":
+      return Boolean(source?.origins.some((entry) => entry.reason === v));
+    case "platform":
+      return source?.platform === v;
+    case "nest":
+      return itemMatchesAnyNest(item, [v]);
+    default:
+      return false;
+  }
+}
 
 export type BoardItemFilterContext = {
   viewDesk: Desk;
@@ -35,6 +91,10 @@ export function applyBoardItemFilters(
   const parsedLine = parseQueryLine(filters.q);
   const q = parsedLine.text.trim().toLowerCase();
   const needMine = filters.ransomware || Boolean(q);
+  const negations = (filters.not ?? []).map(parseFacetToken).filter((row): row is FacetInput => Boolean(row));
+  const stypes = filters.stype ?? [];
+  const families = filters.fam ?? [];
+  const cves = filters.cve ?? [];
 
   return items.filter((item) => {
     const source = byId.get(item.sourceId);
@@ -69,6 +129,12 @@ export function applyBoardItemFilters(
     if (ctx.displayItemIds?.length && !ctx.displayItemIds.includes(item.id)) return false;
     if (filters.place && !itemHasPlace(item, filters.place)) return false;
     if (filters.person && !itemHasPerson(item, filters.person, source)) return false;
+    if (filters.org && !itemHasOrg(item, filters.org)) return false;
+    if (stypes.length && !(source?.sourceType && (stypes as string[]).includes(source.sourceType))) return false;
+    if (filters.cat && !(source && sourceCategory(source).toLowerCase() === filters.cat.toLowerCase())) return false;
+    if (families.length && !itemInFamilies(item, families)) return false;
+    if (cves.length && !cves.some((cve) => itemHasCve(item, cve))) return false;
+    if (negations.some((facet) => itemMatchesFacet(item, facet, source))) return false;
     if (!itemMatchesAnyNest(item, filters.nest)) return false;
     if (triageHidden.includes(itemKey(item.id))) return false;
     if (filters.vendor && !itemHasVendor(item, filters.vendor)) return false;

@@ -59,6 +59,10 @@ import {
 import { HypothesisReaderStrip } from "@/components/monitor/hypothesis-reader-strip";
 import type { BuiltinDesk, Item, Source } from "@/lib/types";
 import { independentSourceCount } from "@/lib/syndication";
+import { ConnectedPanel, type EntityAction } from "@/components/monitor/connected-panel";
+import { FamilyDot } from "@/components/monitor/cards";
+import { explainTopic } from "@/lib/topic-why";
+import type { EntityRef } from "@/lib/connections";
 
 export function ReaderPane({
   story,
@@ -94,7 +98,14 @@ export function ReaderPane({
   hypothesisContext,
   onSearchText,
   onWatchText,
+  pool,
+  kev,
+  onEntity,
 }: {
+  /** Stories in range for the Connected panel. */
+  pool?: Story[];
+  kev?: KevEntry[];
+  onEntity?: (ref: EntityRef, action: EntityAction) => void;
   /** Selected passage → board search. */
   onSearchText?: (text: string) => void;
   /** Selected passage → watchlist. */
@@ -481,13 +492,17 @@ export function ReaderPane({
         {itemTopicChips(active).map((topic) => {
           const style = tagStyle(topic);
           return (
-            <Tip key={topic} text={`Filter board to ${topic} · right-click coverage below to reclassify`}>
+            <Tip
+              key={topic}
+              text={`${explainTopic(active, topic, sources.get(active.sourceId))}\nFilter board to ${topic} · right-click coverage below to reclassify`}
+            >
               <button
                 type="button"
-                className="tag"
+                className="tag inline-flex items-center gap-1"
                 style={{ background: style.bg, color: style.fg }}
                 onClick={() => onTopic(topic)}
               >
+                <FamilyDot topic={topic} />
                 {topic}
               </button>
             </Tip>
@@ -880,6 +895,18 @@ export function ReaderPane({
               ))}
             </div>
           </div>
+        ) : null}
+
+        {pool && onEntity ? (
+          <ConnectedPanel
+            story={story}
+            pool={pool}
+            sources={sources}
+            kev={kev}
+            stack={stack}
+            onEntity={onEntity}
+            onOpenStory={onOpenStory}
+          />
         ) : null}
 
         {similar.length > 0 ? (

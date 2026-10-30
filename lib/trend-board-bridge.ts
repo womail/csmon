@@ -1,5 +1,5 @@
 import { mineItem, matchVendorName } from "./mine";
-import { figuresInText, personName } from "./people";
+import { bylinePeople, itemHasPerson, itemOrgs } from "./people";
 import { resolvePlace } from "./places";
 import type { TrendRow } from "./trends";
 import type { Item, Source } from "./types";
@@ -21,10 +21,9 @@ export function itemMatchesTrendRow(
       (vendor) => (matchVendorName(vendor) ?? vendor).toLowerCase() === row.id.toLowerCase(),
     );
   }
-  const author = personName(item, source);
-  if (author && author === row.id) return true;
-  const text = `${item.title} ${item.summary ?? ""}`;
-  return figuresInText(text).includes(row.id);
+  if (row.kind === "org") return itemOrgs(item).some((org) => org.name === row.id);
+  if (bylinePeople(item, source).includes(row.id)) return true;
+  return itemHasPerson(item, row.id, source);
 }
 
 export function countBoardItemsForTrend(

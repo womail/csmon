@@ -8,7 +8,20 @@ import type { MyBriefingProfile } from "@/lib/briefing-profile";
 import type { SavedFilter } from "@/lib/saved-filters";
 import type { Watchlist } from "@/lib/types";
 import type { UserDesk } from "@/lib/user-desks";
-import type { Desk, Source } from "@/lib/types";
+import type { Desk } from "@/lib/types";
+import { KIND_LABEL, type FacetInput } from "@/lib/facets";
+import type { Connection } from "@/lib/connections";
+import { trailLine, type TrailEntry } from "@/lib/filter-trail";
+import {
+  entryKey,
+  entryToken,
+  loadPaletteRecent,
+  rankEntries,
+  rememberPalettePick,
+  splitPrefix,
+  type IndexEntry,
+} from "@/lib/palette-index";
+import { SOURCE_TYPE_LABEL, isSourceType } from "@/lib/source-types";
 
 export type PaletteAction =
   | { kind: "desk"; desk: Desk }
@@ -26,14 +39,43 @@ export type PaletteAction =
   | { kind: "saved-filter"; filters: BoardFilters }
   | { kind: "open-reports" }
   | { kind: "open-user-guide" }
-  | { kind: "person"; name: string };
+  | { kind: "facet"; facet: FacetInput; label: string; mode: FacetMode }
+  | { kind: "trail"; index: number };
+
+/** Enter adds · Shift+Enter dossier · Alt+Enter excludes · Ctrl/⌘+Enter watches. */
+export type FacetMode = "add" | "dossier" | "exclude" | "watch";
 
 type Row = {
   id: string;
   label: string;
   hint: string;
   action: PaletteAction;
+  /** Kind badge shown before the label. */
+  badge?: string;
+  count?: number;
+  facet?: IndexEntry;
+  section?: string;
 };
+
+function facetRow(entry: IndexEntry, section?: string): Row {
+  return {
+    id: `facet-${entryKey(entry)}`,
+    label: entry.label,
+    hint: entry.hint ?? entryToken(entry),
+    badge: KIND_LABEL[entry.kind],
+    count: entry.count,
+    facet: entry,
+    section,
+    action: { kind: "facet", facet: { kind: entry.kind, value: entry.value }, label: entry.label, mode: "add" },
+  };
+}
+
+function modeFromEvent(event: { shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }): FacetMode {
+  if (event.metaKey || event.ctrlKey) return "watch";
+  if (event.altKey) return "exclude";
+  if (event.shiftKey) return "dossier";
+  return "add";
+}
 
 const CHEATSHEET = [
   { keys: "/", action: "Focus search" },
@@ -44,6 +86,11 @@ const CHEATSHEET = [
   { keys: "u", action: "Undo last hide/read" },
   { keys: "r", action: "Send focused story to the open report" },
   { keys: "1–9", action: "Jump desks (Home through Flights)" },
+  { keys: "[ / ]", action: "Previous / next view on the trail" },
+  { keys: "Palette Enter", action: "Add as filter" },
+  { keys: "Palette Shift+Enter", action: "Open dossier" },
+  { keys: "Palette Alt+Enter", action: "Exclude" },
+  { keys: "Palette Ctrl/⌘+Enter", action: "Watch" },
   { keys: "?", action: "This cheatsheet" },
   { keys: "Esc", action: "Close pane / palette" },
 ];
@@ -51,35 +98,48 @@ const CHEATSHEET = [
 export function CommandPalette({
   open,
   mode,
-  sources,
-  places,
   watches,
   customDesks,
   savedFilters,
   briefing,
-  people,
+  facetIndex,
+  oftenWith,
+  trail,
   unreadOnly,
   onClose,
   onAction,
 }: {
   open: boolean;
   mode: "palette" | "help";
-  sources: Source[];
-  places: string[];
   watches: Watchlist[];
   customDesks: UserDesk[];
   savedFilters: SavedFilter[];
   briefing: MyBriefingProfile | null;
-  people: string[];
+  /** Every facet value on the board with its count (lib/palette-index). */
+  facetIndex: IndexEntry[];
+  oftenWith: Connection[];
+  trail: TrailEntry[];
   unreadOnly: boolean;
   onClose: () => void;
   onAction: (action: PaletteAction) => void;
 }) {
   const [q, setQ] = useState("");
+  const [recent, setRecent] = useState<string[]>([]);
 
   useEffect(() => {
-    if (open) setQ("");
+    if (!open) return;
+    setQ("");
+    setRecent(loadPaletteRecent());
   }, [open]);
+
+  function run(row: Row, mode: FacetMode) {
+    if (row.facet && row.action.kind === "facet") {
+      rememberPalettePick(row.facet);
+      onAction({ ...row.action, mode });
+      return;
+    }
+    onAction(row.action);
+  }
 
   const rows = useMemo(() => {
     const list: Row[] = [
@@ -131,22 +191,6 @@ export function CommandPalette({
         action: { kind: "desk", desk: desk.id },
       });
     }
-    for (const place of places.slice(0, 12)) {
-      list.push({
-        id: `place-${place}`,
-        label: `Place: ${place}`,
-        hint: "filter",
-        action: { kind: "place", place },
-      });
-    }
-    for (const source of sources.filter((row) => row.enabled).slice(0, 16)) {
-      list.push({
-        id: `src-${source.id}`,
-        label: `Source: ${source.name}`,
-        hint: source.handle ?? "layer",
-        action: { kind: "source", sourceId: source.id },
-      });
-    }
     for (const watch of watches) {
       list.push({
         id: `watch-${watch.id}`,
@@ -155,20 +199,43 @@ export function CommandPalette({
         action: { kind: "watch", watch },
       });
     }
-    for (const name of people.slice(0, 10)) {
-      list.push({
-        id: `person-${name}`,
-        label: `Person: ${name}`,
-        hint: "filter",
-        action: { kind: "person", name },
-      });
+    const { kind, needle } = splitPrefix(q);
+    if (kind) return rankEntries(facetIndex, q, { recent, limit: 30 }).map((entry) => facetRow(entry));
+    if (!needle) {
+      const out: Row[] = [];
+      const byKey = new Map(facetIndex.map((entry) => [entryKey(entry), entry]));
+      for (const key of recent.slice(0, 6)) {
+        const entry = byKey.get(key);
+        if (entry) out.push(facetRow(entry, "Recent"));
+      }
+      trail
+        .slice(-4)
+        .reverse()
+        .forEach((entry, i) => {
+          const index = trail.length - 1 - i;
+          out.push({
+            id: `trail-${index}`,
+            label: trailLine(entry),
+            hint: "trail",
+            badge: "View",
+            section: "Recent",
+            action: { kind: "trail", index },
+          });
+        });
+      for (const row of oftenWith.slice(0, 6)) {
+        const entry = byKey.get(`${row.kind}:${row.value.toLowerCase()}`);
+        const label = row.kind === "stype" && isSourceType(row.value) ? SOURCE_TYPE_LABEL[row.value] : row.value;
+        out.push({
+          ...facetRow(entry ?? { kind: row.kind, value: row.value, label, count: row.together }, "Often with"),
+          hint: `${row.lift.toFixed(1)}× here`,
+        });
+      }
+      return [...out, ...list.map((row) => ({ ...row, section: "Commands" }))].slice(0, 30);
     }
-    const needle = q.trim().toLowerCase();
-    if (!needle) return list.slice(0, 18);
-    return list
-      .filter((row) => `${row.label} ${row.hint}`.toLowerCase().includes(needle))
-      .slice(0, 18);
-  }, [briefing, customDesks, people, places, q, savedFilters, sources, unreadOnly, watches]);
+    const commands = list.filter((row) => `${row.label} ${row.hint}`.toLowerCase().includes(needle)).slice(0, 8);
+    const facets = rankEntries(facetIndex, q, { recent, limit: 22 }).map((entry) => facetRow(entry));
+    return [...commands, ...facets];
+  }, [briefing, customDesks, facetIndex, oftenWith, q, recent, savedFilters, trail, unreadOnly, watches]);
 
   const [index, setIndex] = useState(0);
   useEffect(() => setIndex(0), [q, open, mode]);
@@ -202,7 +269,7 @@ export function CommandPalette({
               autoFocus
               value={q}
               onChange={(event) => setQ(event.target.value)}
-              placeholder="Desk, place, source, person, saved filter, watch…"
+              placeholder="Anything on the board: place, org, person, CVE, type:, family:…"
               className="h-10 w-full border-b border-slate-200 px-3 text-[13px] outline-none"
               onKeyDown={(event) => {
                 if (event.key === "ArrowDown") {
@@ -214,30 +281,40 @@ export function CommandPalette({
                 } else if (event.key === "Enter") {
                   event.preventDefault();
                   const row = rows[index];
-                  if (row) onAction(row.action);
+                  if (row) run(row, modeFromEvent(event));
                 } else if (event.key === "Escape") {
                   event.preventDefault();
                   onClose();
                 }
               }}
             />
-            <ul className="max-h-80 overflow-auto py-1">
+            <ul className="max-h-96 overflow-auto py-1">
               {rows.map((row, i) => (
                 <li key={row.id}>
+                  {row.section && row.section !== rows[i - 1]?.section ? (
+                    <div className="palette-section">{row.section}</div>
+                  ) : null}
                   <button
                     type="button"
                     className={`flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-[12px] ${
                       i === index ? "bg-slate-100 text-slate-900" : "text-slate-700"
                     }`}
                     onMouseEnter={() => setIndex(i)}
-                    onClick={() => onAction(row.action)}
+                    onClick={(event) => run(row, modeFromEvent(event))}
                   >
-                    <span className="min-w-0 truncate">{row.label}</span>
-                    <span className="shrink-0 font-mono text-[10px] text-slate-400">{row.hint}</span>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      {row.badge ? <span className="palette-badge">{row.badge}</span> : null}
+                      <span className="min-w-0 truncate">{row.label}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      <span className="max-w-[12rem] truncate font-mono text-[10px] text-slate-400">{row.hint}</span>
+                      {row.count != null ? <span className="palette-count">{row.count}</span> : null}
+                    </span>
                   </button>
                 </li>
               ))}
             </ul>
+            <div className="palette-foot">Enter add · Shift+Enter dossier · Alt+Enter exclude · Ctrl/⌘+Enter watch</div>
           </>
         )}
       </div>

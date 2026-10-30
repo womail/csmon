@@ -1,25 +1,17 @@
-import { INTEL_FEEDS, type IntelPack } from "./intel-feeds";
+import { INTEL_FEEDS } from "./intel-feeds";
+import { PACK_LABEL } from "./source-types";
 import type { OriginReason, Platform } from "./types";
-
-const PACK_LABEL: Record<IntelPack, string> = {
-  core: "World",
-  relief: "Relief",
-  security: "Security",
-  politics: "Politics",
-  hazard: "Hazard",
-  tech: "Tech",
-  markets: "Markets",
-  sports: "Sports",
-};
 
 const packByHandle = new Map(INTEL_FEEDS.map((feed) => [feed.id, feed.pack]));
 
-/** Category label for the Feeds desk. Kept beside the catalog so the reader pane stays portable. */
+/** Category label for the Feeds desk. A stored category (OPML folder, workbench edit) comes first. */
 export function rssFeedCategory(source: {
   handle: string | null;
   platform: Platform;
   origins: { reason: OriginReason }[];
+  category?: string | null;
 }) {
+  if (source.category?.trim()) return source.category.trim();
   if (source.platform === "bluesky") return "Bluesky";
   const pack = source.handle ? packByHandle.get(source.handle) : undefined;
   if (pack) return PACK_LABEL[pack];

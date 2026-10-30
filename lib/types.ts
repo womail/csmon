@@ -34,6 +34,10 @@ export type Source = {
   retentionDays: number | null;
   origins: { reason: OriginReason; weight: number; seedHandle: string }[];
   health?: SourceHealth;
+  /** Folder such as an OPML category; null derives from the intel pack (`lib/source-types.ts`). */
+  category?: string | null;
+  /** Resolved `SourceType` (stored or derived). */
+  sourceType?: string | null;
 };
 
 export type SourceFetchStatus = "ok" | "not_modified" | "error";
@@ -54,6 +58,8 @@ export type ItemEntity = {
   kind: EntityKind;
   key: string;
   label: string;
+  /** Role for people, org kind and country for orgs (stored as JSON in `entities.extra`). */
+  extra?: Record<string, string>;
 };
 
 export type Item = {
@@ -74,6 +80,8 @@ export type Item = {
   extractAt?: number | null;
   iocs?: string[];
   entities?: ItemEntity[];
+  /** User reclassified this item; the classifier leaves its topics alone. */
+  topicsLocked?: boolean;
 };
 
 export type Watchlist = {

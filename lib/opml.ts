@@ -1,4 +1,11 @@
 import type { CreateSourceInput } from "./source-catalog-shared";
+import { typeFromCategory, type SourceType } from "./source-types";
+
+/** Folder name → type; an unknown folder reads as an independent blog. */
+export function opmlFolderType(category: string | null): SourceType | null {
+  if (!category) return null;
+  return typeFromCategory(category) ?? "blog";
+}
 
 /** Subscription lists such as https://threatfilter.dev/feeds.opml stay well under this. */
 export const OPML_MAX_BYTES = 1_000_000;
@@ -98,7 +105,7 @@ export function parseOpml(xml: string): ParsedOpml {
       break;
     }
     seen.add(key);
-    const category = categories.filter(Boolean).join(" · ");
+    const category = categories.filter(Boolean).join(" › ").slice(0, 120) || null;
     let host = feedUrl;
     try {
       host = new URL(feedUrl).hostname;
@@ -109,7 +116,9 @@ export function parseOpml(xml: string): ParsedOpml {
       name: (label || host).slice(0, 160),
       url: siteForFeed(feedUrl, attr.htmlurl),
       feedUrl,
-      description: (attr.description || category || null)?.slice(0, 240) ?? null,
+      description: attr.description?.trim().slice(0, 240) || null,
+      category,
+      sourceType: opmlFolderType(category),
       enabled: true,
     });
   }

@@ -1,4 +1,5 @@
 import type { IntelPack } from "./intel-feeds";
+import type { SourceType } from "./source-types";
 import type { SourceCatalogRow } from "./source-catalog-shared";
 
 export const SOURCE_LIBRARY_KEY = "csmon.source-library";
@@ -17,6 +18,13 @@ export type LocalSourceDraft = {
   notes: string;
   primaryReason: string;
   retentionDays: number | null;
+  /** Stored folder; null derives from the pack. */
+  category?: string | null;
+  /** Stored type; null derives from host and name. */
+  sourceType?: SourceType | null;
+  /** Category and type as the board resolves them. */
+  shownCategory?: string;
+  shownType?: SourceType;
 };
 
 export type SourceLibraryFile = {
@@ -57,6 +65,10 @@ export function rowToDraft(row: SourceCatalogRow, notes = ""): LocalSourceDraft 
     notes,
     primaryReason: row.primaryReason,
     retentionDays: row.retentionDays ?? null,
+    category: row.storedCategory,
+    sourceType: row.storedSourceType,
+    shownCategory: row.category,
+    shownType: row.sourceType,
   };
 }
 

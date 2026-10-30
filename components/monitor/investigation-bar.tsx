@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Check, Copy, X } from "lucide-react";
 import { Tip } from "@/components/monitor/tip";
 import { boardQueryString, type BoardFilters } from "@/lib/board-state";
 import { retainMapCamera } from "@/lib/map-camera";
 import { activeFilterCount, deskLabel, filterSummaryLine } from "@/lib/investigation-summary";
-import type { Desk, TimeRange } from "@/lib/types";
+import type { Desk, Source, TimeRange } from "@/lib/types";
 
 export function InvestigationBar({
   desk,
@@ -27,6 +27,8 @@ export function InvestigationBar({
   filtersActive,
   contextLine,
   coverageLine,
+  sources,
+  trail,
 }: {
   desk: Desk;
   deskTitle?: string;
@@ -46,6 +48,9 @@ export function InvestigationBar({
   filtersActive: boolean;
   contextLine?: string;
   coverageLine?: string;
+  sources?: Map<number, Source>;
+  /** Trail ◀ ▶ controls (task 11). */
+  trail?: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
   const filterCount = activeFilterCount(filters, {
@@ -55,7 +60,7 @@ export function InvestigationBar({
     viewDesk,
   });
   const title = deskTitle ?? deskLabel(desk);
-  const summary = filterSummaryLine(filters);
+  const summary = filterSummaryLine(filters, sources);
 
   async function copyLink() {
     if (typeof window === "undefined") return;
@@ -131,6 +136,7 @@ export function InvestigationBar({
           )}
 
           <div className="investigation-bar-actions">
+            {trail}
             <Tip text={unreadOnly ? "Show all items" : "Show only stories you have not marked read"}>
               <button
                 type="button"

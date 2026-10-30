@@ -252,9 +252,7 @@ export function refreshStory(story: Story, boardItems: Item[], pool: Story[]): S
 
 export function situationLine(stories: Story[], sources: Source[]) {
   const places = [...new Set(stories.flatMap((s) => s.locations))].slice(0, 3);
-  const topics = [...new Set(stories.flatMap((s) => s.topics))]
-    .filter((t) => t !== "world")
-    .slice(0, 3);
+  const topics = [...new Set(stories.flatMap((s) => s.topics))].slice(0, 3);
   const hottest = stories[0];
   const bits = [
     `${stories.length} ${stories.length === 1 ? "story" : "stories"}`,

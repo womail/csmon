@@ -1,4 +1,5 @@
 import type { IntelFeed } from "./intel-feeds";
+import type { SourceType } from "./source-types";
 import type { OriginReason, Platform, SourceKind } from "./types";
 
 export type SourceCatalogRow = {
@@ -11,6 +12,12 @@ export type SourceCatalogRow = {
   platform: Platform;
   kind: SourceKind;
   description: string | null;
+  /** Stored folder, else the derived one. */
+  category: string;
+  /** Stored folder only; empty when derived. */
+  storedCategory: string | null;
+  sourceType: SourceType;
+  storedSourceType: SourceType | null;
   enabled: boolean;
   lastFetchedAt: number | null;
   createdAt: number;
@@ -60,6 +67,8 @@ export type SourcePatch = {
   description?: string | null;
   enabled?: boolean;
   retentionDays?: number | null;
+  category?: string | null;
+  sourceType?: SourceType | null;
 };
 
 export type CreateSourceInput = {
@@ -69,4 +78,6 @@ export type CreateSourceInput = {
   description?: string | null;
   enabled?: boolean;
   retentionDays?: number | null;
+  category?: string | null;
+  sourceType?: SourceType | null;
 };

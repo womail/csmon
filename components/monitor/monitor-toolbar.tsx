@@ -39,11 +39,14 @@ function BoardSearch({
   onQueryChange,
   placeholder,
   data,
+  onQuerySubmit,
 }: {
   query: string;
   onQueryChange: (value: string) => void;
   placeholder: string;
   data: SearchSuggestData;
+  /** Enter with no suggestion open: typed tokens become Active chips. */
+  onQuerySubmit?: () => void;
 }) {
   const [focused, setFocused] = useState(false);
   const [active, setActive] = useState(0);
@@ -73,7 +76,13 @@ function BoardSearch({
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         onKeyDown={(e) => {
-          if (!open) return;
+          if (!open) {
+            if (e.key === "Enter" && onQuerySubmit) {
+              e.preventDefault();
+              onQuerySubmit();
+            }
+            return;
+          }
           if (e.key === "ArrowDown") {
             e.preventDefault();
             setActive((activeIndex + 1) % suggestions.length);
@@ -166,6 +175,7 @@ export function MonitorToolbar({
   onSourcesApplied,
   onAddRss,
   searchData,
+  onQuerySubmit,
 }: {
   viewDesk: string;
   query: string;
@@ -212,6 +222,7 @@ export function MonitorToolbar({
   onSourcesApplied: (state: MonitorState) => void;
   onAddRss: () => void;
   searchData: SearchSuggestData;
+  onQuerySubmit?: () => void;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -230,6 +241,7 @@ export function MonitorToolbar({
           onQueryChange={onQueryChange}
           placeholder={viewDesk === "patch" ? "Search CVE, vendor, product…" : "Search… (try source:cisa or place:Ireland)"}
           data={searchData}
+          onQuerySubmit={onQuerySubmit}
         />
         <div className="toolbar-group">
           <SavedViewsButton

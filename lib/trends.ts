@@ -1,10 +1,10 @@
 import { mineItem, matchVendorName } from "./mine";
-import { figuresInText, personName } from "./people";
+import { bylinePeople, itemOrgs, newsPeopleInText } from "./people";
 import { resolvePlace } from "./places";
 import { rangeStart } from "./time";
 import type { Item, Source, TimeRange } from "./types";
 
-export type TrendKind = "topic" | "place" | "vendor" | "person";
+export type TrendKind = "topic" | "place" | "vendor" | "person" | "org";
 export type TrendDirection = "up" | "down" | "flat" | "new";
 
 export type TrendRow = {
@@ -80,14 +80,25 @@ export function trendKeys(item: Item, source?: Source | null) {
     out.push({ kind, id, label });
   }
   for (const topic of item.topics) {
-    if (topic !== "world") add("topic", topic);
+    add("topic", topic);
   }
   for (const loc of item.locations) add("place", resolvePlace(loc));
   for (const vendor of mineItem(item).vendors) add("vendor", matchVendorName(vendor) ?? vendor);
-  const author = personName(item, source);
-  if (author) add("person", author);
-  for (const figure of figuresInText(`${item.title} ${item.summary ?? ""}`)) add("person", figure);
+  for (const name of bylinePeople(item, source)) add("person", name);
+  for (const row of newsPeopleInText(`${item.title} ${item.summary ?? ""}`)) add("person", row.name);
+  for (const org of itemOrgs(item)) add("org", org.name);
   return out;
+}
+
+const keyCache = new WeakMap<Item, { source: Source | null | undefined; keys: ReturnType<typeof trendKeys> }>();
+
+/** `trendKeys` memoised per item object; items are replaced, not mutated, when state changes. */
+export function cachedTrendKeys(item: Item, source?: Source | null) {
+  const hit = keyCache.get(item);
+  if (hit && hit.source === source) return hit.keys;
+  const keys = trendKeys(item, source);
+  keyCache.set(item, { source, keys });
+  return keys;
 }
 
 function direction(now: number, prev: number): TrendDirection {
@@ -121,7 +132,7 @@ export function buildTrends(
 
   function ingest(list: Item[], map: Map<string, Bucket>) {
     for (const item of list) {
-      for (const key of trendKeys(item, sources.get(item.sourceId))) {
+      for (const key of cachedTrendKeys(item, sources.get(item.sourceId))) {
         const id = `${key.kind}:${key.id}`;
         labels.set(id, { kind: key.kind, label: key.label });
         bump(map, id, item);
@@ -136,7 +147,7 @@ export function buildTrends(
   const pointsFor = (id: string) => {
     const points = Array.from({ length: bucketCount }, () => 0);
     for (const item of series) {
-      if (!trendKeys(item, sources.get(item.sourceId)).some((key) => `${key.kind}:${key.id}` === id)) {
+      if (!cachedTrendKeys(item, sources.get(item.sourceId)).some((key) => `${key.kind}:${key.id}` === id)) {
         continue;
       }
       const index = Math.min(
@@ -198,7 +209,7 @@ export function risingKeySet(report: TrendReport) {
 
 export function itemMatchesRising(item: Item, keys: Set<string>, source?: Source | null) {
   if (keys.size === 0) return false;
-  return trendKeys(item, source).some((key) => keys.has(`${key.kind}:${key.id}`));
+  return cachedTrendKeys(item, source).some((key) => keys.has(`${key.kind}:${key.id}`));
 }
 
 export function minedCves(items: Item[]) {

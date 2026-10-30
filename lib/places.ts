@@ -162,9 +162,8 @@ export function itemHasPlace(
     return true;
   }
   const text = `${item.title} ${item.summary ?? ""} ${"extractText" in item ? (item as { extractText?: string | null }).extractText ?? "" : ""}`;
-  if (textHasPlace(text, canon)) return true;
-  for (const alias of aliases) {
-    if (alias.length > 2 && textHasPlace(text, alias)) return true;
+  for (const related of RELATED[canon] ?? [canon]) {
+    if (textHasPlace(text, related)) return true;
   }
   return false;
 }

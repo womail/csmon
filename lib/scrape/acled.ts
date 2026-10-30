@@ -186,7 +186,7 @@ function rowToItem(row: AcledRow, index: number): ScrapedItem | null {
     .slice(0, 500);
 
   const classified = classifyItem(title, summary);
-  const topics = [...new Set(["conflict", ...classified.topics.filter((t) => t !== "world")])].slice(0, 6);
+  const topics = [...new Set(["conflict", ...classified.topics])].slice(0, 6);
   const locations = [...new Set([...(classified.locations ?? []), row.country, row.admin1].filter(Boolean))].slice(
     0,
     6,

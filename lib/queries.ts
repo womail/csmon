@@ -1,7 +1,10 @@
 import "server-only";
 
 import { cacheStats } from "./cache";
-import { applySourceTopics, applyWeatherSourceTopics, classifyItem, withoutWeatherCyberTags } from "./classify";
+import { classifyItem, withoutWeatherCyberTags } from "./classify";
+import { deriveSourceType, isSourceType, topicHintForSource } from "./source-types";
+import { CLASSIFIER_VERSION } from "./topic-rules";
+import { personName } from "./people";
 import { colorFor } from "./colors";
 import { getDb, withTransaction } from "./db";
 import { entitiesForItemIds, indexItemEntities } from "./entities";
@@ -56,6 +59,8 @@ type SourceRow = {
   fail_count?: number | null;
   next_fetch_at?: number | null;
   last_added?: number | null;
+  category?: string | null;
+  source_type?: string | null;
 };
 
 type ItemRow = {
@@ -73,6 +78,8 @@ type ItemRow = {
   fetched_at: number;
   extract_body?: string | null;
   extract_at?: number | null;
+  topics_locked?: number | null;
+  classifier_version?: number | null;
 };
 
 function mapUser(row: Record<string, unknown>): SeedUser {
@@ -94,7 +101,7 @@ function mapSource(
   row: SourceRow,
   origins: Source["origins"],
 ): Source {
-  return {
+  const source: Source = {
     id: row.id,
     key: row.key,
     name: row.name,
@@ -121,7 +128,11 @@ function mapSource(
       nextFetchAt: row.next_fetch_at ?? null,
       lastAdded: row.last_added ?? null,
     },
+    category: row.category ?? null,
+    sourceType: null,
   };
+  source.sourceType = isSourceType(row.source_type) ? row.source_type : deriveSourceType(source);
+  return source;
 }
 
 function parseJsonArray(raw: string | undefined) {
@@ -138,8 +149,9 @@ function mapItem(row: ItemRow, entities?: Item["entities"]): Item {
   const topics = parseJsonArray(row.topics);
   const locations = parseJsonArray(row.locations);
   const tags = parseJsonArray(row.tags);
+  const scored = Number(row.classifier_version ?? 0) > 0 || row.topics_locked === 1;
   const classified =
-    topics.length || locations.length || tags.length ? null : classifyItem(row.title, row.summary);
+    scored || topics.length || locations.length || tags.length ? null : classifyItem(row.title, row.summary);
   const cleaned = withoutWeatherCyberTags(
     topics.length ? topics : (classified?.topics ?? []),
     tags.length ? tags : (classified?.tags ?? []),
@@ -163,6 +175,7 @@ function mapItem(row: ItemRow, entities?: Item["entities"]): Item {
     extractAt: row.extract_at ?? null,
     iocs: entities?.filter((row) => row.kind === "ioc").map((row) => row.label),
     entities,
+    topicsLocked: row.topics_locked === 1,
   };
 }
 
@@ -306,37 +319,29 @@ export function insertItems(
   let created = 0;
   const stmt = db.prepare(
     `INSERT INTO items
-     (source_id, external_id, title, summary, url, author, published_at, tags, topics, locations, fetched_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     (source_id, external_id, title, summary, url, author, published_at, tags, topics, locations, fetched_at, classifier_version)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(source_id, external_id) DO UPDATE SET
        title = excluded.title,
        summary = excluded.summary,
        url = excluded.url,
        author = excluded.author,
        published_at = COALESCE(excluded.published_at, items.published_at),
-       tags = excluded.tags,
-       topics = excluded.topics,
+       tags = CASE WHEN items.topics_locked = 1 THEN items.tags ELSE excluded.tags END,
+       topics = CASE WHEN items.topics_locked = 1 THEN items.topics ELSE excluded.topics END,
        locations = excluded.locations,
-       fetched_at = excluded.fetched_at
+       fetched_at = excluded.fetched_at,
+       classifier_version = excluded.classifier_version
      RETURNING id`,
   );
   const source = getSource(sourceId);
-  const indexed: { id: number; scraped: ScrapedItem }[] = [];
+  const indexed: { id: number; scraped: ScrapedItem; topics: string[]; tags: string[]; locations: string[] }[] = [];
   withTransaction(() => {
     for (const item of items) {
-      let classified = classifyItem(item.title, item.summary);
-      classified = applySourceTopics(classified, {
-        handle: source?.handle,
-        feedUrl: source?.feedUrl,
-      });
-      classified = applyWeatherSourceTopics(
-        classified,
-        { handle: source?.handle, feedUrl: source?.feedUrl },
-        `${item.title} ${item.summary ?? ""} ${item.url ?? ""}`,
-      );
+      const classified = classifyItem(item.title, item.summary, topicHintForSource(source));
       const cleaned = withoutWeatherCyberTags(
-        item.topics.length ? item.topics : classified.topics,
-        item.tags.length ? item.tags : classified.tags,
+        classified.topics,
+        classified.tags,
         `${item.title} ${item.summary ?? ""} ${item.url ?? ""}`,
       );
       const topics = cleaned.topics;
@@ -348,12 +353,13 @@ export function insertItems(
         item.title,
         item.summary,
         item.url,
-        typeof item.author === "string" ? item.author : null,
+        personName({ author: typeof item.author === "string" ? item.author : null }, source),
         item.publishedAt,
         JSON.stringify(tags),
         JSON.stringify(topics),
         JSON.stringify(item.locations.length ? item.locations : classified.locations),
         now,
+        CLASSIFIER_VERSION,
       ) as { id: number } | undefined;
       if (!row) continue;
       const existing = db.prepare("SELECT body FROM extracts WHERE item_id = ?").get(row.id) as
@@ -361,7 +367,13 @@ export function insertItems(
         | undefined;
       upsertItemFts(row.id, item.title, item.summary, existing?.body ?? "");
       indexItemEntities(row.id, `${item.title}\n${item.summary ?? ""}`, item);
-      indexed.push({ id: row.id, scraped: item });
+      indexed.push({
+        id: row.id,
+        scraped: item,
+        topics,
+        tags,
+        locations: item.locations.length ? item.locations : classified.locations,
+      });
     }
   });
   const watches = listWatchlists();
@@ -374,11 +386,11 @@ export function insertItems(
       title: row.scraped.title,
       summary: row.scraped.summary,
       url: row.scraped.url,
-      author: row.scraped.author,
+      author: personName({ author: typeof row.scraped.author === "string" ? row.scraped.author : null }, source),
       publishedAt: row.scraped.publishedAt,
-      tags: row.scraped.tags,
-      topics: row.scraped.topics,
-      locations: row.scraped.locations,
+      tags: row.tags,
+      topics: row.topics,
+      locations: row.locations,
       fetchedAt: now,
     };
     alerts.push(...recordWatchHits(mapped, source ?? undefined, watches));
@@ -655,6 +667,12 @@ export function replaceKev(entries: KevEntry[]) {
       );
     }
   });
+}
+
+/** When the stored catalog was last replaced. 0 if KEV has never been loaded. */
+export function kevFetchedAt(): number {
+  const row = getDb().prepare("SELECT MAX(fetched_at) AS t FROM kev").get() as { t: number | null } | undefined;
+  return Number(row?.t ?? 0);
 }
 
 export function listKev(): KevEntry[] {

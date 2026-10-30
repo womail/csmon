@@ -67,8 +67,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/api-client";
 import type { BoardFilters } from "@/lib/board-state";
-import { defaultBoardFilters, normalizeBoardFilters, syncBoardUrl } from "@/lib/board-state";
-import { isKnownTopic, isSportSubtag, itemHasTopic } from "@/lib/classify";
+import { boardQueryString, defaultBoardFilters, normalizeBoardFilters, parseBoardFilters, syncBoardUrl } from "@/lib/board-state";
+import { isKnownTopic, isSportSubtag } from "@/lib/classify";
 import {
   clusterItems,
   itemAsStory,
@@ -111,11 +111,58 @@ import {
   type BoardSort,
 } from "@/lib/board-sort";
 import { applyBoardItemFilters } from "@/lib/board-item-filter";
+import {
+  EMPTY_FACET_EXTRAS,
+  addFacet,
+  clearFacets,
+  facetExtrasOf,
+  facetsFromFilters,
+  facetToken,
+  facetsToSearchLine,
+  promoteTypedTokens,
+  removeFacet,
+  toggleFacet,
+  type Facet,
+  type FacetExtras,
+  type FacetInput,
+} from "@/lib/facets";
+import {
+  connectionsFor,
+  itemRefs,
+  parseRefToken,
+  refKey,
+  reportRefs,
+  sharedReportRef,
+  type EntityRef,
+  type RefKind,
+} from "@/lib/connections";
+import { EntityPane } from "@/components/monitor/entity-pane";
+import { ActiveFacetRow } from "@/components/monitor/active-facet-row";
+import { TrailControls } from "@/components/monitor/trail-controls";
+import { buildFacetIndex } from "@/lib/palette-index";
+import {
+  listTrail,
+  pushTrail,
+  trailBack,
+  trailForward,
+  trailGo,
+  trailMethodNote,
+  trailPosition,
+  type TrailEntry,
+} from "@/lib/filter-trail";
+import { dismissVisit, loadVisits, recordVisit, saveVisits, shouldOfferSave, viewSignature } from "@/lib/view-visits";
+import { filterSummaryLine } from "@/lib/investigation-summary";
 import { itemMatchesAnyNest, suggestDeskFacets } from "@/lib/desk-nests";
 import { rssFeedCategory } from "@/lib/rss-library";
 import { activeFilterCount, deskLabel as investigationDeskLabel } from "@/lib/investigation-summary";
 import { loadMyBriefing, type MyBriefingProfile } from "@/lib/briefing-profile";
-import { applyTopicOverride, loadItemTopicOverrides, saveItemTopicOverride } from "@/lib/item-overrides";
+import {
+  applyTopicOverride,
+  clearItemTopicOverride,
+  loadItemTopicOverrides,
+  saveItemTopicOverride,
+  syncItemTopicOverrides,
+} from "@/lib/item-overrides";
 import { loadSavedFilters, type SavedFilter } from "@/lib/saved-filters";
 import { loadOptions, saveOptions } from "@/lib/options";
 import type { AcledProfile } from "@/lib/acled";
@@ -135,7 +182,19 @@ import {
 } from "@/lib/reddit";
 import { applyPalette } from "@/lib/theme";
 import { shortSourceName } from "@/lib/source-label";
-import { itemHasPerson, peopleFromItems } from "@/lib/people";
+import { bylinesFromItems, itemHasPerson, newsPeopleFromItems, orgsFromItems, peopleFromItems } from "@/lib/people";
+import { orgAttribution } from "@/lib/gazetteer/orgs";
+import { SOURCE_TYPES, sourceCategory } from "@/lib/source-types";
+import {
+  FAMILY_IDS,
+  TOPIC_FAMILIES,
+  familiesForItem,
+  familyCounts,
+  familyOfTopic,
+  type FamilyId,
+} from "@/lib/topic-families";
+import { FamiliesStrip } from "@/components/monitor/families-strip";
+import { FacetPicker, FamilyFacetRows, SourceTypeRow } from "@/components/monitor/facet-picker";
 import { isCountry, isKnownPlace, itemHasPlace, PINNED_PLACES, resolvePlace } from "@/lib/places";
 import {
   emptyQuery,
@@ -182,6 +241,7 @@ import {
   saveReaderWidth,
   snapshotStory,
   type Report,
+  addHighlightToReport,
 } from "@/lib/reports";
 import { uniqueById, type WeatherEvent } from "@/lib/weather";
 import type { NaturalEvent, OutageRow } from "@/lib/hazards";
@@ -229,6 +289,7 @@ const ScrapeDialog = dynamic(() =>
 );
 
 const BOARD_PAGE = 80;
+const CONNECTION_KINDS = new Set<RefKind>(["topic", "place", "person", "org", "vendor", "cve", "category", "stype"]);
 
 const STACK_CHIPS = [
   { label: "AI", kind: "topic" as const, value: "ai" },
@@ -240,7 +301,6 @@ const STACK_CHIPS = [
   { label: "macOS", kind: "vendor" as const, value: "Apple" },
   { label: "Mac", kind: "vendor" as const, value: "Apple" },
 ];
-const STACK_TOPIC_VALUES = new Set(["ai", "sports", "reddit"]);
 const STACK_VENDOR_VALUES = new Set(
   STACK_CHIPS.filter((chip) => chip.kind === "vendor").map((chip) => chip.value),
 );
@@ -341,6 +401,7 @@ export function Monitor({
   const [person, setPerson] = useState<string | null>(seed.person);
   const [rising, setRising] = useState(seed.rising);
   const [qb, setQb] = useState<QueryTree>(seed.qb ?? emptyQuery());
+  const [extras, setExtras] = useState<FacetExtras>(() => facetExtrasOf(seed));
   const [compact, setCompact] = useState(false);
   const [homeLanguage, setHomeLanguage] = useState("en");
   const [autoTranslate, setAutoTranslate] = useState(false);
@@ -397,6 +458,13 @@ export function Monitor({
     x: number;
     y: number;
   } | null>(null);
+  const [viewTrail, setViewTrail] = useState<{ entries: TrailEntry[]; cursor: number }>({ entries: [], cursor: -1 });
+  const viewTrailStepRef = useRef<(delta: -1 | 1) => void>(() => undefined);
+  const [savePromptSig, setSavePromptSig] = useState<string | null>(null);
+  const offerWatchAfterSave = useRef<{ line: string; desk: string } | null>(null);
+  const [watchOffer, setWatchOffer] = useState<{ line: string; desk: string; name: string } | null>(null);
+  const [pulseFamily, setPulseFamily] = useState<FamilyId | null>(null);
+  const [deskCarry, setDeskCarry] = useState<{ count: number; from: string } | null>(null);
   const [chipMenu, setChipMenu] = useState<{ chip: CardChip; x: number; y: number } | null>(null);
   const [epss, setEpss] = useState<Map<string, EpssScore>>(() => new Map());
   const epssRequested = useRef(new Set<string>());
@@ -437,6 +505,7 @@ export function Monitor({
     setFirstRunDismissed(window.localStorage.getItem(FIRST_RUN_CHECKLIST_KEY) === "1");
     setHasBriefingProfile(Boolean(loadMyBriefing()));
     setTopicOverrides(loadItemTopicOverrides());
+    void syncItemTopicOverrides();
     setAutoRefreshMinutes(opts.autoRefreshMinutes);
     setReports(loadReports());
     void hydrateReports().then((rows) => {
@@ -547,6 +616,7 @@ export function Monitor({
       rising,
       qb,
       focusItem,
+      ...extras,
     });
   }, [
     cross,
@@ -569,6 +639,7 @@ export function Monitor({
     stack,
     topic,
     vendor,
+    extras,
   ]);
 
   useEffect(() => {
@@ -706,6 +777,7 @@ export function Monitor({
       rising,
       qb,
       focusItem,
+      ...extras,
     };
     return applyBoardItemFilters(boardItems, filters, byId, {
       viewDesk,
@@ -739,6 +811,7 @@ export function Monitor({
     triage.hidden,
     vendor,
     viewDesk,
+    extras,
   ]);
 
   const trends = useMemo(() => buildTrends(baseItems, range, byId), [baseItems, byId, range]);
@@ -893,6 +966,12 @@ export function Monitor({
       topic: topics.map(([name]) => name),
       vendor: vendors.map(([name]) => name),
       author: [...authors.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name),
+      person: newsPeopleFromItems(rangedItems).map((row) => row.name),
+      org: orgsFromItems(rangedItems).map((row) => row.name),
+      cve: minedCves(rangedItems).map(([id]) => id),
+      type: SOURCE_TYPES.filter((type) => state.sources.some((s) => s.enabled && s.sourceType === type)),
+      category: [...new Set(state.sources.filter((s) => s.enabled).map((s) => sourceCategory(s)))].sort(),
+      family: FAMILY_IDS,
     };
   }, [places, rangedItems, state.sources, topics, vendors]);
 
@@ -1223,10 +1302,6 @@ export function Monitor({
     }
   }
 
-  function appendQueryToken(token: string) {
-    setQuery((current) => [current.trim(), token].filter(Boolean).join(" "));
-  }
-
   async function handleChipMenuAction(kind: "filter" | "exclude" | "watch" | "only" | "mute" | "refresh" | "copy-feed") {
     if (!chipMenu) return;
     const { chip } = chipMenu;
@@ -1235,7 +1310,7 @@ export function Monitor({
     if (chip.kind === "source") {
       const source = byId.get(chip.sourceId);
       if (kind === "only" || kind === "filter") focusSource(chip.sourceId);
-      else if (kind === "exclude") appendQueryToken(`-${token}`);
+      else if (kind === "exclude") addBoardFacet({ kind: "source", value: String(chip.sourceId), negate: true });
       else if (kind === "mute" && source) {
         await toggleLayer(source.id, true);
         flashNotice(`Muted ${source.name}`);
@@ -1247,9 +1322,10 @@ export function Monitor({
     if (kind === "filter") {
       if (chip.kind === "topic") toggleTopic(chip.value);
       else if (chip.kind === "place") focusPlace(chip.value);
+      else if (chip.kind === "org") toggleOrg(chip.value);
       else toggleVendor(chip.value);
     } else if (kind === "exclude") {
-      appendQueryToken(`-${token}`);
+      addBoardFacet({ kind: chip.kind, value: chip.value, negate: true });
     } else if (kind === "watch") {
       void createWatch(token, chip.value);
     }
@@ -1295,6 +1371,7 @@ export function Monitor({
       rising,
       qb,
       focusItem,
+      ...extras,
     });
   }
 
@@ -1376,6 +1453,10 @@ export function Monitor({
       await reclassifyItemTopics(item.id, action.topics);
       return;
     }
+    if (action.kind === "reset-topics") {
+      await resetItemTopics(item.id);
+      return;
+    }
     if (action.kind === "display-only") {
       const itemIds = story ? displayOnlyIdsFromStory(story) : [item.id];
       const label = (story?.title ?? item.title).trim().slice(0, 32) || guessDeskTitleFromItem(item);
@@ -1433,6 +1514,21 @@ export function Monitor({
     }
   }
 
+  async function resetItemTopics(itemId: number) {
+    try {
+      const data = await json<MonitorState>(statePath("/api/items/reclassify", boardItemLimit), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId, reset: true }),
+      });
+      setState(data);
+      setTopicOverrides(clearItemTopicOverride(itemId));
+      flashNotice("Topics reset to automatic");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Reset failed");
+    }
+  }
+
   async function applyMyBriefing(profile: import("@/lib/briefing-profile").MyBriefingProfile) {
     applyFilters({
       desk: profile.desk,
@@ -1455,6 +1551,7 @@ export function Monitor({
       person: null,
       qb,
       focusItem: null,
+      ...EMPTY_FACET_EXTRAS,
     });
     const keys = new Set(profile.enabledSourceKeys);
     if (!keys.size) return;
@@ -1618,6 +1715,10 @@ export function Monitor({
     setCustomDesks(next);
     const created = next.find((row) => row.label.toLowerCase() === name.trim().toLowerCase()) ?? next[0];
     if (created) applyFilters(created.filters);
+    if (offerWatchAfterSave.current) {
+      setWatchOffer({ ...offerWatchAfterSave.current, name: name.trim() });
+      offerWatchAfterSave.current = null;
+    }
   }
 
   function applyFilters(next: BoardFilters) {
@@ -1642,6 +1743,7 @@ export function Monitor({
     setRising(filters.rising);
     setQb(filters.qb ?? emptyQuery());
     setFocusItem(filters.focusItem ?? null);
+    setExtras(facetExtrasOf(filters));
   }
 
   function clearBoardFilters() {
@@ -1663,6 +1765,7 @@ export function Monitor({
     setQb(emptyQuery());
     setOpenSourceId(null);
     setFocusItem(null);
+    setExtras((prev) => ({ ...EMPTY_FACET_EXTRAS, dossier: prev.dossier }));
     focusItemHandled.current = null;
   }
 
@@ -1683,7 +1786,46 @@ export function Monitor({
     cross ||
     Boolean(query.trim()) ||
     ransomware ||
+    Boolean(extras.org) ||
+    Boolean(extras.cat) ||
+    extras.stype.length > 0 ||
+    extras.fam.length > 0 ||
+    extras.not.length > 0 ||
+    extras.cve.length > 0 ||
     (viewDesk === "patch" && riskFilter !== "all");
+
+  useEffect(() => {
+    if (!deskCarry) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, [contenteditable=true]")) return;
+      setDeskCarry(null);
+      clearBoardFilters();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [deskCarry]);
+
+  function updateFilters(fn: (filters: BoardFilters) => BoardFilters) {
+    applyFilters(fn(currentFilters));
+  }
+
+  function addBoardFacet(facet: FacetInput) {
+    if (facet.kind === "source" && !facet.negate) setOpenSourceId(null);
+    updateFilters((filters) => addFacet(filters, facet));
+  }
+
+  function removeBoardFacet(facet: Facet) {
+    if (facet.kind === "source") setOpenSourceId(null);
+    updateFilters((filters) => removeFacet(filters, facet));
+  }
+
+  function clearAllFacets() {
+    setOpenSourceId(null);
+    focusItemHandled.current = null;
+    updateFilters(clearFacets);
+  }
 
   function goHome() {
     const next = defaultBoardFilters(stack);
@@ -1830,6 +1972,14 @@ export function Monitor({
   function toggleVendor(name: string) {
     const canon = matchVendorName(name) ?? name;
     setVendor((current) => (current === canon ? null : canon));
+  }
+
+  function openDossier(token: string | null) {
+    setExtras((prev) => ({ ...prev, dossier: token }));
+  }
+
+  function toggleOrg(name: string) {
+    setExtras((prev) => ({ ...prev, org: prev.org === name ? null : name }));
   }
 
   function toggleNest(name: string) {
@@ -2036,6 +2186,25 @@ export function Monitor({
     openCompiledReport(created.report.id);
   }
 
+  function reportStories(picked: Story[], title: string) {
+    if (!picked.length) return;
+    const live = openReports(reports);
+    const target = live.find((row) => row.id === openReportId) ?? live[0];
+    let rows = reports;
+    let id: string;
+    let rest = picked;
+    if (target) id = target.id;
+    else {
+      const created = createReport(title, snapshotStory(picked[0]!, byId), reports);
+      rows = created.rows;
+      id = created.report.id;
+      rest = picked.slice(1);
+    }
+    for (const story of rest) rows = addStoryToReport(id, snapshotStory(story, byId), rows);
+    handleReportsChange(rows);
+    flashReportToast(id, rows);
+  }
+
   function reopenWatch(watch: { id: number; query: string; desk: string | null }) {
     const full = (state.watches ?? []).find((row) => row.id === watch.id);
     if (!full) return;
@@ -2128,6 +2297,11 @@ export function Monitor({
         reportFocused();
         return;
       }
+      if (event.key === "[" || event.key === "]") {
+        event.preventDefault();
+        viewTrailStepRef.current(event.key === "[" ? -1 : 1);
+        return;
+      }
       if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
         const row = boardList[focusIndex];
         const story = row?.kind === "story" ? row.story : null;
@@ -2181,7 +2355,81 @@ export function Monitor({
     rising,
     qb,
     focusItem,
+    ...extras,
   };
+
+  const activeFacets = facetsFromFilters(currentFilters, { sources: byId });
+  const activeFacetKey = activeFacets.map((facet) => facet.token).join("|");
+  const oftenWith = useMemo(() => {
+    if (!activeFacetKey || stories.length < 3 || viewDesk === "patch" || viewDesk === "reports" || viewDesk === "flights") return [];
+    const exclude: EntityRef[] = activeFacets
+      .filter((facet) => CONNECTION_KINDS.has(facet.kind as RefKind))
+      .map((facet) => ({ kind: facet.kind as RefKind, value: facet.value }));
+    return connectionsFor(stories, poolStories, byId, { exclude, perKind: 3, limit: 8 });
+    // activeFacetKey stands in for activeFacets, which is rebuilt each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFacetKey, byId, poolStories, stories, viewDesk]);
+
+  const trailQuery = boardQueryString({ ...currentFilters, focusItem: null });
+  const trailUnit = viewDesk === "scan" ? ("items" as const) : ("stories" as const);
+  const trailCount = viewDesk === "scan" ? visibleItems.length : stories.length;
+  const trailSummary = `${activeCustom?.label ?? investigationDeskLabel(desk)} · ${filterSummaryLine(currentFilters, byId)}`;
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      pushTrail({ at: Date.now(), query: trailQuery, summary: trailSummary, count: trailCount, unit: trailUnit });
+      setViewTrail({ entries: listTrail(), cursor: trailPosition().cursor });
+    }, 1500);
+    return () => window.clearTimeout(id);
+  }, [trailCount, trailQuery, trailSummary, trailUnit]);
+
+  function applyTrailEntry(entry: TrailEntry | null) {
+    if (!entry) return;
+    const parsed = parseBoardFilters(Object.fromEntries(new URLSearchParams(entry.query)));
+    applyFilters({ ...parsed, stack });
+    setViewTrail({ entries: listTrail(), cursor: trailPosition().cursor });
+  }
+
+  function stepViewTrail(delta: -1 | 1) {
+    applyTrailEntry(delta < 0 ? trailBack() : trailForward());
+  }
+  viewTrailStepRef.current = stepViewTrail;
+
+  function saveTrailToReport() {
+    const note = `Method\n${trailMethodNote(viewTrail.entries)}`;
+    const report = activeReport;
+    const first = report?.stories[0];
+    if (!report || !first) {
+      void copyText(note, "trail (open a report with a story to save it there)");
+      return;
+    }
+    const rows = addHighlightToReport(report.id, first, note, reports);
+    handleReportsChange(rows);
+    flashNotice(`Saved trail to “${report.title}” as a highlight on its first story`);
+  }
+
+  const viewSig = viewSignature(desk, activeFacets.map((facet) => facet.token));
+  useEffect(() => {
+    if (activeCustom || !activeFacetKey) return;
+    const id = window.setTimeout(() => {
+      const map = recordVisit(loadVisits(), viewSig);
+      saveVisits(map);
+      setSavePromptSig(shouldOfferSave(map, viewSig) ? viewSig : null);
+    }, 1500);
+    return () => window.clearTimeout(id);
+  }, [activeCustom, activeFacetKey, viewSig]);
+
+  function startSaveFromPrompt() {
+    const line = facetsToSearchLine(activeFacets);
+    const name = activeFacets
+      .filter((facet) => facet.kind !== "text")
+      .slice(0, 3)
+      .map((facet) => facet.label)
+      .join(" · ");
+    offerWatchAfterSave.current = { line, desk: viewDesk };
+    setSavePromptSig(null);
+    saveVisits(dismissVisit(loadVisits(), viewSig));
+    openLiveFilter(name || "My view", line);
+  }
 
   const catalogTopics = useMemo(() => {
     const counts = new Map<string, number>();
@@ -2229,6 +2477,15 @@ export function Monitor({
     });
   }, [enabled, items, origin, person, place, platform, query, topic, vendor]);
 
+  const sourcesByCategory = useMemo(() => {
+    const groups = new Map<string, typeof visibleSources>();
+    for (const source of visibleSources) {
+      const category = sourceCategory(source);
+      groups.set(category, [...(groups.get(category) ?? []), source]);
+    }
+    return [...groups.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  }, [visibleSources]);
+
   const pinnedPlaceCounts = useMemo(
     () =>
       PINNED_PLACES.map(
@@ -2237,8 +2494,53 @@ export function Monitor({
     [rangedItems],
   );
 
-  const people = useMemo(() => peopleFromItems(items, byId), [byId, items]);
   const peopleCatalog = useMemo(() => peopleFromItems(rangedItems, byId), [byId, rangedItems]);
+  const familyNow = useMemo(() => familyCounts(boardItems), [boardItems]);
+  const pulseFamilyRefs = useMemo(() => {
+    if (!pulseFamily || viewDesk !== "pulse") return null;
+    const keys = new Set<string>();
+    for (const item of baseItems) {
+      if (!familiesForItem(item).includes(pulseFamily)) continue;
+      for (const ref of itemRefs(item, byId.get(item.sourceId))) keys.add(refKey(ref));
+    }
+    return keys;
+  }, [baseItems, byId, pulseFamily, viewDesk]);
+
+  function pulseRows(rows: TrendRow[]) {
+    if (!pulseFamily || !pulseFamilyRefs) return rows;
+    return rows.filter((row) =>
+      row.kind === "topic"
+        ? familyOfTopic(row.label) === pulseFamily
+        : pulseFamilyRefs.has(refKey({ kind: row.kind, value: row.label })),
+    );
+  }
+  const familyBefore = useMemo(() => {
+    if (range === "all" || viewDesk !== "home") return null;
+    const start = rangeStart(range);
+    const span = Date.now() - start;
+    return familyCounts(
+      state.items.filter((item) => {
+        const at = item.publishedAt ?? item.fetchedAt;
+        return at >= start - span && at < start && byId.get(item.sourceId)?.enabled;
+      }),
+    );
+  }, [byId, range, state.items, viewDesk]);
+  const peopleTabs = useMemo(
+    () =>
+      viewDesk === "people"
+        ? { news: newsPeopleFromItems(items), orgs: orgsFromItems(items), bylines: bylinesFromItems(items, byId) }
+        : { news: [], orgs: [], bylines: [] },
+    [byId, items, viewDesk],
+  );
+  const paletteIndex = useMemo(
+    () => (paletteOpen ? buildFacetIndex(boardItems, byId) : []),
+    [boardItems, byId, paletteOpen],
+  );
+  const orgCatalog = useMemo(
+    () =>
+      orgsFromItems(items).map((row) => ({ name: row.name, count: row.count, kind: row.org.kind, attribution: orgAttribution(row.org) })),
+    [items],
+  );
   const documents = useMemo(() => documentsFromItems(items), [items]);
 
   const activeReport = useMemo(() => {
@@ -2246,6 +2548,21 @@ export function Monitor({
     if (openReportId) return open.find((row) => row.id === openReportId) ?? open[0] ?? null;
     return open[0] ?? null;
   }, [openReportId, reports]);
+  const activeReportRefs = useMemo(
+    () => (activeReport ? reportRefs(activeReport.stories) : new Map<string, EntityRef>()),
+    [activeReport],
+  );
+  const activeReportKeys = useMemo(
+    () => new Set(activeReport?.stories.flatMap((row) => [row.id, row.url]) ?? []),
+    [activeReport],
+  );
+
+  function reportLinkFor(story: Story) {
+    if (!activeReport || (viewDesk !== "brief" && viewDesk !== "scan")) return null;
+    if (activeReportKeys.has(story.id) || activeReportKeys.has(story.url)) return null;
+    const ref = sharedReportRef(story, activeReportRefs, byId);
+    return ref ? { label: ref.value, onAdd: () => reportStory(story) } : null;
+  }
 
   function openActiveReportDesk() {
     if (!activeReport) return;
@@ -2294,9 +2611,15 @@ export function Monitor({
     setHasBriefingProfile(Boolean(loadMyBriefing()));
   }, [savedViewsOpen]);
 
+  const dossierToken = extras.dossier;
+  const dossierPlace = dossierToken?.startsWith("place:") ? dossierToken.slice(6).replace(/^"|"$/g, "") : null;
+  const dossierSourceId = dossierToken?.startsWith("source:") ? Number(dossierToken.slice(7)) : null;
+  const dossierRef = dossierPlace || dossierSourceId ? null : parseRefToken(dossierToken);
+  const panePlace = dossierPlace ?? place;
+  const paneSourceId = dossierSourceId && byId.get(dossierSourceId) ? dossierSourceId : openSourceId;
   const showDossierColumn =
     viewDesk !== "flights" &&
-    (Boolean(place) || (openSourceId != null && Boolean(byId.get(openSourceId))));
+    (Boolean(dossierRef) || Boolean(panePlace) || (paneSourceId != null && Boolean(byId.get(paneSourceId))));
   const showFollowRail =
     viewDesk !== "feeds" &&
     !openStory &&
@@ -2320,7 +2643,7 @@ export function Monitor({
             : viewDesk === "feeds"
               ? `${rssFeeds.length} RSS feeds · ${rssArticles.length} titles in this window`
             : viewDesk === "people"
-              ? `${people.length} people on the board`
+              ? `${peopleTabs.news.length} in the news · ${peopleTabs.orgs.length} organisations · ${peopleTabs.bylines.length} bylines`
               : viewDesk === "documents"
                 ? `${documents.length} reports and advisories`
                 : brief;
@@ -2441,6 +2764,12 @@ export function Monitor({
       setQb(emptyQuery());
       setNest([]);
       setDesk(next);
+      const kept = activeFacets.filter((facet) => facet.from !== "desk" && facet.from !== "rule").length;
+      if (kept) {
+        const from = findUserDesk(desk, customDesks)?.label ?? investigationDeskLabel(desk);
+        setDeskCarry({ count: kept, from });
+        window.setTimeout(() => setDeskCarry((current) => (current?.from === from ? null : current)), 6000);
+      }
     }
     if (next === "flights") void loadFlights();
   }
@@ -2485,7 +2814,7 @@ export function Monitor({
           brief: stories.length,
           scan: items.length,
           pulse: trends.rising.length + trends.fresh.length,
-          weather: rangedItems.filter((item) => matchesLane(item, "weather") || itemHasTopic(item, "weather")).length,
+          weather: rangedItems.filter((item) => matchesLane(item, "weather")).length,
           people: peopleCatalog.length,
           documents: documentsFromItems(rangedItems).length,
           flights: flights.length,
@@ -2539,6 +2868,7 @@ export function Monitor({
             viewDesk={viewDesk}
             query={query}
             onQueryChange={setQuery}
+            onQuerySubmit={() => updateFilters(promoteTypedTokens)}
             desk={desk}
             onDeskChange={changeDesk}
             customDesks={customDesks}
@@ -2634,6 +2964,17 @@ export function Monitor({
             filtersActive={boardFiltersActive}
             contextLine={investigationContextLine}
             coverageLine={coverageLine}
+            sources={byId}
+            trail={
+              <TrailControls
+                entries={viewTrail.entries}
+                cursor={viewTrail.cursor}
+                onBack={() => stepViewTrail(-1)}
+                onForward={() => stepViewTrail(1)}
+                onGo={(index) => applyTrailEntry(trailGo(index))}
+                onSave={viewTrail.entries.length ? saveTrailToReport : undefined}
+              />
+            }
           />
           {!firstRunDismissed ? (
             <FirstRunChecklist
@@ -2674,121 +3015,94 @@ export function Monitor({
                 }}
               />
             ) : null}
-            {query.trim() ||
-            (state.watches ?? []).some((watch) => watch.newHits > 0) ||
-            topic ||
-            filterTopics.length ||
-            filterTags.length ||
-            displayCollection?.itemIds.length ||
-            layer ||
-            platform ||
-            origin ||
-            (viewDesk === "patch" && riskFilter !== "all") ||
-            hasQuery(qb) ||
-            place ||
-            person ||
-            vendor ? (
-              <div className="filter-chip-row filter-chip-row-applied">
-                <span className="filter-chip-row-label">Active</span>
-            {query.trim() ? (
-              <DismissFilterChip
-                label={`Search: ${query.trim().slice(0, 32)}${query.trim().length > 32 ? "…" : ""}`}
-                onDismiss={() => setQuery("")}
-                variant="search"
-              />
+            {deskCarry ? (
+              <div className="desk-carry-toast" role="status">
+                <span>
+                  Kept {deskCarry.count} {deskCarry.count === 1 ? "filter" : "filters"} from {deskCarry.from}
+                </span>
+                <button
+                  type="button"
+                  className="desk-carry-clear"
+                  onClick={() => {
+                    setDeskCarry(null);
+                    clearBoardFilters();
+                  }}
+                >
+                  Clear
+                </button>
+                <kbd className="desk-carry-kbd">Esc</kbd>
+              </div>
             ) : null}
-            {(state.watches ?? []).some((watch) => watch.newHits > 0) ? (
-              <DismissFilterChip
-                label={`Watch hits: ${(state.watches ?? []).reduce((sum, watch) => sum + watch.newHits, 0)}`}
-                tip="Open the first watch with new matches"
-                onDismiss={() => {
-                  const watch = (state.watches ?? []).find((row) => row.newHits > 0);
-                  if (!watch) return;
-                  setQuery(watch.query);
-                  if (watch.desk) setDesk(watch.desk as Desk);
-                }}
-                variant="watch"
-              />
+            <ActiveFacetRow
+              facets={activeFacets}
+              onRemove={removeBoardFacet}
+              onClear={clearAllFacets}
+              connections={oftenWith}
+              onAddFacet={addBoardFacet}
+              leading={
+                (state.watches ?? []).some((watch) => watch.newHits > 0) ? (
+                  <DismissFilterChip
+                    label={`Watch hits: ${(state.watches ?? []).reduce((sum, watch) => sum + watch.newHits, 0)}`}
+                    tip="Open the first watch with new matches"
+                    onDismiss={() => {
+                      const watch = (state.watches ?? []).find((row) => row.newHits > 0);
+                      if (!watch) return;
+                      setQuery(watch.query);
+                      if (watch.desk) setDesk(watch.desk as Desk);
+                    }}
+                    variant="watch"
+                  />
+                ) : null
+              }
+              trailing={
+                displayCollection?.itemIds.length ? (
+                  <DismissFilterChip
+                    label={`Display only: ${displayCollection.label} (${displayCollection.itemIds.length})`}
+                    tip="Show only pinned cards from the context menu"
+                    onDismiss={() => {
+                      clearDisplayCollection();
+                      setDisplayCollection(null);
+                    }}
+                    variant="query"
+                  />
+                ) : null
+              }
+            />
+            {savePromptSig && savePromptSig === viewSig ? (
+              <div className="view-save-prompt" role="status">
+                <span>You open this view often.</span>
+                <button type="button" className="view-save-prompt-btn" onClick={startSaveFromPrompt}>
+                  Save as live filter
+                </button>
+                <button
+                  type="button"
+                  className="view-save-prompt-dismiss"
+                  onClick={() => {
+                    saveVisits(dismissVisit(loadVisits(), viewSig));
+                    setSavePromptSig(null);
+                  }}
+                >
+                  Not now
+                </button>
+              </div>
             ) : null}
-            {topic ? (
-              <DismissFilterChip label={`Topic: ${topic}`} onDismiss={() => setTopic(null)} variant="topic" />
-            ) : null}
-            {filterTopics.map((name) => (
-              <DismissFilterChip
-                key={`ft-${name}`}
-                label={`Topic: ${name}`}
-                onDismiss={() => setFilterTopics((rows) => rows.filter((row) => row !== name))}
-                variant="topic"
-              />
-            ))}
-            {nest.map((name) => (
-              <DismissFilterChip
-                key={`nest-${name}`}
-                label={name}
-                tip="Remove this nested filter. The rest of the desk stays."
-                onDismiss={() => setNest((rows) => rows.filter((row) => row !== name))}
-                variant="topic"
-              />
-            ))}
-            {filterTags.map((name) => (
-              <DismissFilterChip
-                key={`fg-${name}`}
-                label={`Tag: ${name}`}
-                onDismiss={() => setFilterTags((rows) => rows.filter((row) => row !== name))}
-                variant="topic"
-              />
-            ))}
-            {displayCollection?.itemIds.length ? (
-              <DismissFilterChip
-                label={`Display only: ${displayCollection.label} (${displayCollection.itemIds.length})`}
-                tip="Show only pinned cards from the context menu"
-                onDismiss={() => {
-                  clearDisplayCollection();
-                  setDisplayCollection(null);
-                }}
-                variant="query"
-              />
-            ) : null}
-            {layer ? (
-              <DismissFilterChip
-                label={shortSourceName(byId.get(layer)?.name ?? "layer")}
-                onDismiss={() => {
-                  setLayer(null);
-                  setOpenSourceId(null);
-                }}
-                variant="layer"
-              />
-            ) : null}
-            {platform ? (
-              <DismissFilterChip label={platform} onDismiss={() => setPlatform(null)} variant="default" />
-            ) : null}
-            {origin ? (
-              <DismissFilterChip label={`origin: ${origin}`} onDismiss={() => setOrigin(null)} variant="default" />
-            ) : null}
-            {viewDesk === "patch" && riskFilter !== "all" ? (
-              <DismissFilterChip
-                label={RISK_LABEL[riskFilter]}
-                onDismiss={() => setRiskFilter("all")}
-                variant="risk"
-              />
-            ) : null}
-            {hasQuery(qb) ? (
-              <DismissFilterChip
-                label="query builder"
-                tip={summarizeQuery(qb)}
-                onDismiss={() => setQb(emptyQuery())}
-                variant="query"
-              />
-            ) : null}
-            {place ? (
-              <DismissFilterChip label={place} onDismiss={() => setPlace(null)} variant="place" />
-            ) : null}
-            {person ? (
-              <DismissFilterChip label={person} onDismiss={() => setPerson(null)} variant="person" />
-            ) : null}
-            {vendor ? (
-              <DismissFilterChip label={vendor} onDismiss={() => setVendor(null)} variant="vendor" />
-            ) : null}
+            {watchOffer ? (
+              <div className="view-save-prompt" role="status">
+                <span>Also alert me when new stories match?</span>
+                <button
+                  type="button"
+                  className="view-save-prompt-btn"
+                  onClick={() => {
+                    const offer = watchOffer;
+                    setWatchOffer(null);
+                    void createWatch(offer.line, offer.name);
+                  }}
+                >
+                  Watch
+                </button>
+                <button type="button" className="view-save-prompt-dismiss" onClick={() => setWatchOffer(null)}>
+                  Not now
+                </button>
               </div>
             ) : null}
             <div className="filter-chip-row">
@@ -2879,6 +3193,7 @@ export function Monitor({
                 />
                 {moreFiltersOpen ? (
                   <>
+                <FacetPicker items={items} sources={byId} onAdd={addBoardFacet} />
                 <BoardFilterToggle
                   label="ransomware"
                   active={ransomware}
@@ -2915,22 +3230,6 @@ export function Monitor({
                       onDismiss={() =>
                         chip.kind === "topic" ? setTopic(null) : setVendor(null)
                       }
-                    />
-                  );
-                })}
-                {(viewDesk === "home" ? catalogTopics : topics)
-                  .filter(([name]) => !STACK_TOPIC_VALUES.has(name))
-                  .slice(0, 10)
-                  .map(([name, count]) => {
-                  const active = topic === name;
-                  return (
-                    <ToggleFilterChip
-                      key={name}
-                      label={`${name} ${count}`}
-                      active={active}
-                      tip={active ? `Remove ${name} filter` : `Filter this desk to ${name}`}
-                      onToggle={() => toggleTopic(name)}
-                      onDismiss={() => setTopic(null)}
                     />
                   );
                 })}
@@ -2983,16 +3282,18 @@ export function Monitor({
                   );
                 })}
                 {cveHits.map(([cve, count]) => {
-                  const active = query.toLowerCase() === cve.toLowerCase();
+                  const active = extras.cve.some((row) => row.toLowerCase() === cve.toLowerCase());
                   return (
                     <ToggleFilterChip
                       key={cve}
                       label={`${cve} ${count}`}
                       active={active}
                       accent="danger"
-                      tip={active ? `Clear ${cve} search` : `Search the board for ${cve}`}
-                      onToggle={() => setQuery((current) => (current === cve ? "" : cve))}
-                      onDismiss={() => setQuery("")}
+                      tip={active ? `Remove ${cve} filter` : `Stories that mention ${cve}`}
+                      onToggle={() => addBoardFacet({ kind: "cve", value: cve })}
+                      onDismiss={() =>
+                        setExtras((prev) => ({ ...prev, cve: prev.cve.filter((row) => row.toLowerCase() !== cve.toLowerCase()) }))
+                      }
                     />
                   );
                 })}
@@ -3009,6 +3310,35 @@ export function Monitor({
                     />
                   );
                 })}
+                {orgCatalog.slice(0, 5).map((row) => {
+                  const active = extras.org === row.name;
+                  return (
+                    <ToggleFilterChip
+                      key={`org-${row.name}`}
+                      label={`${row.name} ${row.count}`}
+                      active={active}
+                      accent={row.kind === "threat_actor" || row.kind === "ransomware" ? "danger" : "neutral"}
+                      tip={active ? `Remove ${row.name} filter` : `${row.name}${row.attribution ? ` · ${row.attribution}` : ""}`}
+                      onToggle={() => toggleOrg(row.name)}
+                      onDismiss={() => toggleOrg(row.name)}
+                    />
+                  );
+                })}
+                <div className="more-filters-block">
+                  <FamilyFacetRows
+                    items={items}
+                    activeFamilies={extras.fam}
+                    activeTopics={[topic, ...filterTopics].filter((t): t is string => Boolean(t))}
+                    onFamily={(id) => updateFilters((filters) => toggleFacet(filters, { kind: "family", value: id }))}
+                    onTopic={(name) => updateFilters((filters) => toggleFacet(filters, { kind: "topic", value: name }))}
+                  />
+                  <SourceTypeRow
+                    items={items}
+                    sources={byId}
+                    active={extras.stype}
+                    onToggle={(type) => updateFilters((filters) => toggleFacet(filters, { kind: "stype", value: type }))}
+                  />
+                </div>
                   </>
                 ) : null}
                 {viewDesk === "sources" ? (
@@ -3310,6 +3640,14 @@ export function Monitor({
               </div>
             ) : viewDesk === "home" ? (
               <HomeDashboard
+                familiesStrip={
+                  <FamiliesStrip
+                    current={familyNow}
+                    previous={familyBefore}
+                    active={extras.fam}
+                    onFamily={(id) => updateFilters((filters) => toggleFacet(filters, { kind: "family", value: id }))}
+                  />
+                }
                 onStoryMenu={(story, event) => {
                   const head = story.items[0];
                   if (head) openCardMenu(head, event, story);
@@ -3381,17 +3719,24 @@ export function Monitor({
               />
             ) : viewDesk === "people" ? (
               <PeopleDesk
-                rows={people}
+                newsRows={peopleTabs.news}
+                orgRows={peopleTabs.orgs}
+                bylineRows={peopleTabs.bylines}
                 items={items}
                 sources={byId}
                 activePerson={person}
+                activeOrg={extras.org}
                 onPerson={togglePerson}
+                onOrg={toggleOrg}
                 onPreviewSource={openSourcePreview}
                 onToggleSource={(id, enabledNow) => void toggleLayer(id, enabledNow)}
-                onPersonAction={(name, action) => {
-                  if (action === "filter") setPerson(name);
+                onPersonAction={(name, action, kind) => {
+                  const token = facetToken(kind, name);
+                  if (action === "filter") addBoardFacet({ kind, value: name });
+                  if (action === "exclude") addBoardFacet({ kind, value: name, negate: true });
+                  if (action === "dossier") openDossier(token);
                   if (action === "copy") void navigator.clipboard.writeText(name);
-                  if (action === "live") openLiveFilter(name, name);
+                  if (action === "live") openLiveFilter(name, token);
                 }}
               />
             ) : viewDesk === "documents" ? (
@@ -3434,17 +3779,33 @@ export function Monitor({
                     }
                   />
                 ) : null}
-                {sourcesView === "table" ? null : visibleSources.map((source) => (
-                  <SourceLayerCard
-                    key={source.id}
-                    source={source}
-                    itemCount={sourceItemCounts.get(source.id) ?? 0}
-                    sample={items.find((item) => item.sourceId === source.id)?.title}
-                    active={layer === source.id}
-                    onToggle={() => toggleLayer(source.id, true)}
-                    onOpen={() => focusSource(source.id)}
-                  />
-                ))}
+                {sourcesView === "table"
+                  ? null
+                  : sourcesByCategory.flatMap(([category, rows]) => [
+                      sourcesByCategory.length > 1 ? (
+                        <div key={`cat-${category}`} className="board-section-head">
+                          <button
+                            type="button"
+                            className="hover:underline"
+                            onClick={() => addBoardFacet({ kind: "category", value: category })}
+                          >
+                            {category}
+                          </button>
+                          <span className="board-section-head-count">{rows.length}</span>
+                        </div>
+                      ) : null,
+                      ...rows.map((source) => (
+                        <SourceLayerCard
+                          key={source.id}
+                          source={source}
+                          itemCount={sourceItemCounts.get(source.id) ?? 0}
+                          sample={items.find((item) => item.sourceId === source.id)?.title}
+                          active={layer === source.id}
+                          onToggle={() => toggleLayer(source.id, true)}
+                          onOpen={() => focusSource(source.id)}
+                        />
+                      )),
+                    ])}
               </div>
             ) : (
               <>
@@ -3479,24 +3840,36 @@ export function Monitor({
                     <PulseCard title="Volume" points={stats.volume} />
                     {viewDesk === "pulse" ? (
                       <>
+                        <div className="filter-chip-row" role="group" aria-label="Pulse family">
+                          <BoardFilterToggle label="All" active={!pulseFamily} onClick={() => setPulseFamily(null)} />
+                          {TOPIC_FAMILIES.filter((family) => (familyNow.get(family.id) ?? 0) > 0).map((family) => (
+                            <BoardFilterToggle
+                              key={family.id}
+                              label={family.label}
+                              active={pulseFamily === family.id}
+                              tip={`Trends for ${family.label} topics and the places, people, and organisations seen with them`}
+                              onClick={() => setPulseFamily((current) => (current === family.id ? null : family.id))}
+                            />
+                          ))}
+                        </div>
                         <TrendList
                           title="Rising"
                           hint={trends.compared}
-                          rows={trends.rising}
+                          rows={pulseRows(trends.rising)}
                           onSelect={openTrend}
                           onShowOnBoard={showTrendOnBoard}
                           boardCount={trendBoardCount}
                         />
                         <TrendList
                           title="New"
-                          rows={trends.fresh}
+                          rows={pulseRows(trends.fresh)}
                           onSelect={openTrend}
                           onShowOnBoard={showTrendOnBoard}
                           boardCount={trendBoardCount}
                         />
                         <TrendList
                           title="Falling"
-                          rows={trends.falling}
+                          rows={pulseRows(trends.falling)}
                           onSelect={openTrend}
                           onShowOnBoard={showTrendOnBoard}
                           boardCount={trendBoardCount}
@@ -3566,6 +3939,8 @@ export function Monitor({
                             kevCveIds={kevCveIds}
                             epss={epss}
                             onCve={focusCve}
+                            onOrg={toggleOrg}
+                            reportLink={reportLinkFor(itemAsStory(item))}
                           />
                         );
                       };
@@ -3610,6 +3985,7 @@ export function Monitor({
                           kevCveIds={kevCveIds}
                           epss={epss}
                           onCve={focusCve}
+                          onOrg={toggleOrg}
                         />
                       ))
                     : (() => {
@@ -3648,6 +4024,8 @@ export function Monitor({
                               kevCveIds={kevCveIds}
                               epss={epss}
                               onCve={focusCve}
+                              onOrg={toggleOrg}
+                              reportLink={reportLinkFor(story)}
                             />
                           );
                         };
@@ -3709,6 +4087,14 @@ export function Monitor({
                   }}
                   story={openStory}
                   sources={byId}
+                  pool={poolStories}
+                  kev={state.kev}
+                  onEntity={(ref, action) => {
+                    const token = facetToken(ref.kind, ref.value);
+                    if (action === "filter") addBoardFacet({ kind: ref.kind, value: ref.value });
+                    else if (action === "dossier") openDossier(token);
+                    else void createWatch(token, ref.value);
+                  }}
                   related={relatedStories(openStory, poolStories)}
                   similar={similarStories(openStory, poolStories)}
                   kevHits={kevForStory(openStory, state.kev)}
@@ -3766,30 +4152,51 @@ export function Monitor({
           ) : null}
           {showDossierColumn ? (
             <div className="monitor-dossier-column">
-              {place ? (
+              {dossierRef ? (
+                <EntityPane
+                  entity={dossierRef}
+                  items={boardItems}
+                  stories={poolStories}
+                  sources={byId}
+                  days={range === "7d" || range === "all" ? 14 : 2}
+                  kev={state.kev}
+                  epss={epss}
+                  stack={stack}
+                  onClose={() => openDossier(null)}
+                  onFilter={() => addBoardFacet({ kind: dossierRef.kind, value: dossierRef.value })}
+                  onExclude={() => addBoardFacet({ kind: dossierRef.kind, value: dossierRef.value, negate: true })}
+                  onWatch={() => void createWatch(facetToken(dossierRef.kind, dossierRef.value), dossierRef.value)}
+                  onSaveLiveFilter={() => openLiveFilter(dossierRef.value, facetToken(dossierRef.kind, dossierRef.value))}
+                  onAddAllToReport={(picked) => reportStories(picked, dossierRef.value)}
+                  onOpenStory={openReader}
+                  onSource={focusSource}
+                  onPivot={addBoardFacet}
+                  onDossier={openDossier}
+                />
+              ) : panePlace ? (
                 <PlacePane
-                  place={place}
+                  place={panePlace}
                   items={[...state.items]
-                    .filter((item) => itemHasPlace(item, place))
+                    .filter((item) => itemHasPlace(item, panePlace))
                     .sort(
                       (a, b) => (b.publishedAt ?? b.fetchedAt) - (a.publishedAt ?? a.fetchedAt),
                     )}
-                  rangedCount={rangedItems.filter((item) => itemHasPlace(item, place)).length}
+                  rangedCount={rangedItems.filter((item) => itemHasPlace(item, panePlace)).length}
                   sources={byId}
-                  onClose={() => setPlace(null)}
+                  onClose={() => (dossierPlace ? openDossier(null) : setPlace(null))}
                   onOpenItem={openItem}
                   onScan={() => {
                     setDesk("scan");
-                    setPlace(place);
+                    setPlace(panePlace);
                   }}
                   onTopic={clickChip}
                   onSource={focusSource}
                 />
-              ) : openSourceId && byId.get(openSourceId) ? (
+              ) : paneSourceId && byId.get(paneSourceId) ? (
                 <SourcePane
-                  source={byId.get(openSourceId)!}
+                  source={byId.get(paneSourceId)!}
                   items={[...state.items]
-                    .filter((item) => item.sourceId === openSourceId)
+                    .filter((item) => item.sourceId === paneSourceId)
                     .filter(
                       (item) =>
                         !person || itemHasPerson(item, person, byId.get(item.sourceId)),
@@ -3798,13 +4205,13 @@ export function Monitor({
                       (a, b) => (b.publishedAt ?? b.fetchedAt) - (a.publishedAt ?? a.fetchedAt),
                     )}
                   rangedCount={
-                    rangedItems.filter((item) => item.sourceId === openSourceId).length
+                    rangedItems.filter((item) => item.sourceId === paneSourceId).length
                   }
-                  onClose={() => setOpenSourceId(null)}
+                  onClose={() => (dossierSourceId ? openDossier(null) : setOpenSourceId(null))}
                   onOpenItem={openItem}
                   onScan={() => {
                     setDesk("scan");
-                    setLayer(openSourceId);
+                    setLayer(paneSourceId);
                   }}
                 />
               ) : null}
@@ -4012,6 +4419,7 @@ export function Monitor({
           y={cardMenu.y}
           title={cardMenu.story?.title ?? cardMenu.item.title}
           currentTopics={cardMenu.item.topics}
+          topicsLocked={Boolean(cardMenu.item.topicsLocked || topicOverrides[String(cardMenu.item.id)])}
           sourceName={byId.get(cardMenu.item.sourceId)?.name ?? null}
           topic={(cardMenu.story ? storyTopicChips(cardMenu.story) : itemTopicChips(cardMenu.item))[0] ?? null}
           place={uniquePlaces(cardMenu.story?.locations ?? cardMenu.item.locations)[0] ?? null}
@@ -4073,20 +4481,27 @@ export function Monitor({
       <CommandPalette
         open={paletteOpen}
         mode={paletteMode}
-        sources={state.sources}
-        places={places.map(([name]) => name)}
         watches={state.watches ?? []}
         customDesks={customDesks}
         savedFilters={paletteSavedFilters}
         briefing={paletteBriefing}
-        people={peopleCatalog.map((row) => row.name)}
+        facetIndex={paletteIndex}
+        oftenWith={oftenWith}
+        trail={viewTrail.entries}
         unreadOnly={unreadOnly}
         onClose={() => setPaletteOpen(false)}
         onAction={(action) => {
           if (action.kind === "desk") changeDesk(action.desk);
           if (action.kind === "place") focusPlace(action.place);
-          if (action.kind === "person") togglePerson(action.name);
           if (action.kind === "source") focusSource(action.sourceId);
+          if (action.kind === "trail") applyTrailEntry(trailGo(action.index));
+          if (action.kind === "facet") {
+            const token = facetToken(action.facet.kind, action.facet.value);
+            if (action.mode === "add") addBoardFacet(action.facet);
+            else if (action.mode === "exclude") addBoardFacet({ ...action.facet, negate: true });
+            else if (action.mode === "dossier") openDossier(token);
+            else void createWatch(token, action.label);
+          }
           if (action.kind === "search") document.getElementById("board-search")?.focus();
           if (action.kind === "refresh") void refresh();
           if (action.kind === "clear-filters") clearBoardFilters();

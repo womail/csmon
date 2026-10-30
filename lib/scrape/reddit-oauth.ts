@@ -71,7 +71,7 @@ function listingToItems(payload: RedditListing): ScrapedItem[] {
       url,
       author: row.author ?? null,
       publishedAt: row.created_utc ? Math.round(row.created_utc * 1000) : null,
-      topics: [...new Set(["reddit", ...classified.topics.filter((t) => t !== "world")])].slice(0, 6),
+      topics: [...new Set(["reddit", ...classified.topics])].slice(0, 6),
       locations: classified.locations,
       tags: [...new Set(["reddit", ...classified.tags])].slice(0, 8),
     });

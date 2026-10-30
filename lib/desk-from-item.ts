@@ -10,16 +10,16 @@ export function guessDeskTitleFromItem(item: Item): string {
   const place = item.locations[0];
   const topic = item.topics[0];
   const tag = primaryTag(item);
-  if (place && topic && topic !== "world") return `${topic} · ${place}`.slice(0, LABEL_MAX);
+  if (place && topic) return `${topic} · ${place}`.slice(0, LABEL_MAX);
   if (place) return place.slice(0, LABEL_MAX);
-  if (topic && topic !== "world") return topic.slice(0, LABEL_MAX);
-  if (tag && tag !== "world") return tag.slice(0, LABEL_MAX);
+  if (topic) return topic.slice(0, LABEL_MAX);
+  if (tag) return tag.slice(0, LABEL_MAX);
   const words = item.title.trim().split(/\s+/).slice(0, 4).join(" ");
   return words.slice(0, LABEL_MAX) || "My desk";
 }
 
 export function filtersFromItem(item: Item, base: BoardFilters): BoardFilters {
-  const topics = [...new Set(item.topics.filter((t) => t && t !== "world"))].slice(0, 6);
+  const topics = [...new Set(item.topics.filter(Boolean))].slice(0, 6);
   const tags = [...new Set(item.tags.filter((t) => !topics.includes(t)))].slice(0, 6);
   return normalizeBoardFilters({
     ...base,

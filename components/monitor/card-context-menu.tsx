@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { listClassifyTopics } from "@/lib/classify";
+import { groupByFamily } from "@/lib/topic-families";
 import { ContextMenu, type ContextMenuSection } from "@/components/monitor/context-menu";
 
 export type CardMenuAction =
@@ -20,6 +21,7 @@ export type CardMenuAction =
   | { kind: "copy-citation" }
   | { kind: "copy-title" }
   | { kind: "reclassify"; topics: string[] }
+  | { kind: "reset-topics" }
   | { kind: "display-only" }
   | { kind: "add-display" }
   | { kind: "save-desk" }
@@ -30,6 +32,7 @@ export function CardContextMenu({
   y,
   title,
   currentTopics,
+  topicsLocked = false,
   sourceName,
   topic,
   place,
@@ -42,6 +45,8 @@ export function CardContextMenu({
   y: number;
   title: string;
   currentTopics: string[];
+  /** The user set these topics; the classifier leaves them alone. */
+  topicsLocked?: boolean;
   sourceName: string | null;
   topic: string | null;
   place: string | null;
@@ -53,7 +58,7 @@ export function CardContextMenu({
 }) {
   const [selected, setSelected] = useState(() => new Set(currentTopics));
   const [showTopics, setShowTopics] = useState(false);
-  const options = listClassifyTopics();
+  const groups = groupByFamily(listClassifyTopics());
 
   const sections: ContextMenuSection[] = [
     {
@@ -109,15 +114,26 @@ export function CardContextMenu({
           label: showTopics ? "Hide reclassify" : "Reclassify topics…",
           onSelect: () => setShowTopics((v) => !v),
         },
+        ...(topicsLocked
+          ? [{ id: "reset-topics", label: "Reset to automatic", onSelect: () => onAction({ kind: "reset-topics" }) }]
+          : []),
       ],
     },
   ];
 
   const footer = showTopics ? (
     <div className="flex min-h-0 flex-col border-t border-border">
-      <p className="shrink-0 px-2.5 py-1 text-[10px] text-muted-foreground">Shift+click a chip to drop one tag.</p>
+      <p className="shrink-0 px-2.5 py-1 text-[10px] text-muted-foreground">
+        {topicsLocked ? "You set these topics. " : ""}Shift+click a chip to drop one tag.
+      </p>
       <div className="min-h-0 overflow-y-auto overscroll-contain" style={{ maxHeight: "min(40vh, 240px)" }}>
-        {options.map((name) => (
+        {groups.map(({ family, topics }) => (
+          <div key={family.id} role="group" aria-label={family.label}>
+            <p className="flex items-center gap-1.5 px-2.5 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <span className="fam-dot" style={{ background: `var(${family.tone})` }} aria-hidden />
+              {family.label}
+            </p>
+        {topics.map((name) => (
           <button
             key={name}
             type="button"
@@ -138,6 +154,8 @@ export function CardContextMenu({
             </span>
             {name}
           </button>
+        ))}
+          </div>
         ))}
       </div>
       <div className="shrink-0 border-t border-border bg-popover px-2 py-1.5">

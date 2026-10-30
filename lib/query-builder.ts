@@ -1,6 +1,10 @@
 import type { Item, Source } from "./types";
 import { mineItem } from "./mine";
 import { itemHasPlace } from "./places";
+import { itemHasPerson, itemOrgs } from "./people";
+import { orgByName } from "./gazetteer/orgs";
+import { sourceCategory } from "./source-types";
+import { familiesForItem } from "./topic-families";
 
 export const QUERY_FIELDS = [
   { id: "text", label: "Any text" },
@@ -13,6 +17,11 @@ export const QUERY_FIELDS = [
   { id: "author", label: "Author" },
   { id: "cve", label: "CVE" },
   { id: "ioc", label: "IOC" },
+  { id: "person", label: "Person" },
+  { id: "org", label: "Organisation" },
+  { id: "stype", label: "Source type" },
+  { id: "category", label: "Category" },
+  { id: "family", label: "Topic family" },
 ] as const;
 
 export const QUERY_OPS = [
@@ -129,15 +138,45 @@ function haystacks(item: Item, source: Source | undefined, field: QueryField): s
       return mined.cves;
     case "ioc":
       return item.iocs ?? item.entities?.filter((row) => row.kind === "ioc").map((row) => row.label) ?? [];
+    case "person":
+      return [item.author ?? ""];
+    case "org":
+      return itemOrgs(item).flatMap((org) => [org.name, ...org.aliases]);
+    case "stype":
+      return [source?.sourceType ?? ""];
+    case "category":
+      return source ? [sourceCategory(source)] : [];
+    case "family":
+      return familiesForItem(item);
   }
 }
 
-function matchOne(hay: string[], needle: string, op: QueryOp, field: QueryField, item: Item): boolean {
+function matchOne(
+  hay: string[],
+  needle: string,
+  op: QueryOp,
+  field: QueryField,
+  item: Item,
+  source?: Source,
+): boolean {
   const value = needle.toLowerCase();
   const rows = hay.map((row) => row.toLowerCase()).filter(Boolean);
   if (field === "place" && (op === "eq" || op === "neq")) {
     const hit = itemHasPlace(item, needle);
     return op === "eq" ? hit : !hit;
+  }
+  if (field === "person") {
+    const hit = itemHasPerson(item, needle, source);
+    return op === "neq" ? !hit : hit;
+  }
+  if (field === "org") {
+    const canonical = orgByName(needle)?.name.toLowerCase();
+    const hit = canonical ? itemOrgs(item).some((org) => org.name.toLowerCase() === canonical) : rows.some((row) => row.includes(value));
+    return op === "neq" ? !hit : hit;
+  }
+  if (field === "stype" || field === "family") {
+    const hit = rows.includes(value);
+    return op === "neq" ? !hit : hit;
   }
   if (op === "eq") return rows.some((row) => row === value);
   if (op === "neq") return rows.every((row) => row !== value);
@@ -151,9 +190,9 @@ export function itemMatchesQuery(
 ): boolean {
   const rules = activeQueryRules(tree);
   if (!rules.length) return true;
-  let acc = matchOne(haystacks(item, source, rules[0].field), rules[0].value, rules[0].op, rules[0].field, item);
+  let acc = matchOne(haystacks(item, source, rules[0].field), rules[0].value, rules[0].op, rules[0].field, item, source);
   for (const rule of rules.slice(1)) {
-    const hit = matchOne(haystacks(item, source, rule.field), rule.value, rule.op, rule.field, item);
+    const hit = matchOne(haystacks(item, source, rule.field), rule.value, rule.op, rule.field, item, source);
     acc = rule.join === "or" ? acc || hit : acc && hit;
   }
   return acc;
@@ -171,6 +210,14 @@ const LINE_FIELDS: Record<string, QueryField> = {
   author: "author",
   cve: "cve",
   ioc: "ioc",
+  person: "person",
+  org: "org",
+  type: "stype",
+  stype: "stype",
+  category: "category",
+  cat: "category",
+  family: "family",
+  fam: "family",
 };
 
 function unquote(value: string) {

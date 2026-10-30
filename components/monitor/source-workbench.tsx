@@ -28,6 +28,7 @@ import {
 import { parseSourceImportJson } from "@/lib/source-import";
 import type { SourceCatalogRow } from "@/lib/source-catalog-shared";
 import type { MonitorState } from "@/lib/types";
+import { SOURCE_TYPES, SOURCE_TYPE_LABEL, type SourceType } from "@/lib/source-types";
 
 type CatalogResponse = {
   rows: Array<{
@@ -49,6 +50,10 @@ type CatalogResponse = {
     primaryReason: string;
     retentionDays: number | null;
     intelFeed: { id: string; pack: IntelPack } | null;
+    category: string;
+    storedCategory: string | null;
+    sourceType: SourceType;
+    storedSourceType: SourceType | null;
   }>;
   summary: {
     total: number;
@@ -80,6 +85,14 @@ const PACKS: IntelPack[] = [
   "markets",
   "sports",
 ];
+
+function rowCategory(row: LocalSourceDraft) {
+  return row.category?.trim() || row.shownCategory || "Other";
+}
+
+function rowType(row: LocalSourceDraft): SourceType {
+  return row.sourceType ?? row.shownType ?? "outlet";
+}
 
 function relTime(ts: number | null) {
   if (ts == null) return "never";
@@ -131,6 +144,10 @@ function mergeDrafts(
         silent: row.silent,
         retentionDays: row.retentionDays ?? null,
         primaryReason: row.primaryReason as SourceCatalogRow["primaryReason"],
+        category: row.category,
+        storedCategory: row.storedCategory,
+        sourceType: row.sourceType,
+        storedSourceType: row.storedSourceType,
       },
       savedRow?.notes ?? "",
     );
@@ -146,6 +163,8 @@ function mergeDrafts(
       pack: savedRow.pack,
       notes: savedRow.notes,
       retentionDays: savedRow.retentionDays ?? base.retentionDays,
+      category: savedRow.category !== undefined ? savedRow.category : base.category,
+      sourceType: savedRow.sourceType !== undefined ? savedRow.sourceType : base.sourceType,
     };
   });
 }
@@ -159,6 +178,8 @@ function draftPayload(row: LocalSourceDraft) {
     description: row.description,
     enabled: row.enabled,
     retentionDays: row.retentionDays,
+    category: row.category ?? null,
+    sourceType: row.sourceType ?? null,
   };
 }
 
@@ -210,6 +231,7 @@ export function SourceWorkbenchBody({
     );
   }, [load]);
 
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return drafts.filter((row) => {
@@ -231,10 +253,26 @@ export function SourceWorkbenchBody({
         row.name.toLowerCase().includes(q) ||
         row.key.toLowerCase().includes(q) ||
         (row.feedUrl?.toLowerCase().includes(q) ?? false) ||
-        (row.notes.toLowerCase().includes(q) ?? false)
+        (row.notes.toLowerCase().includes(q) ?? false) ||
+        rowCategory(row).toLowerCase().includes(q) ||
+        SOURCE_TYPE_LABEL[rowType(row)].toLowerCase().includes(q)
       );
     });
   }, [catalog?.rows, drafts, filter, query]);
+
+  const grouped = useMemo(() => {
+    const groups = new Map<string, LocalSourceDraft[]>();
+    for (const row of filtered) {
+      const key = rowCategory(row);
+      groups.set(key, [...(groups.get(key) ?? []), row]);
+    }
+    return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filtered]);
+
+  const categories = useMemo(
+    () => [...new Set(drafts.map(rowCategory))].sort((a, b) => a.localeCompare(b)),
+    [drafts],
+  );
 
   function patchDraft(id: number, patch: Partial<LocalSourceDraft>) {
     setDrafts((rows) => rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
@@ -881,6 +919,7 @@ export function SourceWorkbenchBody({
               <tr>
                 <th className="px-2 py-1.5 font-medium">On</th>
                 <th className="px-2 py-1.5 font-medium">Layer</th>
+                <th className="px-2 py-1.5 font-medium">Type</th>
                 <th className="px-2 py-1.5 font-medium">Origin</th>
                 <th className="px-2 py-1.5 font-medium">Last fetch</th>
                 <th className="px-2 py-1.5 font-medium">Items</th>
@@ -889,7 +928,32 @@ export function SourceWorkbenchBody({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((row) => {
+              {grouped.map(([category, rows]) => (
+                <Fragment key={`group-${category}`}>
+                <tr className="border-t border-slate-200 bg-slate-50">
+                  <td colSpan={8} className="px-2 py-1">
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-600"
+                      aria-expanded={!collapsed.has(category)}
+                      onClick={() =>
+                        setCollapsed((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(category)) next.delete(category);
+                          else next.add(category);
+                          return next;
+                        })
+                      }
+                    >
+                      <span aria-hidden>{collapsed.has(category) ? "▸" : "▾"}</span>
+                      {category}
+                      <span className="font-normal normal-case text-slate-400">
+                        {rows.length} layer{rows.length === 1 ? "" : "s"}
+                      </span>
+                    </button>
+                  </td>
+                </tr>
+              {collapsed.has(category) ? null : rows.map((row) => {
                 const cat = catalog?.rows.find((r) => r.id === row.id);
                 const isOpen = expanded === row.id;
                 const isDirty = dirty.has(row.id);
@@ -920,6 +984,7 @@ export function SourceWorkbenchBody({
                         </span>
                       ) : null}
                     </td>
+                    <td className="whitespace-nowrap px-2 py-2 text-slate-700">{SOURCE_TYPE_LABEL[rowType(row)]}</td>
                     <td className="px-2 py-2 text-slate-600">{row.primaryReason}</td>
                     <td className="whitespace-nowrap px-2 py-2 tabular-nums text-slate-600">
                       {relTime(cat?.lastFetchedAt ?? null)}
@@ -946,9 +1011,10 @@ export function SourceWorkbenchBody({
                   </tr>
                   {isOpen ? (
                     <tr key={`${row.id}-edit`} className="border-t border-slate-100 bg-slate-50/80">
-                      <td colSpan={7} className="px-2 py-2">
+                      <td colSpan={8} className="px-2 py-2">
                         <EditorPanel
                           draft={row}
+                          categories={categories}
                           busy={busy}
                           defaultRetention={defaultRetention}
                           onChange={(patch) => patchDraft(row.id, patch)}
@@ -961,6 +1027,8 @@ export function SourceWorkbenchBody({
                   </Fragment>
                 );
               })}
+                </Fragment>
+              ))}
             </tbody>
           </table>
           {!filtered.length && !error ? (
@@ -997,6 +1065,7 @@ export function SourceWorkbench({
 
 function EditorPanel({
   draft,
+  categories,
   onChange,
   onSave,
   onDelete,
@@ -1004,6 +1073,7 @@ function EditorPanel({
   defaultRetention,
 }: {
   draft: LocalSourceDraft;
+  categories: string[];
   onChange: (patch: Partial<LocalSourceDraft>) => void;
   onSave: (refresh: boolean) => void;
   onDelete: () => void;
@@ -1045,6 +1115,38 @@ function EditorPanel({
             value={draft.feedUrl ?? ""}
             onChange={(e) => onChange({ feedUrl: e.target.value || null })}
           />
+        </label>
+        <label className="block text-[10px] font-medium text-slate-600">
+          Category
+          <Input
+            className="mt-0.5 h-8 text-[12px]"
+            list={`workbench-categories-${draft.id}`}
+            value={draft.category ?? ""}
+            placeholder={draft.shownCategory ?? "Derived from pack"}
+            onChange={(e) => onChange({ category: e.target.value || null })}
+          />
+          <datalist id={`workbench-categories-${draft.id}`}>
+            {categories.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+        </label>
+        <label className="block text-[10px] font-medium text-slate-600">
+          Type
+          <select
+            className="mt-0.5 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-[12px]"
+            value={draft.sourceType ?? ""}
+            onChange={(e) => onChange({ sourceType: (e.target.value || null) as SourceType | null })}
+          >
+            <option value="">
+              Automatic{draft.shownType ? ` (${SOURCE_TYPE_LABEL[draft.shownType]})` : ""}
+            </option>
+            {SOURCE_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {SOURCE_TYPE_LABEL[type]}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="block text-[10px] font-medium text-slate-600 sm:col-span-2">
           Blurb / description

@@ -2,13 +2,24 @@
 
 import { useMemo, useState } from "react";
 import { SourceChip } from "@/components/monitor/cards";
+import { MiniSpark } from "@/components/monitor/charts";
 import { ContextMenu } from "@/components/monitor/context-menu";
 import {
   SourceContextMenu,
   type SourceMenuAction,
 } from "@/components/monitor/source-context-menu";
-import { itemHasPerson, type PersonRow } from "@/lib/people";
+import { dailyCounts } from "@/lib/connections";
+import { ORG_KIND_LABEL, ORG_KIND_ORDER, orgAttribution } from "@/lib/gazetteer/orgs";
+import type { OrgRow, PersonRow } from "@/lib/people";
 import type { Item, Source } from "@/lib/types";
+
+export type PeopleTab = "news" | "orgs" | "bylines";
+
+const TAB_LABEL: Record<PeopleTab, string> = {
+  news: "In the news",
+  orgs: "Organisations",
+  bylines: "Bylines",
+};
 
 type SourceMenuState = {
   x: number;
@@ -22,45 +33,67 @@ type PersonMenuState = {
   name: string;
 };
 
-export type PersonMenuAction = "filter" | "live" | "copy";
+export type PersonMenuAction = "filter" | "live" | "copy" | "dossier" | "exclude";
 
 export function PeopleDesk({
-  rows,
+  newsRows,
+  orgRows,
+  bylineRows,
   items,
   sources,
   activePerson,
+  activeOrg,
   onPerson,
+  onOrg,
   onPreviewSource,
   onToggleSource,
   onPersonAction,
 }: {
-  rows: PersonRow[];
+  newsRows: PersonRow[];
+  orgRows: OrgRow[];
+  bylineRows: PersonRow[];
   items: Item[];
   sources: Map<number, Source>;
   activePerson: string | null;
+  activeOrg: string | null;
   onPerson: (name: string) => void;
+  onOrg: (name: string) => void;
   onPreviewSource: (sourceId: number) => void;
   onToggleSource: (sourceId: number, enabledNow: boolean) => void;
-  onPersonAction: (name: string, action: PersonMenuAction) => void;
+  onPersonAction: (name: string, action: PersonMenuAction, kind: "person" | "org") => void;
 }) {
   const [menu, setMenu] = useState<SourceMenuState | null>(null);
   const [personMenu, setPersonMenu] = useState<PersonMenuState | null>(null);
+  const [tab, setTab] = useState<PeopleTab>(() => (newsRows.length ? "news" : bylineRows.length ? "bylines" : "orgs"));
+
+  const rows: PersonRow[] = tab === "news" ? newsRows : tab === "orgs" ? orgRows : bylineRows;
+  const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+  const orgGroups = useMemo(() => {
+    if (tab !== "orgs") return null;
+    return ORG_KIND_ORDER.map((kind) => ({ kind, rows: orgRows.filter((row) => row.org.kind === kind) })).filter(
+      (group) => group.rows.length,
+    );
+  }, [orgRows, tab]);
 
   const countsByPersonSource = useMemo(() => {
     const map = new Map<string, Map<number, number>>();
     for (const row of rows) {
-      map.set(row.name.toLowerCase(), new Map());
-    }
-    for (const item of items) {
-      const source = sources.get(item.sourceId);
-      for (const row of rows) {
-        if (!itemHasPerson(item, row.name, source)) continue;
-        const bucket = map.get(row.name.toLowerCase())!;
-        bucket.set(item.sourceId, (bucket.get(item.sourceId) ?? 0) + 1);
+      const bucket = new Map<number, number>();
+      for (const id of row.itemIds ?? []) {
+        const item = itemsById.get(id);
+        if (item) bucket.set(item.sourceId, (bucket.get(item.sourceId) ?? 0) + 1);
       }
+      map.set(row.name.toLowerCase(), bucket);
     }
     return map;
-  }, [items, rows, sources]);
+  }, [itemsById, rows]);
+
+  function spark(row: PersonRow) {
+    const rowItems = (row.itemIds ?? []).map((id) => itemsById.get(id)).filter((item): item is Item => Boolean(item));
+    return dailyCounts(rowItems, 7);
+  }
+
+  const menuKind: "person" | "org" = tab === "orgs" ? "org" : "person";
 
   function openMenu(sourceId: number, event: { clientX: number; clientY: number; preventDefault: () => void; stopPropagation: () => void }) {
     event.preventDefault();
@@ -88,14 +121,51 @@ export function PeopleDesk({
       <div>
         <div className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">People</div>
         <p className="mt-1 text-[12px] text-slate-600">
-          Authors and named voices on the current board. Click a person to filter the board. Right-click
-          a person to save that name as a live filter. Source chips show whether that layer is subscribed
-          (filled) or in the pool only (outline). Right-click a source to preview or subscribe.
+          Who the stories are about, the organisations they name, and who wrote them. Click a row to filter
+          the board; right-click for its dossier, a live filter, or Exclude. Source chips show whether that layer
+          is subscribed (filled) or in the pool only (outline).
         </p>
+        <div className="mt-2 flex gap-1" role="tablist" aria-label="People views">
+          {(Object.keys(TAB_LABEL) as PeopleTab[]).map((id) => {
+            const count = id === "news" ? newsRows.length : id === "orgs" ? orgRows.length : bylineRows.length;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={tab === id}
+                className={`investigation-bar-btn ${tab === id ? "is-active" : ""}`}
+                onClick={() => setTab(id)}
+              >
+                {TAB_LABEL[id]} {count}
+              </button>
+            );
+          })}
+        </div>
       </div>
+      {rows.length === 0 ? (
+        <p className="text-[12px] text-slate-500">
+          {tab === "news"
+            ? "No named people on the board in this range."
+            : tab === "orgs"
+              ? "No known organisations on the board in this range."
+              : "No bylines on the board in this range. Many feeds publish without an author."}
+        </p>
+      ) : null}
       <div className="board">
-        {rows.map((row) => {
-          const active = activePerson?.toLowerCase() === row.name.toLowerCase();
+        {(orgGroups ? orgGroups.flatMap((group) => [{ head: ORG_KIND_LABEL[group.kind], rows: group.rows }]) : [{ head: null, rows }]).flatMap(({ head, rows: groupRows }) => [
+          head ? (
+            <div key={`head-${head}`} className="board-section-head">
+              <span>{head}</span>
+              <span className="board-section-head-count">{groupRows.length}</span>
+            </div>
+          ) : null,
+          ...groupRows.map((row) => {
+          const org = (row as OrgRow).org;
+          const active = org
+            ? activeOrg?.toLowerCase() === row.name.toLowerCase()
+            : activePerson?.toLowerCase() === row.name.toLowerCase();
+          const attribution = org ? orgAttribution(org) : null;
           const sourceCounts = countsByPersonSource.get(row.name.toLowerCase());
           const sourceIds = [...row.sourceIds].sort((a, b) => {
             const sa = sources.get(a)?.enabled ? 0 : 1;
@@ -112,14 +182,24 @@ export function PeopleDesk({
               <button
                 type="button"
                 className="w-full text-left"
-                onClick={() => onPerson(row.name)}
+                onClick={() => (org ? onOrg(row.name) : onPerson(row.name))}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
                   setPersonMenu({ x: event.clientX, y: event.clientY, name: row.name });
                 }}
               >
-                <p className="text-[13px] leading-snug font-medium text-slate-800">{row.name}</p>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-[13px] leading-snug font-medium text-slate-800">{row.name}</p>
+                  <MiniSpark points={spark(row)} color={org?.kind === "threat_actor" ? "#be123c" : "#6d28d9"} />
+                </div>
+                {row.role || attribution || row.outlets?.length ? (
+                  <p className="text-[11px] text-slate-500">
+                    {[row.role, attribution, tab === "bylines" ? row.outlets?.slice(0, 3).join(", ") : null]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                ) : null}
                 <p className="mt-1 text-[11px] text-slate-500">
                   {row.count} items · {row.topics.slice(0, 3).join(" · ") || "no topic"}
                 </p>
@@ -157,7 +237,8 @@ export function PeopleDesk({
               ) : null}
             </article>
           );
-        })}
+        }),
+        ])}
       </div>
       {personMenu ? (
         <ContextMenu
@@ -170,11 +251,29 @@ export function PeopleDesk({
               items: [
                 {
                   id: "filter",
-                  label: "Filter the board to this person",
+                  label: menuKind === "org" ? "Filter the board to this organisation" : "Filter the board to this person",
                   onSelect: () => {
                     const name = personMenu.name;
                     setPersonMenu(null);
-                    onPersonAction(name, "filter");
+                    onPersonAction(name, "filter", menuKind);
+                  },
+                },
+                {
+                  id: "dossier",
+                  label: "Open dossier",
+                  onSelect: () => {
+                    const name = personMenu.name;
+                    setPersonMenu(null);
+                    onPersonAction(name, "dossier", menuKind);
+                  },
+                },
+                {
+                  id: "exclude",
+                  label: "Exclude from the board",
+                  onSelect: () => {
+                    const name = personMenu.name;
+                    setPersonMenu(null);
+                    onPersonAction(name, "exclude", menuKind);
                   },
                 },
                 {
@@ -183,7 +282,7 @@ export function PeopleDesk({
                   onSelect: () => {
                     const name = personMenu.name;
                     setPersonMenu(null);
-                    onPersonAction(name, "live");
+                    onPersonAction(name, "live", menuKind);
                   },
                 },
                 {
@@ -192,7 +291,7 @@ export function PeopleDesk({
                   onSelect: () => {
                     const name = personMenu.name;
                     setPersonMenu(null);
-                    onPersonAction(name, "copy");
+                    onPersonAction(name, "copy", menuKind);
                   },
                 },
               ],

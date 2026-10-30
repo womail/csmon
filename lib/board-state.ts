@@ -11,6 +11,19 @@ import {
 } from "./query-builder";
 import { retainMapCamera } from "./map-camera";
 import { isDeskId, type Desk, type OriginReason, type Platform, type TimeRange } from "./types";
+import { isSourceType, type SourceType } from "./source-types";
+import { isFamilyId, type FamilyId } from "./topic-families";
+
+const CVE_RE = /^CVE-\d{4}-\d{4,}$/i;
+
+/** Comma list that keeps case and quoted values (`not=topic:sports,place:Ireland`). */
+function parseTokenList(raw: string, max = 12): string[] {
+  return raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.includes(":") && value.length < 120)
+    .slice(0, max);
+}
 
 export type BoardFilters = {
   desk: Desk;
@@ -33,10 +46,24 @@ export type BoardFilters = {
   origin: OriginReason | null;
   platform: Platform | null;
   person: string | null;
+  /** Organisation from the gazetteer (`lib/gazetteer/orgs.ts`), e.g. APT28 or NATO. */
+  org: string | null;
+  /** Source types (any match), e.g. cert, vendor. */
+  stype: SourceType[];
+  /** One source category (OPML folder or pack label). */
+  cat: string | null;
+  /** Topic families (any match); `general` = no topic. */
+  fam: FamilyId[];
+  /** Negated facet tokens such as `topic:sports` or `source:12`. */
+  not: string[];
+  /** CVE ids (any match). */
+  cve: string[];
   rising: boolean;
   qb: QueryTree;
   /** Deep-link to open a specific item card / reader. */
   focusItem: number | null;
+  /** Entity dossier pane, `kind:value` (`org:APT28`, `place:Ireland`). */
+  dossier: string | null;
 };
 
 function parseListParam(raw: string): string[] {
@@ -92,9 +119,16 @@ export function defaultBoardFilters(stack = ""): BoardFilters {
     origin: null,
     platform: null,
     person: null,
+    org: null,
+    stype: [],
+    cat: null,
+    fam: [],
+    not: [],
+    cve: [],
     rising: false,
     qb: emptyQuery(),
     focusItem: null,
+    dossier: null,
   };
 }
 
@@ -117,6 +151,13 @@ export function normalizeBoardFilters(filters: BoardFilters): BoardFilters {
       : [],
     place: place ? resolvePlace(place) : null,
     platform: filters.platform && PLATFORMS.has(filters.platform) ? filters.platform : null,
+    org: filters.org?.trim() || null,
+    stype: [...new Set((filters.stype ?? []).filter(isSourceType))],
+    cat: filters.cat?.trim() || null,
+    fam: [...new Set((filters.fam ?? []).filter(isFamilyId))],
+    not: [...new Set((filters.not ?? []).map((t) => t.trim()).filter((t) => t.includes(":")))].slice(0, 12),
+    cve: [...new Set((filters.cve ?? []).map((c) => c.trim().toUpperCase()).filter((c) => CVE_RE.test(c)))].slice(0, 8),
+    dossier: filters.dossier && /^[a-z]+:.+/.test(filters.dossier) ? filters.dossier.slice(0, 120) : null,
     qb: { rules: activeQueryRules(filters.qb).slice(0, 8) },
     focusItem:
       typeof filters.focusItem === "number" && filters.focusItem > 0
@@ -152,6 +193,13 @@ export function parseBoardFilters(
     origin: ORIGINS.has(originRaw) ? originRaw : null,
     platform: PLATFORMS.has(platformRaw) ? platformRaw : null,
     person: one(params.person) || null,
+    org: one(params.org) || null,
+    stype: parseListParam(one(params.stype)) as SourceType[],
+    cat: one(params.cat) || null,
+    fam: parseListParam(one(params.fam)) as FamilyId[],
+    not: parseTokenList(one(params.not)),
+    cve: one(params.cve).split(",").map((c) => c.trim()).filter(Boolean),
+    dossier: one(params.dossier) || null,
     rising: one(params.rising) === "1",
     qb: parseQueryTree(one(params.qb)),
     focusItem: (() => {
@@ -180,6 +228,13 @@ export function boardQueryString(filters: BoardFilters) {
   if (filters.origin) p.set("origin", filters.origin);
   if (filters.platform) p.set("platform", filters.platform);
   if (filters.person) p.set("person", filters.person);
+  if (filters.org) p.set("org", filters.org);
+  if (filters.stype.length) p.set("stype", filters.stype.join(","));
+  if (filters.cat) p.set("cat", filters.cat);
+  if (filters.fam.length) p.set("fam", filters.fam.join(","));
+  if (filters.not.length) p.set("not", filters.not.join(","));
+  if (filters.cve.length) p.set("cve", filters.cve.join(","));
+  if (filters.dossier) p.set("dossier", filters.dossier);
   if (filters.rising) p.set("rising", "1");
   if (filters.focusItem) p.set("item", String(filters.focusItem));
   if (hasQuery(filters.qb)) p.set("qb", encodeQueryTree(filters.qb));

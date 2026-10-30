@@ -1,4 +1,5 @@
 import type { Story } from "./cluster";
+import { sortByFamily } from "./topic-families";
 import type { Item } from "./types";
 
 export function uniquePlaces(places: string[]) {
@@ -26,7 +27,7 @@ export function itemTopicChips(item: Item) {
     seen.add(key);
     chips.push(tag);
   }
-  return chips;
+  return sortByFamily(chips);
 }
 
 export function storyTopicChips(story: Story) {
@@ -41,5 +42,5 @@ export function storyTopicChips(story: Story) {
     seen.add(key);
     chips.push(tag);
   }
-  return chips;
+  return sortByFamily(chips);
 }

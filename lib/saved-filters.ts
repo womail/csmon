@@ -2,6 +2,7 @@ import {
   defaultBoardFilters,
   type BoardFilters,
 } from "./board-state";
+import { facetExtrasOf } from "./facets";
 import { encodeQueryTree, parseQueryTree, type QueryTree } from "./query-builder";
 import type { OriginReason, TimeRange } from "./types";
 import type { PatchRisk } from "./kev";
@@ -71,6 +72,8 @@ function hydrate(raw: Partial<SavedFilter>, fallback: BoardFilters): SavedFilter
           ? filters.platform
           : null,
       person: filters.person ?? null,
+      ...facetExtrasOf(filters),
+      dossier: null,
       rising: Boolean(filters.rising),
       focusItem: null,
       qb: parseQueryTree(

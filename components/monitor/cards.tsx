@@ -1,12 +1,14 @@
 "use client";
 
 import type { MouseEvent } from "react";
+import { Lock } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
 import { Tip } from "@/components/monitor/tip";
 import { itemTopicChips, storyTopicChips, uniquePlaces } from "@/lib/card-tags";
 import { tagStyle } from "@/lib/colors";
 import type { Story } from "@/lib/cluster";
-import { personName } from "@/lib/people";
+import { itemOrgs, personName } from "@/lib/people";
+import { ORG_KIND_LABEL, orgAttribution, type Org } from "@/lib/gazetteer/orgs";
 import { mineItem } from "@/lib/mine";
 import { StoryCorroborationBadges } from "@/components/monitor/story-corroboration-badges";
 import { VulnCardChips } from "@/components/monitor/vuln-card-chips";
@@ -15,6 +17,54 @@ import type { EpssScore } from "@/lib/vuln-intel";
 import { shortSourceName } from "@/lib/source-label";
 import type { StoryCorroboration } from "@/lib/story-corroboration";
 import type { Item, OriginReason, Source } from "@/lib/types";
+import { familyOfTopic, topicFamily, type FamilyId } from "@/lib/topic-families";
+import { explainTopic } from "@/lib/topic-why";
+import {
+  OFFICIAL_TYPES,
+  SOURCE_TYPE_LABEL,
+  SOURCE_TYPE_MARK,
+  isSourceType,
+  sourceCategory,
+  type SourceType,
+} from "@/lib/source-types";
+
+function storySourceTypes(story: Story, sources: Map<number, Source>) {
+  return story.sourceIds
+    .map((id) => sourceTypeInfo(sources.get(id)))
+    .filter((row): row is NonNullable<typeof row> => Boolean(row));
+}
+
+function officialSources(story: Story, sources: Map<number, Source>) {
+  return storySourceTypes(story, sources).some((row) => row.official);
+}
+
+/** "3 origins · 1 CERT, 2 Outlet" for the corroboration tooltip. */
+export function originsByTypeLine(story: Story, sources: Map<number, Source>) {
+  const counts = new Map<SourceType, number>();
+  for (const row of storySourceTypes(story, sources)) counts.set(row.type, (counts.get(row.type) ?? 0) + 1);
+  const parts = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([type, n]) => `${n} ${SOURCE_TYPE_LABEL[type]}`);
+  const total = story.sourceIds.length;
+  return `${total} origin${total === 1 ? "" : "s"}${parts.length ? ` · ${parts.join(", ")}` : ""}`;
+}
+
+export function FamilyDot({ topic, family: id }: { topic?: string; family?: FamilyId }) {
+  const family = topicFamily(id ?? familyOfTopic(topic ?? ""));
+  return <span className="fam-dot" style={{ background: `var(${family.tone})` }} aria-hidden />;
+}
+
+/** One-letter source type mark with "{Type} · {category}" in the chip tooltip. */
+export function sourceTypeInfo(source: Source | undefined | null) {
+  if (!source || !isSourceType(source.sourceType)) return null;
+  const type = source.sourceType as SourceType;
+  return {
+    type,
+    mark: SOURCE_TYPE_MARK[type],
+    official: OFFICIAL_TYPES.has(type),
+    tip: `${SOURCE_TYPE_LABEL[type]} · ${sourceCategory(source)}`,
+  };
+}
 
 export function SourceChip({
   name,
@@ -25,11 +75,13 @@ export function SourceChip({
   active,
   subscribed,
   tip,
+  typeMark,
   onClick,
   onContextMenu,
 }: {
   name: string;
   color: string;
+  typeMark?: { mark: string; official: boolean; tip: string } | null;
   extra?: string;
   count?: number;
   filled?: boolean;
@@ -49,7 +101,7 @@ export function SourceChip({
     if (active) chipClass += " source-chip-active";
     else if (showSubState && !isSubscribed) chipClass += " source-chip-unsubscribed";
   }
-  const defaultTip = `Scan only ${name}${extra ? ` · ${extra}` : ""}`;
+  const defaultTip = `Scan only ${name}${extra ? ` · ${extra}` : ""}${typeMark ? `\n${typeMark.tip}` : ""}`;
   const body = (
     <button
       type="button"
@@ -69,6 +121,14 @@ export function SourceChip({
         className="source-chip-dot"
         style={{ background: color, opacity: showSubState && !isSubscribed ? 0.45 : 1 }}
       />
+      {typeMark ? (
+        <span
+          className={typeMark.official ? "source-type-mark source-type-mark-official" : "source-type-mark"}
+          aria-label={typeMark.tip}
+        >
+          {typeMark.mark}
+        </span>
+      ) : null}
       <span className="source-chip-label">
         {label}
         {count != null ? ` ${count}` : ""}
@@ -111,7 +171,7 @@ export function originCopy(source: Source) {
 }
 
 export type CardChip =
-  | { kind: "topic" | "place" | "vendor"; value: string }
+  | { kind: "topic" | "place" | "vendor" | "org"; value: string }
   | { kind: "source"; value: string; sourceId: number };
 
 function chipMenuHandler(
@@ -180,6 +240,66 @@ function CardActions({
   );
 }
 
+const ORG_RANK: Record<string, number> = { threat_actor: 0, ransomware: 0, armed_group: 1 };
+
+/** Up to two named organisations; threat actors and armed groups first. */
+export function OrgChips({
+  items,
+  onOrg,
+  onChipMenu,
+}: {
+  items: Pick<Item, "title" | "summary">[];
+  onOrg?: (name: string) => void;
+  onChipMenu?: (chip: CardChip, event: MouseEvent) => void;
+}) {
+  const seen = new Map<string, Org>();
+  for (const item of items.slice(0, 6)) for (const org of itemOrgs(item)) seen.set(org.name, org);
+  const orgs = [...seen.values()].sort((a, b) => (ORG_RANK[a.kind] ?? 2) - (ORG_RANK[b.kind] ?? 2)).slice(0, 2);
+  return (
+    <>
+      {orgs.map((org) => {
+        const threat = org.kind === "threat_actor" || org.kind === "ransomware";
+        const attribution = orgAttribution(org);
+        return (
+          <Tip key={org.name} text={`${org.name} · ${ORG_KIND_LABEL[org.kind]}${attribution ? ` · ${attribution}` : ""}\nFilter to ${org.name}`}>
+            <button
+              type="button"
+              className={`tag org-chip ${threat ? "org-chip-threat" : ""}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onOrg?.(org.name);
+              }}
+              onContextMenu={chipMenuHandler({ kind: "org", value: org.name }, onChipMenu)}
+            >
+              {org.name}
+            </button>
+          </Tip>
+        );
+      })}
+    </>
+  );
+}
+
+export type ReportLink = { label: string; onAdd: () => void };
+
+/** "Links to your report · APT28": the card shares an org, CVE, or vendor with the open report. */
+export function ReportLinkBadge({ link }: { link: ReportLink }) {
+  return (
+    <Tip text="Shares a name with a story in your open report. Click to add this story to the report.">
+      <button
+        type="button"
+        className="report-link-badge"
+        onClick={(event) => {
+          event.stopPropagation();
+          link.onAdd();
+        }}
+      >
+        Links to your report · {link.label}
+      </button>
+    </Tip>
+  );
+}
+
 export function StoryCard({
   story,
   sources,
@@ -201,9 +321,13 @@ export function StoryCard({
   kevCveIds,
   epss,
   onCve,
+  onOrg,
+  reportLink,
 }: {
   story: Story;
   sources: Map<number, Source>;
+  onOrg?: (name: string) => void;
+  reportLink?: ReportLink | null;
   corroboration?: StoryCorroboration;
   kevCveIds?: ReadonlySet<string>;
   epss?: ReadonlyMap<string, EpssScore>;
@@ -249,11 +373,11 @@ export function StoryCard({
             return (
               <Tip
                 key={topic}
-                text={
+                text={`${explainTopic(story.items[0] ?? { title: story.title, summary: story.summary }, topic, sources.get(story.items[0]?.sourceId ?? -1))}\n${
                   on
                     ? `Remove ${topic}. Click to show the rest of this desk.`
                     : `Show ${topic} inside this desk. Click again to clear. Choose more than one to see all of them.`
-                }
+                }`}
               >
               <button
                 type="button"
@@ -265,6 +389,7 @@ export function StoryCard({
                 }}
                 onContextMenu={chipMenuHandler({ kind: "topic", value: topic }, onChipMenu)}
               >
+                <FamilyDot topic={topic} />
                 {topic}
               </button>
               </Tip>
@@ -302,6 +427,7 @@ export function StoryCard({
               </button>
             </Tip>
           ))}
+          <OrgChips items={story.items} onOrg={onOrg} onChipMenu={onChipMenu} />
         </div>
         <Ago ts={story.latestAt} className="shrink-0 text-[10px] text-slate-400" />
       </div>
@@ -317,7 +443,13 @@ export function StoryCard({
         <VulnCardChips cves={boardCves} kevCveIds={kevCveIds} epss={epss} onCve={onCve} />
       ) : null}
       {corroboration ? <StoryCorroborationBadges corroboration={corroboration} /> : null}
+      {reportLink ? <ReportLinkBadge link={reportLink} /> : null}
       <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+        {officialSources(story, sources) ? (
+          <Tip text={`${originsByTypeLine(story, sources)}. Official = government, CERT, or hazard agency.`}>
+            <span className="official-badge">Official</span>
+          </Tip>
+        ) : null}
         {shownIds.map((id) => {
           const source = sources.get(id);
           return (
@@ -325,6 +457,7 @@ export function StoryCard({
               key={id}
               name={source?.name ?? "source"}
               color={source?.color ?? "#94a3b8"}
+              typeMark={sourceTypeInfo(source)}
               onClick={() => onSource?.(id)}
               onContextMenu={
                 onChipMenu
@@ -335,7 +468,9 @@ export function StoryCard({
           );
         })}
         {extra > 0 ? (
-          <span className="text-[10px] text-slate-400">+{extra} more</span>
+          <Tip text={originsByTypeLine(story, sources)}>
+            <span className="text-[10px] text-slate-400">+{extra} more</span>
+          </Tip>
         ) : null}
       </div>
       <CardActions read={read} onHide={onHide} onRead={onRead} onCopyLink={onCopyLink} onMenu={onReclassify} />
@@ -363,9 +498,13 @@ export function ItemCard({
   kevCveIds,
   epss,
   onCve,
+  onOrg,
+  reportLink,
 }: {
   item: Item;
   source?: Source;
+  onOrg?: (name: string) => void;
+  reportLink?: ReportLink | null;
   kevCveIds?: ReadonlySet<string>;
   epss?: ReadonlyMap<string, EpssScore>;
   onCve?: (cve: string) => void;
@@ -408,11 +547,11 @@ export function ItemCard({
             return (
               <Tip
                 key={tag}
-                text={
+                text={`${explainTopic(item, tag, source)}\n${
                   on
                     ? `Remove ${tag}. Shift+click still drops the tag from this card.`
                     : `Show ${tag} inside this desk. Click again to clear. Shift+click removes the tag from this card.`
-                }
+                }`}
               >
               <button
                 type="button"
@@ -424,11 +563,19 @@ export function ItemCard({
                 }}
                 onContextMenu={chipMenuHandler({ kind: "topic", value: tag }, onChipMenu)}
               >
+                <FamilyDot topic={tag} />
                 {tag}
               </button>
               </Tip>
             );
           })}
+          {item.topicsLocked ? (
+            <Tip text="You set these topics. Reclassify again to change them.">
+              <span className="topics-lock inline-flex items-center" aria-label="Topics set by you">
+                <Lock className="size-2.5" aria-hidden />
+              </span>
+            </Tip>
+          ) : null}
           {uniquePlaces(item.locations).slice(0, 3).map((place) => (
             <Tip key={place} text={`Filter to ${place}`}>
               <button
@@ -461,6 +608,7 @@ export function ItemCard({
               </button>
             </Tip>
           ))}
+          <OrgChips items={[item]} onOrg={onOrg} onChipMenu={onChipMenu} />
         </div>
         <Ago
           ts={item.publishedAt}
@@ -479,11 +627,13 @@ export function ItemCard({
         {kevCveIds && epss ? (
           <VulnCardChips cves={boardCves} kevCveIds={kevCveIds} epss={epss} onCve={onCve} />
         ) : null}
+        {reportLink ? <ReportLinkBadge link={reportLink} /> : null}
       </div>
       <div className="mt-2 min-w-0 overflow-hidden">
         <SourceChip
           name={source?.name ?? "source"}
           color={source?.color ?? "#94a3b8"}
+          typeMark={sourceTypeInfo(source)}
           extra={author}
           onClick={() => {
             if (source) onSource?.(source.id);

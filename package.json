@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --conditions=react-server --import tsx --test \"lib/**/*.test.ts\"",
     "security:audit": "bash scripts/security-audit.sh",
     "security:outbound": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-outbound-policy.mjs",
     "security:live": "bash scripts/harden-live.sh",
@@ -45,6 +46,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   },
   "packageManager": "pnpm@12.5.1"

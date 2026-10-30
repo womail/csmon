@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 import Parser from "rss-parser";
-import { applySourceTopics, applyWeatherSourceTopics, classifyItem } from "../classify";
+import { classifyItem } from "../classify";
 import { repairRssFeedUrl } from "../feed-url-repair";
 import { fetchRssXml, fetchText, UA } from "../http";
 import type { DiscoveredSource, ScrapeResult, ScrapedItem } from "../types";
@@ -49,10 +49,7 @@ function asItems(feed: Parser.Output<Parser.Item>, fallbackUrl: string): Scraped
     const title = (item.title || item.contentSnippet || "Untitled").replace(/\s+/g, " ").slice(0, 220);
     const summary = (item.contentSnippet || item.content || "").replace(/<[^>]+>/g, "").slice(0, 280) || null;
     const url = item.link || fallbackUrl;
-    const text = `${title} ${summary ?? ""}`;
-    let classified = classifyItem(title, summary);
-    classified = applySourceTopics(classified, { feedUrl: fallbackUrl });
-    classified = applyWeatherSourceTopics(classified, { feedUrl: fallbackUrl }, text);
+    const classified = classifyItem(title, summary, { feedUrl: fallbackUrl });
     if (isRedditUrl(url) || isRedditUrl(fallbackUrl)) {
       classified.topics = ["reddit", ...classified.topics.filter((topic) => topic !== "reddit")].slice(0, 6);
       classified.tags = ["reddit", ...classified.tags.filter((tag) => tag !== "reddit")].slice(0, 5);
@@ -62,7 +59,7 @@ function asItems(feed: Parser.Output<Parser.Item>, fallbackUrl: string): Scraped
       title,
       summary,
       url,
-      author: authorText(item.creator, feed.title || null),
+      author: authorText(item.creator, null),
       publishedAt: publishDateFromRssEntry(item as unknown as Record<string, unknown>),
       tags: classified.tags,
       topics: classified.topics,

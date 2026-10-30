@@ -33,7 +33,7 @@ export function relatedStories(story: Story, pool: Story[]) {
   const cves = new Set(storySignals(story).cves);
   const vendors = new Set(storySignals(story).vendors);
   const toks = clusterTokens(story.title);
-  const topics = new Set(story.topics.filter((topic) => topic !== "world"));
+  const topics = new Set(story.topics);
   const places = new Set(story.locations);
 
   return pool
@@ -101,7 +101,7 @@ export function similarStories(story: Story, pool: Story[], take = 6) {
   const relatedIds = new Set(relatedStories(story, pool).map((row) => row.story.id));
   const toks = clusterTokens(story.title);
   const places = new Set(story.locations);
-  const topics = new Set(story.topics.filter((topic) => topic !== "world"));
+  const topics = new Set(story.topics);
   return pool
     .filter((other) => other.id !== story.id && !relatedIds.has(other.id))
     .filter((other) => !offTopicForCyberReader(story, other))
