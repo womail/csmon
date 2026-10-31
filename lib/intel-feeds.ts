@@ -254,7 +254,7 @@ export const INTEL_FEEDS: IntelFeed[] = [
     id: "politico",
     name: "Politico",
     url: "https://www.politico.com",
-    feedUrl: "https://rss.politico.com/politics08.xml",
+    feedUrl: "https://rss.politico.com/politics-news.xml",
     pack: "politics",
     blurb: "US politics",
   },
@@ -286,9 +286,10 @@ export const INTEL_FEEDS: IntelFeed[] = [
     id: "reuters-world",
     name: "Reuters World",
     url: "https://www.reuters.com/world/",
-    feedUrl: "https://feeds.reuters.com/reuters/worldNews",
+    feedUrl:
+      "https://news.google.com/rss/search?q=when:24h+site:reuters.com/world&ceid=US:en&hl=en-US&gl=US",
     pack: "politics",
-    blurb: "Wire — world",
+    blurb: "Wire — world (Google News — Reuters dropped public RSS)",
   },
   {
     id: "usgs-m45",

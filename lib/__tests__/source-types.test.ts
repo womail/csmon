@@ -40,6 +40,16 @@ test("hosts and platforms derive a type", () => {
   assert.equal(deriveSourceType(source({ feedUrl: "https://www.cisa.gov/x.xml", name: "Some agency" })), "government");
   assert.equal(deriveSourceType(source({ feedUrl: "https://cert.example.gov/x.xml", name: "National CERT" })), "cert");
   assert.equal(deriveSourceType(source({ feedUrl: "https://feeds.reuters.com/x" })), "wire");
+  assert.equal(
+    deriveSourceType(
+      source({
+        handle: "reuters-world",
+        feedUrl:
+          "https://news.google.com/rss/search?q=when:24h+site:reuters.com/world&ceid=US:en&hl=en-US&gl=US",
+      }),
+    ),
+    "wire",
+  );
   assert.equal(deriveSourceType(source({})), "outlet");
 });
 
