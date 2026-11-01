@@ -4,6 +4,7 @@ import { TTL } from "./cache";
 import { fetchKevCatalog } from "./kev-fetch";
 import { kevFetchedAt, listDueSources, replaceKev } from "./queries";
 import { pendingReclassifyCount, reclassifyBatch } from "./reclassify-backfill";
+import { appLog } from "./app-log";
 import { refreshSources, type RefreshResult } from "./scrape/refresh";
 
 const TICK_MS = 60 * 1000;
@@ -33,7 +34,13 @@ async function refreshKevIfDue() {
   if (now - kevFetchedAt() < TTL.kev) return;
   if (now - lastKevAttemptAt < TTL.kev) return;
   lastKevAttemptAt = now;
-  replaceKev(await fetchKevCatalog());
+  try {
+    replaceKev(await fetchKevCatalog());
+    appLog("info", "scheduler", "KEV catalog refreshed");
+  } catch (error) {
+    appLog("error", "scheduler", `KEV refresh failed: ${error instanceof Error ? error.message : "error"}`);
+    throw error;
+  }
 }
 
 export function schedulerEnabled() {
@@ -58,6 +65,7 @@ async function tick(status: SchedulerStatus) {
   const due = listDueSources().slice(0, MAX_PER_TICK);
   status.running = true;
   const started = Date.now();
+  appLog("info", "scheduler", due.length ? `Tick: ${due.length} layer(s) due` : "Tick: nothing due");
   try {
     if (due.length) {
       const result = await refreshSources(
@@ -66,13 +74,22 @@ async function tick(status: SchedulerStatus) {
       );
       status.lastRun = { ...result, at: Date.now(), durationMs: Date.now() - started };
     }
-    if (pendingReclassifyCount() > 0) reclassifyBatch(RESCORE_PER_TICK);
+    const pending = pendingReclassifyCount();
+    if (pending > 0) {
+      const batch = reclassifyBatch(RESCORE_PER_TICK);
+      appLog(
+        "info",
+        "scheduler",
+        `Re-score ${batch.updated} item(s), ${batch.changed} changed, ${batch.remaining} left`,
+      );
+    }
     try {
       await refreshKevIfDue();
     } catch (error) {
       console.error("[scheduler] KEV refresh failed", error);
     }
   } catch (error) {
+    appLog("error", "scheduler", `Tick failed: ${error instanceof Error ? error.message : "error"}`);
     console.error("[scheduler] tick failed", error);
   } finally {
     status.running = false;
@@ -94,4 +111,5 @@ export function startScheduler() {
   globalForScheduler.csmonScheduler = { timer, status };
   setTimeout(() => void tick(status), 15_000).unref?.();
   console.info("[scheduler] server-side refresh on (CSMON_SCHEDULER=0 to disable)");
+  appLog("info", "scheduler", "Server-side refresh loop started");
 }

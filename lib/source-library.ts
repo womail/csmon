@@ -51,6 +51,17 @@ export type SourceLibraryFile = {
   }[];
 };
 
+/** Keep local notes / export ids. Never overlay name, URL, or enable — those belong to the catalog. */
+export function applySavedDraft(catalog: LocalSourceDraft, saved?: LocalSourceDraft): LocalSourceDraft {
+  if (!saved) return catalog;
+  return {
+    ...catalog,
+    intelId: saved.intelId ?? catalog.intelId,
+    pack: saved.pack ?? catalog.pack,
+    notes: saved.notes ?? catalog.notes,
+  };
+}
+
 export function rowToDraft(row: SourceCatalogRow, notes = ""): LocalSourceDraft {
   return {
     id: row.id,

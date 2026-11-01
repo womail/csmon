@@ -1,3 +1,4 @@
+import { appLog } from "@/lib/app-log";
 import { fail, gate, jsonOk, readJson } from "@/lib/guard";
 import { deleteSource } from "@/lib/queries";
 import { monitorStateFromRequest } from "@/lib/monitor-state";
@@ -138,6 +139,11 @@ export async function POST(request: Request) {
       if (body.refresh !== false && refreshIds.length) {
         await refreshSources(refreshIds);
       }
+      appLog("info", "catalog", `Import ${result.created} new layer(s)`, {
+        created: result.created,
+        skipped: result.skipped,
+        errors: result.errors.length,
+      });
       return jsonOk({
         catalog: buildSourceCatalog(),
         state: monitorStateFromRequest(request),
@@ -166,6 +172,7 @@ export async function POST(request: Request) {
     if (body.refresh !== false) {
       await refreshSources([id]);
     }
+    appLog("info", "catalog", `Added layer ${create.name.trim()}`, { id });
     return jsonOk({ catalog: buildSourceCatalog(), state: monitorStateFromRequest(request), id });
   } catch (error) {
     return fail(error, error instanceof Error ? error.message : "Could not add source");
@@ -180,6 +187,7 @@ export async function DELETE(request: Request) {
     return fail(new Error("Missing id"), "Missing source id.", 400);
   }
   deleteSource(id);
+  appLog("info", "catalog", `Deleted layer ${id}`, { id });
   return jsonOk({ catalog: buildSourceCatalog(), state: monitorStateFromRequest(request) });
 }
 
@@ -198,6 +206,7 @@ export async function PATCH(request: Request) {
     if (body.saveFeedOverrides) {
       const feeds = snapshotIntelOverridesFromDb();
       const file = saveFeedOverrides(feeds);
+      appLog("info", "catalog", `Saved ${feeds.length} intel feed override(s)`);
       return jsonOk({
         catalog: buildSourceCatalog(),
         state: monitorStateFromRequest(request),
@@ -226,7 +235,12 @@ export async function PATCH(request: Request) {
 
     const updates = Array.isArray(body.updates) ? (body.updates as SourcePatch[]) : [];
     const valid = updates.filter(validatePatch);
+    if (purged) appLog("info", "catalog", `Purged ${purged} stale item(s)`);
     if (valid.length) {
+      appLog("info", "catalog", `Saved ${valid.length} layer(s)`, {
+        ids: valid.map((row) => row.id),
+        refresh: body.refresh !== false,
+      });
       patchSources(
         valid.map((row) => ({
           id: row.id,

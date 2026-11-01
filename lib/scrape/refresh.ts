@@ -20,6 +20,7 @@ import {
 import { notifyWatchAlerts, type WatchAlert } from "../watchlists";
 
 import { gdeltCoolUntil, isGdeltRateLimitError, isGdeltTransientError } from "./gdelt";
+import { appLog } from "../app-log";
 import { fetchSourceItems } from "./index";
 
 export type RefreshResult = {
@@ -43,9 +44,22 @@ export async function refreshSources(
     skipAcled?: boolean;
   },
 ): Promise<RefreshResult> {
-  // Keep intel layer feed URLs in sync with lib/intel-feeds.ts (and overrides) without re-enabling disabled layers.
+  // Create missing intel layers and sync catalog URLs that the user has not replaced.
   registerIntelFeeds(mergedIntelFeeds(), false);
 
+  appLog(
+    "info",
+    "refresh",
+    ids?.length ? `Refresh ${ids.length} requested layer(s)` : "Refresh all enabled layers",
+    {
+      ids: ids?.slice(0, 40),
+      bustCache: options?.bustCache !== false,
+      revalidate: options?.revalidate === true,
+      skipGdelt: options?.skipGdelt === true,
+      skipReddit: options?.skipReddit === true,
+      skipAcled: options?.skipAcled === true,
+    },
+  );
   let sources = ids?.length ? listSourcesByIds(ids) : listEnabledSources();
   const skipGdelt = options?.skipGdelt || !gdeltIngestEnabled();
   const skipAcled = options?.skipAcled || !acledIngestEnabled();
@@ -72,6 +86,10 @@ export async function refreshSources(
   const gdelt = sources.filter((source) => source.feedUrl && isGdeltDocUrl(source.feedUrl));
   const rest = sources.filter((source) => !gdelt.includes(source));
 
+  function layerLabel(source: (typeof sources)[number]) {
+    return source.name?.trim() || source.key;
+  }
+
   async function pull(source: (typeof sources)[number]) {
     try {
       const { value: items, outcomes } = await withFetchContext(
@@ -91,6 +109,12 @@ export async function refreshSources(
       const interval = pollIntervalMs(source, recentPublishTimes(source.id));
       recordFetchSuccess(source.id, unchanged ? "not_modified" : "ok", added, Date.now() + interval);
       ok += 1;
+      appLog(
+        "info",
+        "refresh",
+        unchanged ? `${layerLabel(source)}: unchanged` : `${layerLabel(source)}: ok${added ? ` +${added}` : ""}`,
+        { id: source.id, added, unchanged, nextMs: interval, outcomes },
+      );
     } catch (error) {
       failed += 1;
       let message = error instanceof Error ? error.message : "Refresh failed";
@@ -100,7 +124,8 @@ export async function refreshSources(
       }
       const interval = pollIntervalMs(source, recentPublishTimes(source.id));
       recordFetchFailure(source.id, message, (failCount) => Date.now() + backoffMs(interval, failCount));
-      const label = source.name?.trim() || source.key;
+      const label = layerLabel(source);
+      appLog("error", "refresh", `${label}: ${message}`, { id: source.id });
       if (errors.length < 6) errors.push(`${label}: ${message}`);
       if (isGdeltTransientError(error)) {
         console.warn(`refresh ${source.key}: ${message}`);
@@ -120,6 +145,7 @@ export async function refreshSources(
     errors.push(
       `GDELT: paused about ${secs}s after a rate limit. Leave other GDELT layers off, then Fetch now on one query.`,
     );
+    appLog("warn", "refresh", `GDELT paused about ${secs}s after a rate limit`, { layers: gdelt.length });
   } else {
     for (const source of gdelt) {
       if (gdeltCoolUntil() > Date.now()) {
@@ -139,5 +165,12 @@ export async function refreshSources(
 
   void notifyWatchAlerts(alerts);
 
-  return { layers: sources.length, ok, failed, itemsAdded, notModified, errors };
+  const summary = { layers: sources.length, ok, failed, itemsAdded, notModified, errors };
+  appLog(
+    failed ? "warn" : "info",
+    "refresh",
+    `Done: ${summary.ok} ok, ${summary.failed} failed, ${summary.itemsAdded} new, ${summary.notModified} unchanged`,
+    summary,
+  );
+  return summary;
 }

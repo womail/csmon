@@ -18,6 +18,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { INTEL_FEEDS, type IntelPack } from "@/lib/intel-feeds";
 import { apiFetch } from "@/lib/api-client";
 import {
+  applySavedDraft,
   buildContributionFile,
   downloadJson,
   loadSourceLibrary,
@@ -151,21 +152,7 @@ function mergeDrafts(
       },
       savedRow?.notes ?? "",
     );
-    if (!savedRow) return base;
-    return {
-      ...base,
-      name: savedRow.name,
-      url: savedRow.url,
-      feedUrl: savedRow.feedUrl,
-      description: savedRow.description,
-      enabled: savedRow.enabled,
-      intelId: savedRow.intelId,
-      pack: savedRow.pack,
-      notes: savedRow.notes,
-      retentionDays: savedRow.retentionDays ?? base.retentionDays,
-      category: savedRow.category !== undefined ? savedRow.category : base.category,
-      sourceType: savedRow.sourceType !== undefined ? savedRow.sourceType : base.sourceType,
-    };
+    return applySavedDraft(base, savedRow);
   });
 }
 
@@ -1013,6 +1000,7 @@ export function SourceWorkbenchBody({
                     <tr key={`${row.id}-edit`} className="border-t border-slate-100 bg-slate-50/80">
                       <td colSpan={8} className="px-2 py-2">
                         <EditorPanel
+                          key={row.id}
                           draft={row}
                           categories={categories}
                           busy={busy}
@@ -1086,6 +1074,9 @@ function EditorPanel({
         <label className="block text-[10px] font-medium text-slate-600">
           Display name
           <Input
+            id={`source-${draft.id}-name`}
+            name={`source-${draft.id}-name`}
+            autoComplete="off"
             className="mt-0.5 h-8 text-[12px]"
             value={draft.name}
             onChange={(e) => onChange({ name: e.target.value })}
@@ -1094,6 +1085,9 @@ function EditorPanel({
         <label className="block text-[10px] font-medium text-slate-600">
           Intel id (for GitHub export)
           <Input
+            id={`source-${draft.id}-intel`}
+            name={`source-${draft.id}-intel`}
+            autoComplete="off"
             className="mt-0.5 h-8 text-[12px]"
             value={draft.intelId ?? ""}
             onChange={(e) => onChange({ intelId: e.target.value || null })}
@@ -1103,6 +1097,9 @@ function EditorPanel({
         <label className="block text-[10px] font-medium text-slate-600 sm:col-span-2">
           Site URL
           <Input
+            id={`source-${draft.id}-url`}
+            name={`source-${draft.id}-url`}
+            autoComplete="off"
             className="mt-0.5 h-8 text-[12px]"
             value={draft.url}
             onChange={(e) => onChange({ url: e.target.value })}
@@ -1111,6 +1108,9 @@ function EditorPanel({
         <label className="block text-[10px] font-medium text-slate-600 sm:col-span-2">
           Feed URL
           <Input
+            id={`source-${draft.id}-feed`}
+            name={`source-${draft.id}-feed`}
+            autoComplete="off"
             className="mt-0.5 h-8 text-[12px]"
             value={draft.feedUrl ?? ""}
             onChange={(e) => onChange({ feedUrl: e.target.value || null })}

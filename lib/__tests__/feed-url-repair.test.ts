@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { repairRssFeedUrl } from "../feed-url-repair";
+import { intelFeedUrlMatches, repairRssFeedUrl } from "../feed-url-repair";
 
 test("repairs dead Politico politics08 feed", () => {
   assert.equal(
@@ -19,4 +19,11 @@ test("repairs dead Reuters feeds.reuters.com world feed", () => {
 test("leaves working feeds alone", () => {
   const ok = "https://rss.politico.com/politics-news.xml";
   assert.equal(repairRssFeedUrl(ok), ok);
+});
+
+test("intel catalog URL sync skips a user-edited feed URL", () => {
+  const catalog = "https://feeds.bbci.co.uk/sport/rss.xml";
+  assert.equal(intelFeedUrlMatches(catalog, catalog), true);
+  assert.equal(intelFeedUrlMatches(null, catalog), true);
+  assert.equal(intelFeedUrlMatches("https://feeds.bbci.co.uk/sport/football/rss.xml", catalog), false);
 });

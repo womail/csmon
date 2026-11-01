@@ -200,6 +200,25 @@ const MIGRATIONS: { name: string; sql: string }[] = [
     name: "009_source_category",
     sql: "",
   },
+  {
+    name: "010_app_logs",
+    sql: `
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS app_logs (
+        id INTEGER PRIMARY KEY,
+        at INTEGER NOT NULL,
+        level TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        message TEXT NOT NULL,
+        detail TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_app_logs_at ON app_logs(at DESC);
+    `,
+  },
 ];
 
 const TOPIC_LOCK_COLUMNS: { table: string; column: string; ddl: string }[] = [

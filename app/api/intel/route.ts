@@ -1,6 +1,7 @@
 import { getAdvisoryFeedProbes } from "@/lib/advisory-feed-health";
 import { mergedIntelFeeds } from "@/lib/feed-overrides";
 import type { IntelPack } from "@/lib/intel-feeds";
+import { appLog } from "@/lib/app-log";
 import { fail, gate, jsonOk, readJson } from "@/lib/guard";
 import { registerIntelFeeds } from "@/lib/queries";
 import { monitorStateFromRequest } from "@/lib/monitor-state";
@@ -37,6 +38,7 @@ export async function POST(request: Request) {
     const feeds = pack === "all" ? catalog : catalog.filter((feed) => feed.pack === pack);
     const enable = body.enable !== false;
     const ids = registerIntelFeeds(feeds, enable);
+    appLog("info", "intel", `${enable ? "Load" : "Register"} ${pack} pack (${ids.length} layer(s))`);
     if (enable) await refreshSources(ids);
     if (pack === "security" || pack === "all") {
       void getAdvisoryFeedProbes(true);

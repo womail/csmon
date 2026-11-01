@@ -13,7 +13,7 @@ import { hintSources } from "./explore";
 import { parseQueryLine } from "./query-builder";
 import { listWatchlists, notifyWatchAlerts, recordWatchHits, type WatchAlert } from "./watchlists";
 import { type IntelFeed } from "./intel-feeds";
-import { repairRssFeedUrl } from "./feed-url-repair";
+import { intelFeedUrlMatches, repairRssFeedUrl } from "./feed-url-repair";
 import { acledFeedUrl, acledSourceKey, normalizeAcledProfiles, type AcledProfile } from "./acled";
 import { gdeltDocUrl, gdeltSearchText, gdeltSourceKey, normalizeGdeltQueries, type GdeltQuery } from "./gdelt";
 import {
@@ -747,22 +747,29 @@ export function registerIntelFeeds(feeds: IntelFeed[], enable: boolean) {
   for (const feed of feeds) {
     const feedUrl = repairRssFeedUrl(feed.feedUrl);
     const key = `rss:${feedUrl}`;
-    let current = db.prepare("SELECT id FROM sources WHERE key = ?").get(key) as
-      | { id: number }
+    let current = db.prepare("SELECT id, feed_url FROM sources WHERE key = ?").get(key) as
+      | { id: number; feed_url: string | null }
       | undefined;
     if (!current) {
       current = db
-        .prepare("SELECT id FROM sources WHERE handle = ? AND platform = 'rss'")
-        .get(feed.id) as { id: number } | undefined;
+        .prepare("SELECT id, feed_url FROM sources WHERE handle = ? AND platform = 'rss'")
+        .get(feed.id) as { id: number; feed_url: string | null } | undefined;
     }
     let id: number;
     if (current) {
       id = current.id;
-      db.prepare(
-        `UPDATE sources SET key = ?, name = ?, handle = ?, url = ?, feed_url = ?, description = COALESCE(?, description)${
-          enable ? ", enabled = 1" : ""
-        } WHERE id = ?`,
-      ).run(key, feed.name, feed.id, feed.url, feedUrl, feed.blurb, id);
+      const syncUrl = intelFeedUrlMatches(current.feed_url, feedUrl);
+      if (syncUrl) {
+        db.prepare(
+          `UPDATE sources SET key = ?, name = ?, handle = ?, url = ?, feed_url = ?, description = COALESCE(?, description)${
+            enable ? ", enabled = 1" : ""
+          } WHERE id = ?`,
+        ).run(key, feed.name, feed.id, feed.url, feedUrl, feed.blurb, id);
+      } else {
+        db.prepare(
+          `UPDATE sources SET handle = ?${enable ? ", enabled = 1" : ""} WHERE id = ?`,
+        ).run(feed.id, id);
+      }
     } else {
       const inserted = db
         .prepare(

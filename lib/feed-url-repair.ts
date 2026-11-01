@@ -42,3 +42,9 @@ export function repairRssFeedUrl(feedUrl: string): string {
   }
   return feedUrl;
 }
+
+/** True when the stored URL is empty or already the catalog URL (after repair). */
+export function intelFeedUrlMatches(currentUrl: string | null | undefined, catalogUrl: string) {
+  if (!currentUrl?.trim()) return true;
+  return repairRssFeedUrl(currentUrl.trim()) === repairRssFeedUrl(catalogUrl.trim());
+}

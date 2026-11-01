@@ -1,3 +1,4 @@
+import { appLog } from "@/lib/app-log";
 import { fail, gate, jsonOk } from "@/lib/guard";
 import { pendingReclassifyCount, reclassifyBatch } from "@/lib/reclassify-backfill";
 import { CLASSIFIER_VERSION } from "@/lib/topic-rules";
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
       remaining = batch.remaining;
       if (!batch.updated) break;
     }
+    appLog("info", "classifier", `Re-score ${updated} item(s), ${changed} changed, ${remaining} left`);
     return jsonOk({ updated, changed, remaining, version: CLASSIFIER_VERSION });
   } catch (error) {
     return fail(error, "Re-score failed", 500);
