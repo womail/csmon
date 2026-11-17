@@ -44,11 +44,12 @@ export function ActiveFacetRow({
 }) {
   const [copied, setCopied] = useState(false);
   const line = facetsToSearchLine(facets);
-  if (!facets.length && !leading && !trailing) return null;
+  const empty = !facets.length && !leading && !trailing;
   return (
     <>
       <div className="filter-chip-row filter-chip-row-applied" role="group" aria-label="Active filters">
         <span className="filter-chip-row-label">Active</span>
+        {empty ? <span className="active-empty">No filters</span> : null}
         {leading}
         {facets.map((facet) => (
           <FacetChip key={`${facet.from}-${facet.token}`} facet={facet} onRemove={() => onRemove(facet)} />

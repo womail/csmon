@@ -291,37 +291,6 @@ export function saveGdeltQueries(queries: GdeltQuery[]) {
   return next;
 }
 
-export function mergeGdeltFromSubredditSuggestions(
-  existing: GdeltQuery[],
-  suggestions: { id: string; name: string; query: string }[],
-): GdeltQuery[] {
-  const taken = new Set(existing.map((query) => query.id));
-  const merged = [...existing];
-  let enabled = merged.filter((query) => query.enabled).length;
-  for (const row of suggestions) {
-    if (merged.length >= MAX_GDELT_QUERIES) break;
-    let id = row.id.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 32) || "query";
-    if (taken.has(id)) {
-      let n = 2;
-      while (taken.has(`${id}-${n}`) && n < 50) n += 1;
-      id = `${id}-${n}`.slice(0, 32);
-    }
-    taken.add(id);
-    const enableNext = enabled < MAX_GDELT_ENABLED;
-    if (enableNext) enabled += 1;
-    merged.push({
-      id,
-      name: row.name.slice(0, 40),
-      query: row.query.slice(0, 300),
-      timespan: "1w",
-      maxRecords: 40,
-      enabled: enableNext,
-      englishOnly: true,
-    });
-  }
-  return merged.slice(0, MAX_GDELT_QUERIES);
-}
-
 export function newGdeltQuery(existing: GdeltQuery[]): GdeltQuery {
   const taken = new Set(existing.map((query) => query.id));
   const id = slugId("query", taken);

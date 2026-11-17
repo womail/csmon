@@ -5,14 +5,14 @@ import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tip } from "@/components/monitor/tip";
 import { loadOptions, saveOptions } from "@/lib/options";
-import { applyPalette, type Palette } from "@/lib/theme";
+import { applyPalette, effectivePalette, type Palette } from "@/lib/theme";
 
 export function ThemeToggle() {
   const [palette, setPalette] = useState<Palette>("light");
 
   useEffect(() => {
     const next = loadOptions().palette;
-    setPalette(next);
+    setPalette(effectivePalette(next));
     applyPalette(next);
     const el = document.documentElement;
     const sync = () => setPalette(el.classList.contains("dark") ? "dark" : "light");

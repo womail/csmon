@@ -1,6 +1,5 @@
 import { isAcledFeedUrl } from "./acled";
 import { isGdeltDocUrl } from "./gdelt";
-import { isRedditFeedUrl } from "./reddit";
 import type { Source } from "./types";
 
 const MIN = 60 * 1000;
@@ -15,7 +14,6 @@ function fixedInterval(source: Pick<Source, "feedUrl" | "platform">): number | n
   const feed = source.feedUrl ?? "";
   if (feed && isAcledFeedUrl(feed)) return 6 * HOUR;
   if (feed && isGdeltDocUrl(feed)) return 30 * MIN;
-  if (feed && isRedditFeedUrl(feed)) return 20 * MIN;
   if (source.platform === "bluesky") return 15 * MIN;
   return null;
 }

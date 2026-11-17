@@ -27,7 +27,7 @@ import { autoDeskLabel, resolveDeskLabel, summarizeDesk, type UserDesk } from "@
 
 const VIEW_DESKS: BuiltinDesk[] = ["home", "brief", "scan", "sources"];
 const RANGES: TimeRange[] = ["1h", "6h", "24h", "7d", "all"];
-const ORIGINS: (OriginReason | "")[] = ["", "intel", "reddit", "gdelt", "explore", "self", "follow"];
+const ORIGINS: (OriginReason | "")[] = ["", "intel", "gdelt", "explore", "self", "follow"];
 const PLATFORMS: (Platform | "")[] = ["", "rss", "bluesky", "web"];
 
 export function FilterTuner({
@@ -215,7 +215,7 @@ function FilterFields({
           list="csmon-topics"
           value={value.topic ?? ""}
           onChange={(event) => patch({ topic: event.target.value || null })}
-          placeholder="politics, sports, reddit"
+          placeholder="politics, sports, cyber"
         />
         <datalist id="csmon-topics">
           {topics.map((name) => (

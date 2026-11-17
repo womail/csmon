@@ -76,7 +76,7 @@ export function topicFamily(id: FamilyId): TopicFamily {
   return TOPIC_FAMILIES.find((family) => family.id === id) ?? TOPIC_FAMILIES[TOPIC_FAMILIES.length - 1];
 }
 
-/** Topic or subtag → family; source markers such as `reddit` and free text fall under General. */
+/** Topic or subtag → family. Unknown markers and free text fall under General. */
 export function familyOfTopic(topic: string): FamilyId {
   return familyByTopic.get(topic.toLowerCase()) ?? "general";
 }

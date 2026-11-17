@@ -49,7 +49,6 @@ export const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
   baseball: { bg: "#e0e7ff", fg: "#3730a3" },
   hockey: { bg: "#e0f2fe", fg: "#075985" },
   gaa: { bg: "#ecfccb", fg: "#3f6212" },
-  reddit: { bg: "#ffedd5", fg: "#c2410c" },
   world: { bg: "#e2e8f0", fg: "#334155" },
   place: { bg: "#ecfeff", fg: "#0e7490" },
 };

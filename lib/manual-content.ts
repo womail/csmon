@@ -26,7 +26,7 @@ export const MANUAL_SECTIONS: ManualSection[] = [
 
 **Home** is the situation dashboard: lanes for weather, quakes, war, and unrest, plus a map of where coverage clusters. Click a topic, source, or map dot to filter in place.
 
-**First session:** use **Set up monitoring** on Sources or an empty board, or load RSS packs from the Sources desk. Open **Options** (header **More**) to set **home location**, language, and your **software stack** for Patch. Press **Refresh** after enabling layers.`,
+**First session:** use **Set up monitoring** on Sources or an empty board, or load RSS packs from the Sources desk. Open **Options** in the header to set **home location**, language, and your **software stack** for Patch. **Board** is the first tab and previews compact cards and the palette, including **Match system**. Data limits, the classifier, logs, and credentials stay on **Data**. Press **Refresh** after enabling layers.`,
     figures: [
       {
         src: "/help/screenshots/home-dashboard.png",
@@ -241,7 +241,7 @@ See **Source & filter code map** for the full file list.`,
 | Story | Cluster of items about the same event (Brief/reader). |
 | Item | Single headline row from one layer (Scan). |
 | Pack | Intel group in \`intel-feeds.ts\` (core, security, hazard). |
-| Origin | Why a layer exists: intel, self, follow, explore, reddit, gdelt. |
+| Origin | Why a layer exists: intel, self, follow, explore, gdelt, acled. |
 | KEV | CISA Known Exploited Vulnerabilities catalog (Patch desk). |
 | Cross / 2+ sources | Only stories cited by at least two layers. |
 | Rising | Topic/place/vendor/person volume up vs prior half-window. |

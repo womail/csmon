@@ -3,7 +3,7 @@ import {
   DEFAULT_BOARD_ITEM_LIMIT,
 } from "./board-limit";
 import { detectBrowserLanguage, normalizeLang } from "./lang";
-import { applyPalette, resolvePalette, type Palette } from "./theme";
+import { applyPalette, resolvePalette, type PaletteMode } from "./theme";
 import type { Desk, TimeRange } from "./types";
 
 export type UserOptions = {
@@ -17,17 +17,14 @@ export type UserOptions = {
   homeLanguage: string;
   autoTranslate: boolean;
   homePlace: string;
-  palette: Palette;
+  palette: PaletteMode;
   /** Default max item age when a layer has no per-source retention (days). null = keep until manual purge. */
   defaultRetentionDays: number | null;
   /** Max items loaded from enabled sources onto the board (SQLite LIMIT). */
   boardItemLimit: number;
   /** Optional HTTPS manifest URL (must match server allow suffix when set). */
   updateManifestUrl: string;
-  /** Reserved for post–Reddit-RSS OAuth (not wired yet). */
-  redditOAuthClientId: string;
-  redditOAuthClientSecret: string;
-  /** 0 = off. When set (e.g. 30), refresh enabled RSS layers while the tab is visible (skips GDELT/Reddit/ACLED). */
+  /** 0 = off. When set (e.g. 30), refresh enabled RSS layers while the tab is visible (skips GDELT and ACLED). */
   autoRefreshMinutes: number;
 };
 
@@ -44,12 +41,10 @@ export const DEFAULT_OPTIONS: UserOptions = {
   homeLanguage: "en",
   autoTranslate: false,
   homePlace: "Dublin",
-  palette: "light",
+  palette: "system",
   defaultRetentionDays: 30,
   boardItemLimit: DEFAULT_BOARD_ITEM_LIMIT,
   updateManifestUrl: "",
-  redditOAuthClientId: "",
-  redditOAuthClientSecret: "",
   autoRefreshMinutes: 0,
 };
 
@@ -64,7 +59,12 @@ export function loadOptions(): UserOptions {
         palette: resolvePalette(null),
       };
     }
-    const parsed = JSON.parse(raw) as Partial<UserOptions>;
+    const parsed = JSON.parse(raw) as Partial<UserOptions> & {
+      redditOAuthClientId?: unknown;
+      redditOAuthClientSecret?: unknown;
+    };
+    delete parsed.redditOAuthClientId;
+    delete parsed.redditOAuthClientSecret;
     const merged = { ...DEFAULT_OPTIONS, ...parsed };
     if (!parsed.homeLanguage) merged.homeLanguage = detectBrowserLanguage();
     else merged.homeLanguage = normalizeLang(parsed.homeLanguage) || "en";
@@ -74,10 +74,6 @@ export function loadOptions(): UserOptions {
     );
     merged.updateManifestUrl =
       typeof parsed.updateManifestUrl === "string" ? parsed.updateManifestUrl.trim() : "";
-    merged.redditOAuthClientId =
-      typeof parsed.redditOAuthClientId === "string" ? parsed.redditOAuthClientId.trim() : "";
-    merged.redditOAuthClientSecret =
-      typeof parsed.redditOAuthClientSecret === "string" ? parsed.redditOAuthClientSecret.trim() : "";
     merged.autoRefreshMinutes = Math.max(
       0,
       Math.min(120, Math.round(Number(parsed.autoRefreshMinutes) || 0)),

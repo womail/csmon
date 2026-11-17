@@ -16,7 +16,6 @@ import { DeskTabs } from "@/components/monitor/nav";
 import { OptionsButton } from "@/components/monitor/options-panel";
 import { GdeltButton } from "@/components/monitor/gdelt-panel";
 import { AcledButton } from "@/components/monitor/acled-panel";
-import { RedditButton } from "@/components/monitor/reddit-panel";
 import { SavedViewsButton } from "@/components/monitor/saved-views-panel";
 import { ThemeToggle } from "@/components/monitor/theme-toggle";
 import { QueryBuilderButton } from "@/components/monitor/query-builder";
@@ -161,12 +160,6 @@ export function MonitorToolbar({
   savedViewsOpen,
   onSavedViewsOpenChange,
   savedViewsTab,
-  subreddits,
-  redditOpen,
-  onRedditOpenChange,
-  onSubredditsChange,
-  onLoadReddit,
-  onImportGdelt,
   onGdeltListChange,
   onLoadGdelt,
   onAcledListChange,
@@ -176,6 +169,7 @@ export function MonitorToolbar({
   onAddRss,
   searchData,
   onQuerySubmit,
+  onOpenPalette,
 }: {
   viewDesk: string;
   query: string;
@@ -208,12 +202,6 @@ export function MonitorToolbar({
   savedViewsOpen: boolean;
   onSavedViewsOpenChange: (open: boolean) => void;
   savedViewsTab: "filters" | "briefing" | "watches";
-  subreddits: string[];
-  redditOpen: boolean;
-  onRedditOpenChange: (open: boolean) => void;
-  onSubredditsChange: (subs: string[]) => void;
-  onLoadReddit: (subs: string[]) => void;
-  onImportGdelt: (subs: string[]) => void;
   onGdeltListChange: (queries: GdeltQuery[]) => void;
   onLoadGdelt: (queries: GdeltQuery[]) => void;
   onAcledListChange: (profiles: AcledProfile[]) => void;
@@ -223,6 +211,7 @@ export function MonitorToolbar({
   onAddRss: () => void;
   searchData: SearchSuggestData;
   onQuerySubmit?: () => void;
+  onOpenPalette?: () => void;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -243,6 +232,14 @@ export function MonitorToolbar({
           data={searchData}
           onQuerySubmit={onQuerySubmit}
         />
+        {onOpenPalette ? (
+          <Tip text="Open the command palette">
+            <Button size="xs" variant="outline" onClick={onOpenPalette}>
+              Palette
+              <kbd className="palette-kbd">Ctrl K</kbd>
+            </Button>
+          </Tip>
+        ) : null}
         <div className="toolbar-group">
           <SavedViewsButton
             current={currentFilters}
@@ -265,6 +262,7 @@ export function MonitorToolbar({
               Tune
             </Button>
           </Tip>
+          <OptionsButton onSourcesApplied={onSourcesApplied} onApply={onOptionsApply} />
           <Tip text="Illustrated user guide with screenshots">
             <Button size="xs" variant="outline" asChild>
               <Link href="/help" target="_blank" rel="noopener noreferrer">
@@ -274,17 +272,22 @@ export function MonitorToolbar({
             </Button>
           </Tip>
         </div>
-        <div className="toolbar-segment hidden sm:flex">
-          {ranges.map((r) => (
-            <button
-              key={r}
-              type="button"
-              data-active={range === r ? "true" : "false"}
-              onClick={() => onRangeChange(r)}
-            >
-              {r}
-            </button>
-          ))}
+        <div className="toolbar-range">
+          <span className="toolbar-range-label" id="time-range-label">
+            Time range
+          </span>
+          <div className="toolbar-segment" role="group" aria-labelledby="time-range-label">
+            {ranges.map((r) => (
+              <button
+                key={r}
+                type="button"
+                data-active={range === r ? "true" : "false"}
+                onClick={() => onRangeChange(r)}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
         </div>
         <label className="toolbar-sort hidden md:flex">
           Sort
@@ -332,19 +335,10 @@ export function MonitorToolbar({
                   <div className="flex flex-wrap gap-1 px-1 pb-1">
                     <GdeltButton busy={busy} onListChange={onGdeltListChange} onLoad={(q) => { void onLoadGdelt(q); setMoreOpen(false); }} />
                     <AcledButton busy={busy} onListChange={onAcledListChange} onLoad={(p) => { void onLoadAcled(p); setMoreOpen(false); }} />
-                    <RedditButton
-                      busy={busy}
-                      open={redditOpen}
-                      onOpenChange={onRedditOpenChange}
-                      onListChange={onSubredditsChange}
-                      onLoad={onLoadReddit}
-                      onImportGdelt={onImportGdelt}
-                    />
                   </div>
                   <div className="my-0.5 border-t border-border" />
                   <div className="flex items-center justify-between px-1">
                     <ThemeToggle />
-                    <OptionsButton onSourcesApplied={onSourcesApplied} onApply={onOptionsApply} />
                   </div>
                 </div>
               </>

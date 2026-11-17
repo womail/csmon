@@ -35,7 +35,6 @@ test("intel layers get explicit types", () => {
 
 test("hosts and platforms derive a type", () => {
   assert.equal(deriveSourceType(source({ platform: "bluesky" })), "social");
-  assert.equal(deriveSourceType(source({ feedUrl: "https://www.reddit.com/r/news/.rss" })), "social");
   assert.equal(deriveSourceType(source({ feedUrl: "https://earthquake.usgs.gov/feed.atom" })), "hazard_official");
   assert.equal(deriveSourceType(source({ feedUrl: "https://www.cisa.gov/x.xml", name: "Some agency" })), "government");
   assert.equal(deriveSourceType(source({ feedUrl: "https://cert.example.gov/x.xml", name: "National CERT" })), "cert");

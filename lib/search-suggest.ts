@@ -1,3 +1,5 @@
+import { PINNED_PLACES } from "./places";
+
 export type SearchSuggestData = {
   source: string[];
   place: string[];
@@ -47,6 +49,22 @@ function quoteValue(value: string) {
   return /\s/.test(value) ? `"${value.replace(/"/g, "")}"` : value;
 }
 
+function placeCatalog(data: SearchSuggestData) {
+  return [...new Set([...PINNED_PLACES, ...(data.place ?? [])])];
+}
+
+function rankValues(values: string[], partial: string) {
+  const lower = partial.toLowerCase();
+  return values
+    .filter((value, index) => values.findIndex((other) => other.toLowerCase() === value.toLowerCase()) === index)
+    .filter((value) => !lower || value.toLowerCase().includes(lower))
+    .sort((a, b) => {
+      const as = a.toLowerCase().startsWith(lower) ? 0 : 1;
+      const bs = b.toLowerCase().startsWith(lower) ? 0 : 1;
+      return as - bs || a.localeCompare(b);
+    });
+}
+
 export function searchSuggestions(query: string, data: SearchSuggestData, limit = 8): SearchSuggestion[] {
   const token = lastToken(query);
   if (!token) return [];
@@ -58,7 +76,7 @@ export function searchSuggestions(query: string, data: SearchSuggestData, limit 
   if (colon < 0) {
     const lower = body.toLowerCase();
     if (!lower) return [];
-    return FIELD_HINTS.filter((row) => row.field.startsWith(lower) && row.field !== lower)
+    const fields = FIELD_HINTS.filter((row) => row.field.startsWith(lower) && row.field !== lower)
       .slice(0, limit)
       .map((row) => ({
         label: `${sign}${row.field}:`,
@@ -66,19 +84,27 @@ export function searchSuggestions(query: string, data: SearchSuggestData, limit 
         insert: `${sign}${row.field}:`,
         continues: true,
       }));
+    const places = rankValues(placeCatalog(data), lower)
+      .slice(0, limit)
+      .map((value) => ({
+        label: `${sign}place:${quoteValue(value)}`,
+        hint: "Country or city",
+        insert: `${sign}place:${quoteValue(value)}`,
+        continues: false,
+      }));
+    return [...fields, ...places].slice(0, limit);
   }
 
   const field = body.slice(0, colon).toLowerCase();
   const partial = body.slice(colon + 1).replace(/^["']/, "").toLowerCase();
   const spec = FIELD_HINTS.find((row) => row.field === field);
   if (!spec?.data) return [];
+  const values = spec.data === "place" ? placeCatalog(data) : (data[spec.data] ?? []);
   const seen = new Set<string>();
   const out: SearchSuggestion[] = [];
-  for (const value of data[spec.data] ?? []) {
+  for (const value of rankValues(values, partial)) {
     const key = value.toLowerCase();
-    if (seen.has(key)) continue;
-    if (partial && !key.includes(partial)) continue;
-    if (key === partial) continue;
+    if (seen.has(key) || (partial && key === partial)) continue;
     seen.add(key);
     out.push({
       label: value,

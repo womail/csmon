@@ -7,10 +7,14 @@ import { ChevronLeft, ExternalLink, Languages, Printer, Rss, ScanSearch, X } fro
 import { SendToReportButton } from "@/components/monitor/send-to-report";
 import { Ago } from "@/components/monitor/ago";
 import { placeMarkers } from "@/components/monitor/map";
+import { MapSlot } from "@/components/monitor/map-slot";
 
 const SituationMap = dynamic(
   () => import("@/components/monitor/situation-map").then((mod) => ({ default: mod.SituationMap })),
-  { ssr: false, loading: () => null },
+  {
+    ssr: false,
+    loading: () => <MapSlot title="Related places" hint="The map opens when the board starts." />,
+  },
 );
 import { Tip } from "@/components/monitor/tip";
 import { Button } from "@/components/ui/button";

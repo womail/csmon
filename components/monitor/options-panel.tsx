@@ -24,17 +24,11 @@ import {
 } from "@/lib/options";
 import type { TimeRange } from "@/lib/types";
 import { Tip } from "@/components/monitor/tip";
+import { applyPalette, type PaletteMode } from "@/lib/theme";
 import { SourceWorkbench } from "@/components/monitor/source-workbench";
 import { AppVersionLine } from "@/components/monitor/app-version";
 import { UpdateChecker } from "@/components/monitor/update-checker";
 import { MAX_BOARD_ITEM_LIMIT, MIN_BOARD_ITEM_LIMIT } from "@/lib/board-limit";
-import {
-  REDDIT_RSS_REPLACEMENTS,
-  REDDIT_RSS_SUNSET_BANNER,
-  REDDIT_RSS_SUNSET_LABEL,
-  isRedditRssSunset,
-  redditRssDaysUntilSunset,
-} from "@/lib/reddit";
 import type { MonitorState } from "@/lib/types";
 
 const RANGES: TimeRange[] = ["1h", "6h", "24h", "7d", "all"];
@@ -99,6 +93,11 @@ export function OptionsButton({
     setOpen(false);
   }
 
+  function closeDialog(next: boolean) {
+    if (!next) applyPalette(loadOptions().palette);
+    setOpen(next);
+  }
+
   function openManual() {
     window.open("/help", "_blank", "noopener,noreferrer,width=980,height=860");
   }
@@ -115,7 +114,7 @@ export function OptionsButton({
           Options
         </Button>
       </Tip>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={closeDialog}>
         <DialogContent
           showCloseButton
           className="flex max-h-[min(90vh,780px)] w-[min(calc(100%-1rem),440px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[440px]"
@@ -194,13 +193,13 @@ export function OptionsButton({
                     <select
                       className={selectClass}
                       value={options.palette}
-                      onChange={(e) =>
-                        setOptions((o) => ({
-                          ...o,
-                          palette: e.target.value as UserOptions["palette"],
-                        }))
-                      }
+                      onChange={(e) => {
+                        const palette = e.target.value as PaletteMode;
+                        setOptions((o) => ({ ...o, palette }));
+                        applyPalette(palette);
+                      }}
                     >
+                      <option value="system">Match system</option>
                       <option value="light">Light</option>
                       <option value="dark">Dark</option>
                     </select>
@@ -244,6 +243,19 @@ export function OptionsButton({
                     placeholder="microsoft, linux, openssl"
                   />
                 </label>
+                <div
+                  className="options-preview"
+                  data-compact={options.compact ? "true" : "false"}
+                  data-palette={options.palette}
+                >
+                  <p className="options-preview-kicker">Preview</p>
+                  <p className="options-preview-title">Story headline</p>
+                  <p className="options-preview-summary">One sentence of the story on the board.</p>
+                  <span className="options-preview-chip">Weather</span>
+                  {options.palette === "system" ? (
+                    <p className="options-preview-note">Match system follows this browser’s light or dark setting.</p>
+                  ) : null}
+                </div>
                 <div className="space-y-2 text-[12px] text-slate-700">
                   <label className="flex items-center gap-2">
                     <input
@@ -319,48 +331,7 @@ export function OptionsButton({
                       setOptions((o) => ({ ...o, autoRefreshMinutes: e.target.checked ? 30 : 0 }))
                     }
                   />
-                  Auto-refresh every 30 minutes (visible tab only; skips GDELT, Reddit, ACLED)
-                </label>
-                <div
-                  className={`rounded-md border p-2.5 ${
-                    isRedditRssSunset()
-                      ? "border-amber-300 bg-amber-50"
-                      : "border-orange-200 bg-orange-50"
-                  }`}
-                >
-                  <p className="text-[11px] font-medium text-slate-900">Reddit RSS</p>
-                  <p className="mt-1 text-[10px] leading-snug text-slate-700">{REDDIT_RSS_SUNSET_BANNER}</p>
-                  {!isRedditRssSunset() ? (
-                    <p className="mt-1 text-[10px] text-slate-600">
-                      Shutdown date: {REDDIT_RSS_SUNSET_LABEL} (about {redditRssDaysUntilSunset()} days).
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-[10px] font-medium text-amber-900">
-                      Public RSS has ended. Use header <strong>Reddit → GDELT</strong> to import keyword queries.
-                    </p>
-                  )}
-                  <p className="mt-1 text-[10px] leading-snug text-slate-600">{REDDIT_RSS_REPLACEMENTS}</p>
-                </div>
-                <label className="block">
-                  <FieldLabel>Reddit OAuth app id (script/app — sent to server on Load Reddit)</FieldLabel>
-                  <Input
-                    className="mt-1 h-8 text-[12px]"
-                    value={options.redditOAuthClientId}
-                    onChange={(e) => setOptions((o) => ({ ...o, redditOAuthClientId: e.target.value }))}
-                    placeholder="Reddit app client id"
-                    autoComplete="off"
-                  />
-                </label>
-                <label className="block">
-                  <FieldLabel>Reddit OAuth secret (optional, stored in this browser only)</FieldLabel>
-                  <Input
-                    type="password"
-                    className="mt-1 h-8 text-[12px]"
-                    value={options.redditOAuthClientSecret}
-                    onChange={(e) => setOptions((o) => ({ ...o, redditOAuthClientSecret: e.target.value }))}
-                    placeholder="Reddit app secret (server session only, not stored in DB)"
-                    autoComplete="off"
-                  />
+                  Auto-refresh every 30 minutes (visible tab only; skips GDELT and ACLED)
                 </label>
                 <label className="block">
                   <FieldLabel>Board item limit</FieldLabel>

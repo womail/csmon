@@ -16,15 +16,6 @@ function hostOf(url: string) {
   return new URL(url).hostname.replace(/^www\./, "");
 }
 
-function isRedditUrl(url: string) {
-  try {
-    const host = hostOf(url).toLowerCase();
-    return host === "reddit.com" || host.endsWith(".reddit.com") || host === "redd.it";
-  } catch {
-    return false;
-  }
-}
-
 /** Atom `<author><name>` arrives as `{ name: string[] }`, which SQLite cannot bind. */
 function authorText(value: unknown, fallback: string | null): string | null {
   if (typeof value === "string") {
@@ -50,10 +41,6 @@ function asItems(feed: Parser.Output<Parser.Item>, fallbackUrl: string): Scraped
     const summary = (item.contentSnippet || item.content || "").replace(/<[^>]+>/g, "").slice(0, 280) || null;
     const url = item.link || fallbackUrl;
     const classified = classifyItem(title, summary, { feedUrl: fallbackUrl });
-    if (isRedditUrl(url) || isRedditUrl(fallbackUrl)) {
-      classified.topics = ["reddit", ...classified.topics.filter((topic) => topic !== "reddit")].slice(0, 6);
-      classified.tags = ["reddit", ...classified.tags.filter((tag) => tag !== "reddit")].slice(0, 5);
-    }
     return {
       externalId: item.guid || item.link || `${fallbackUrl}#${index}`,
       title,

@@ -86,7 +86,7 @@ pnpm security:live       # loopback only; headers, health, rejected private read
 | SSRF via scrape/read/explore | Multi-user accounts, OAuth, SSO |
 | Oversized bodies, obvious abuse of `/api` | Stopping a determined local user who can read `localStorage` |
 | Shipping a known-vulnerable dependency unnoticed (SBOM + Dependabot) | Treating the board as an IDS or recon scanner |
-| Accidental LAN/cloud-metadata fetch | Reddit OAuth tokens or unofficial scrape proxies |
+| Accidental LAN/cloud-metadata fetch | Unofficial scrape proxies |
 
 Public APIs and RSS only. No recon scanners, no unauthorized probing.
 

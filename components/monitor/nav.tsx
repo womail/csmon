@@ -251,7 +251,7 @@ export function DeskRail({
       ) : null}
       <div className="mt-auto border-t border-border px-3 py-2.5">
         {onClearFilters ? (
-          <Tip text="Clear topic, place, vendor, person, layer, and search">
+          <Tip text="Clear filters. Desk and time range stay.">
             <button
               type="button"
               onClick={onClearFilters}
@@ -261,7 +261,9 @@ export function DeskRail({
             </button>
           </Tip>
         ) : null}
-        <p className="mt-1 text-[10px] leading-snug text-muted-foreground">Filters live in the URL</p>
+        <p className="mt-1 text-[12px] leading-snug text-slate-600">
+          Desk, range, and filters are in the link. Unread and sort stay in this browser.
+        </p>
       </div>
     </nav>
   );

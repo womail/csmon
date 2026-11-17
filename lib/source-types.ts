@@ -157,7 +157,6 @@ export function deriveSourceType(
   if (explicit) return explicit;
   if (source.platform === "bluesky") return "social";
   const feed = source.feedUrl ?? "";
-  if (/reddit/i.test(feed) || /reddit/i.test(handle)) return "social";
   if (/gdelt|news\.google\.com/i.test(feed) || source.origins?.some((o) => o.reason === "gdelt")) return "aggregator";
   if (/acled/i.test(feed)) return "research";
   const fromCategory = typeFromCategory(source.category);
@@ -184,7 +183,6 @@ export function sourceCategory(source: Pick<Source, "platform" | "handle" | "fee
   const intel = source.handle ? intelById.get(source.handle) : undefined;
   if (intel) return PACK_LABEL[intel.pack];
   const feed = source.feedUrl ?? "";
-  if (/reddit/i.test(feed)) return "Reddit";
   if (/gdelt/i.test(feed)) return "GDELT";
   if (/acled/i.test(feed)) return "ACLED";
   if (source.origins?.some((o) => o.reason === "self")) return "Added by you";

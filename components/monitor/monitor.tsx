@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import {
+  Fragment,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -11,11 +12,13 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Layers, ChevronDown, ChevronRight, Undo2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Undo2 } from "lucide-react";
 import { CardContextMenu, type CardMenuAction } from "@/components/monitor/card-context-menu";
 import { ContextMenu, menuAnchor } from "@/components/monitor/context-menu";
 import { storySearchLine } from "@/lib/story-keywords";
 import { itemTopicChips, storyTopicChips, uniquePlaces } from "@/lib/card-tags";
+import { ClientReady } from "@/components/monitor/client-ready";
+import { MapSlot } from "@/components/monitor/map-slot";
 import { MonitorToolbar } from "@/components/monitor/monitor-toolbar";
 import { Ago } from "@/components/monitor/ago";
 import {
@@ -48,13 +51,11 @@ import { placeMarkers } from "@/components/monitor/map";
 
 const SituationMap = dynamic(
   () => import("@/components/monitor/situation-map").then((mod) => ({ default: mod.SituationMap })),
-  { ssr: false, loading: () => null },
+  { ssr: false, loading: () => <MapSlot /> },
 );
 import { DeskNestList } from "@/components/monitor/desk-nests";
 import { DeskRail, DeskTabs } from "@/components/monitor/nav";
 import { GdeltButton } from "@/components/monitor/gdelt-panel";
-import { RedditButton } from "@/components/monitor/reddit-panel";
-import { RedditRssBanner } from "@/components/monitor/reddit-rss-banner";
 import {
   BoardFilterToggle,
   DismissFilterChip,
@@ -116,11 +117,13 @@ import {
   addFacet,
   clearFacets,
   facetExtrasOf,
+  facetValues,
   facetsFromFilters,
   facetToken,
   facetsToSearchLine,
   promoteTypedTokens,
   removeFacet,
+  toggleExclude,
   toggleFacet,
   type Facet,
   type FacetExtras,
@@ -169,17 +172,9 @@ import type { AcledProfile } from "@/lib/acled";
 import {
   DEFAULT_GDELT_QUERIES,
   loadGdeltQueries,
-  mergeGdeltFromSubredditSuggestions,
   saveGdeltQueries,
   type GdeltQuery,
 } from "@/lib/gdelt";
-import {
-  DEFAULT_SUBREDDITS,
-  gdeltSuggestionsFromSubreddits,
-  isRedditRssSunset,
-  loadSubreddits,
-  REDDIT_RSS_SUNSET_LABEL,
-} from "@/lib/reddit";
 import { applyPalette } from "@/lib/theme";
 import { shortSourceName } from "@/lib/source-label";
 import { bylinesFromItems, itemHasPerson, newsPeopleFromItems, orgsFromItems, peopleFromItems } from "@/lib/people";
@@ -294,7 +289,6 @@ const CONNECTION_KINDS = new Set<RefKind>(["topic", "place", "person", "org", "v
 const STACK_CHIPS = [
   { label: "AI", kind: "topic" as const, value: "ai" },
   { label: "Sports", kind: "topic" as const, value: "sports" },
-  { label: "Reddit", kind: "topic" as const, value: "reddit" },
   { label: "Microsoft", kind: "vendor" as const, value: "Microsoft" },
   { label: "Linux", kind: "vendor" as const, value: "Linux" },
   { label: "Oracle", kind: "vendor" as const, value: "Oracle" },
@@ -439,8 +433,6 @@ export function Monitor({
   const [paletteSavedFilters, setPaletteSavedFilters] = useState<SavedFilter[]>([]);
   const [paletteBriefing, setPaletteBriefing] = useState<MyBriefingProfile | null>(null);
   const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
-  const [subreddits, setSubreddits] = useState<string[]>(DEFAULT_SUBREDDITS);
-  const [redditDialogOpen, setRedditDialogOpen] = useState(false);
   const [gdeltQueries, setGdeltQueries] = useState<GdeltQuery[]>(DEFAULT_GDELT_QUERIES);
   const [reports, setReports] = useState<Report[]>([]);
   const [openReportId, setOpenReportId] = useState<string | null>(null);
@@ -464,7 +456,9 @@ export function Monitor({
   const offerWatchAfterSave = useRef<{ line: string; desk: string } | null>(null);
   const [watchOffer, setWatchOffer] = useState<{ line: string; desk: string; name: string } | null>(null);
   const [pulseFamily, setPulseFamily] = useState<FamilyId | null>(null);
-  const [deskCarry, setDeskCarry] = useState<{ count: number; from: string } | null>(null);
+  const [deskCarry, setDeskCarry] = useState<
+    { kind: "kept"; count: number; from: string } | { kind: "replaced"; name: string } | null
+  >(null);
   const [chipMenu, setChipMenu] = useState<{ chip: CardChip; x: number; y: number } | null>(null);
   const [epss, setEpss] = useState<Map<string, EpssScore>>(() => new Map());
   const epssRequested = useRef(new Set<string>());
@@ -499,7 +493,6 @@ export function Monitor({
     setHomePlace(opts.homePlace || "Dublin");
     setTriage(loadTriage());
     setTriageUndo(loadTriageUndo());
-    setSubreddits(loadSubreddits());
     setGdeltQueries(loadGdeltQueries());
     setBoardSort(loadBoardSort());
     setFirstRunDismissed(window.localStorage.getItem(FIRST_RUN_CHECKLIST_KEY) === "1");
@@ -750,7 +743,7 @@ export function Monitor({
     const ms = autoRefreshMinutes * 60_000;
     const id = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      void refresh({ skipGdelt: true, skipReddit: true, skipAcled: true });
+      void refresh({ skipGdelt: true, skipAcled: true });
     }, ms);
     return () => window.clearInterval(id);
   }, [autoRefreshMinutes, boardItemLimit, deferredQuery, serverScheduler]);
@@ -1160,7 +1153,7 @@ export function Monitor({
     );
   }
 
-  async function refresh(options?: { skipGdelt?: boolean; skipReddit?: boolean; skipAcled?: boolean }) {
+  async function refresh(options?: { skipGdelt?: boolean; skipAcled?: boolean }) {
     setRefreshing(true);
     setError(null);
     try {
@@ -1182,45 +1175,6 @@ export function Monitor({
       setError(err instanceof Error ? err.message : "Refresh failed");
     } finally {
       setRefreshing(false);
-    }
-  }
-
-  function importSubredditsToGdelt(subs: string[]) {
-    const suggestions = gdeltSuggestionsFromSubreddits(subs);
-    const merged = mergeGdeltFromSubredditSuggestions(loadGdeltQueries(), suggestions);
-    saveGdeltQueries(merged);
-    setGdeltQueries(merged);
-    setError("GDELT query drafts added from your subreddit list. Open GDELT → Load GDELT when ready.");
-  }
-
-  async function loadReddit(subs = subreddits) {
-    const opts = loadOptions();
-    const hasOAuth = Boolean(opts.redditOAuthClientId && opts.redditOAuthClientSecret);
-    if (isRedditRssSunset() && !hasOAuth) {
-      importSubredditsToGdelt(subs);
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      setState(
-        await json<MonitorState>(statePath("/api/reddit", boardItemLimit), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            subs,
-            enable: true,
-            oauthClientId: opts.redditOAuthClientId,
-            oauthClientSecret: opts.redditOAuthClientSecret,
-          }),
-        }),
-      );
-      setSubreddits(subs);
-      setDesk("home");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Reddit feed failed");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -1801,7 +1755,6 @@ export function Monitor({
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, [contenteditable=true]")) return;
       setDeskCarry(null);
-      clearBoardFilters();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1814,6 +1767,10 @@ export function Monitor({
   function addBoardFacet(facet: FacetInput) {
     if (facet.kind === "source" && !facet.negate) setOpenSourceId(null);
     updateFilters((filters) => addFacet(filters, facet));
+  }
+
+  function excludeBoardFacet(facet: FacetInput) {
+    updateFilters((filters) => toggleExclude(filters, facet));
   }
 
   function removeBoardFacet(facet: Facet) {
@@ -2358,6 +2315,9 @@ export function Monitor({
     ...extras,
   };
 
+  const hiddenTopics = facetValues(currentFilters, "topic", true);
+  const hiddenFamilies = facetValues(currentFilters, "family", true);
+  const chipActiveTags = [...new Set([topic, ...filterTopics, ...nest].filter((name): name is string => Boolean(name)))];
   const activeFacets = facetsFromFilters(currentFilters, { sources: byId });
   const activeFacetKey = activeFacets.map((facet) => facet.token).join("|");
   const oftenWith = useMemo(() => {
@@ -2647,6 +2607,16 @@ export function Monitor({
               : viewDesk === "documents"
                 ? `${documents.length} reports and advisories`
                 : brief;
+  const shownIds = new Set(items.map((item) => item.id));
+  const hiddenWithoutPlace = place
+    ? rangedItems.filter(
+        (item) => !shownIds.has(item.id) && !item.locations.some((name) => coordsForPlace(name)),
+      ).length
+    : 0;
+  const investigationContext =
+    hiddenWithoutPlace > 0
+      ? `${investigationContextLine} · ${hiddenWithoutPlace} with no place`
+      : investigationContextLine;
 
   const coverageLine = useMemo(() => {
     if (!["home", "brief", "pulse", "weather", "scan", "advisories"].includes(viewDesk)) return undefined;
@@ -2679,7 +2649,7 @@ export function Monitor({
         "place",
       ),
       ...quakes.slice(0, 16).map((quake) => ({
-        id: quake.id,
+        id: `quake-${quake.id}`,
         name: quake.place.split(",").at(-1)?.trim() || quake.place,
         lat: quake.lat,
         lng: quake.lng,
@@ -2688,7 +2658,7 @@ export function Monitor({
       })),
       ...(viewDesk === "flights" || viewDesk === "home"
         ? flights.map((flight) => ({
-            id: flight.icao24,
+            id: `flight-${flight.icao24}`,
             name: flight.callsign || flight.icao24,
             lat: flight.lat,
             lng: flight.lng,
@@ -2701,7 +2671,7 @@ export function Monitor({
         .filter((event) => event.lat != null && event.lng != null)
         .slice(0, 24)
         .map((event) => ({
-          id: event.id,
+          id: `weather-${event.id}`,
           name: event.place,
           lat: event.lat as number,
           lng: event.lng as number,
@@ -2759,17 +2729,18 @@ export function Monitor({
   function changeDesk(next: Desk) {
     if (next === desk) return;
     const custom = findUserDesk(next, customDesks);
-    if (custom) applyFilters({ ...custom.filters, nest: [] });
-    else {
+    if (custom) {
+      applyFilters({ ...custom.filters, nest: [] });
+      setDeskCarry({ kind: "replaced", name: custom.label });
+    } else {
       setQb(emptyQuery());
       setNest([]);
       setDesk(next);
       const kept = activeFacets.filter((facet) => facet.from !== "desk" && facet.from !== "rule").length;
       if (kept) {
         const from = findUserDesk(desk, customDesks)?.label ?? investigationDeskLabel(desk);
-        setDeskCarry({ count: kept, from });
-        window.setTimeout(() => setDeskCarry((current) => (current?.from === from ? null : current)), 6000);
-      }
+        setDeskCarry({ kind: "kept", count: kept, from });
+      } else setDeskCarry(null);
     }
     if (next === "flights") void loadFlights();
   }
@@ -2862,7 +2833,10 @@ export function Monitor({
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-slate-50">
         <header className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm">
-          <RedditRssBanner onMigrate={() => setRedditDialogOpen(true)} />
+          <p id="csmon-boot" hidden suppressHydrationWarning className="csmon-boot" role="status">
+            The board is on screen, but the controls have not started. Reload the page. Range, filters, and the map stay inactive until this clears.
+          </p>
+          <ClientReady />
           <MonitorToolbar
             searchData={searchData}
             viewDesk={viewDesk}
@@ -2918,12 +2892,6 @@ export function Monitor({
             savedViewsOpen={savedViewsOpen}
             onSavedViewsOpenChange={setSavedViewsOpen}
             savedViewsTab={savedViewsTab}
-            subreddits={subreddits}
-            redditOpen={redditDialogOpen}
-            onRedditOpenChange={setRedditDialogOpen}
-            onSubredditsChange={setSubreddits}
-            onLoadReddit={(subs) => void loadReddit(subs)}
-            onImportGdelt={importSubredditsToGdelt}
             onGdeltListChange={setGdeltQueries}
             onLoadGdelt={(queries) => void loadGdelt(queries)}
             onAcledListChange={() => {
@@ -2944,6 +2912,10 @@ export function Monitor({
               void json<MonitorState>(statePath("/api/state", options.boardItemLimit)).then(setState);
             }}
             onAddRss={() => setScrapeOpen(true)}
+            onOpenPalette={() => {
+              setPaletteMode("palette");
+              setPaletteOpen(true);
+            }}
           />
           <InvestigationBar
             desk={desk}
@@ -2962,7 +2934,7 @@ export function Monitor({
             onClearFilters={clearBoardFilters}
             onOpenActiveReport={openActiveReportDesk}
             filtersActive={boardFiltersActive}
-            contextLine={investigationContextLine}
+            contextLine={investigationContext}
             coverageLine={coverageLine}
             sources={byId}
             trail={
@@ -3018,19 +2990,25 @@ export function Monitor({
             {deskCarry ? (
               <div className="desk-carry-toast" role="status">
                 <span>
-                  Kept {deskCarry.count} {deskCarry.count === 1 ? "filter" : "filters"} from {deskCarry.from}
+                  {deskCarry.kind === "replaced"
+                    ? `Replaced filters with ${deskCarry.name}.`
+                    : `Kept ${deskCarry.count} ${deskCarry.count === 1 ? "filter" : "filters"} from ${deskCarry.from}`}
                 </span>
-                <button
-                  type="button"
-                  className="desk-carry-clear"
-                  onClick={() => {
-                    setDeskCarry(null);
-                    clearBoardFilters();
-                  }}
-                >
-                  Clear
+                {deskCarry.kind === "kept" ? (
+                  <button
+                    type="button"
+                    className="desk-carry-clear"
+                    onClick={() => {
+                      setDeskCarry(null);
+                      clearBoardFilters();
+                    }}
+                  >
+                    Clear
+                  </button>
+                ) : null}
+                <button type="button" className="desk-carry-clear" onClick={() => setDeskCarry(null)}>
+                  Dismiss
                 </button>
-                <kbd className="desk-carry-kbd">Esc</kbd>
               </div>
             ) : null}
             <ActiveFacetRow
@@ -3146,10 +3124,7 @@ export function Monitor({
               </>
             ) : (
               <>
-                <span className="filter-chip-row-label">
-                  <Layers className="size-3" aria-hidden />
-                  {enabled.length} layers
-                </span>
+                <span className="layer-count">{enabled.length} layers</span>
                 <BoardFilterToggle
                   label="2+ sources"
                   active={cross}
@@ -3167,13 +3142,15 @@ export function Monitor({
                   return (
                     <ToggleFilterChip
                       key={`pin-${name}`}
-                      label={`${name} ${count}`}
+                      kindLabel="Place"
+                      label={name}
+                      count={count}
                       active={active}
                       accent="place"
                       tip={
                         active
-                          ? `Remove ${name} filter`
-                          : `Everything mentioning ${name} in title or summary`
+                          ? `This is place:${name}. It matches a stored place or a mention in the title or summary.`
+                          : `Sets place:${name}. Matches a stored place or a mention in the title or summary.`
                       }
                       onToggle={() => focusPlace(name)}
                       onDismiss={() => setPlace(null)}
@@ -3200,7 +3177,7 @@ export function Monitor({
                   accent="danger"
                   onClick={() => setRansomware((v) => !v)}
                 />
-                {(["intel", "reddit", "gdelt", "explore", "self", "follow"] as const).map((id) => (
+                {(["intel", "gdelt", "explore", "self", "follow"] as const).map((id) => (
                   <BoardFilterToggle
                     key={id}
                     label={id}
@@ -3329,8 +3306,12 @@ export function Monitor({
                     items={items}
                     activeFamilies={extras.fam}
                     activeTopics={[topic, ...filterTopics].filter((t): t is string => Boolean(t))}
+                    hiddenFamilies={hiddenFamilies}
+                    hiddenTopics={hiddenTopics}
                     onFamily={(id) => updateFilters((filters) => toggleFacet(filters, { kind: "family", value: id }))}
                     onTopic={(name) => updateFilters((filters) => toggleFacet(filters, { kind: "topic", value: name }))}
+                    onExcludeFamily={(id) => excludeBoardFacet({ kind: "family", value: id })}
+                    onExcludeTopic={(name) => excludeBoardFacet({ kind: "topic", value: name })}
                   />
                   <SourceTypeRow
                     items={items}
@@ -3398,44 +3379,6 @@ export function Monitor({
                   </Button>
                 </Tip>
                 <div className="flex w-full basis-full flex-wrap items-center gap-1 border-t border-slate-200/80 pt-1.5">
-                  <span className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
-                    Subreddits
-                  </span>
-                  {subreddits.map((name) => {
-                    const style = tagStyle("reddit");
-                    return (
-                      <span
-                        key={name}
-                        className="tag"
-                        style={{ background: style.bg, color: style.fg }}
-                      >
-                        r/{name}
-                      </span>
-                    );
-                  })}
-                  <RedditButton
-                    busy={busy}
-                    label={isRedditRssSunset() ? "Migrate" : "Manage"}
-                    open={redditDialogOpen}
-                    onOpenChange={setRedditDialogOpen}
-                    onListChange={setSubreddits}
-                    onLoad={(subs) => loadReddit(subs)}
-                    onImportGdelt={importSubredditsToGdelt}
-                  />
-                  {!isRedditRssSunset() ? (
-                    <Tip text="Load the combined public Reddit RSS">
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        onClick={() => void loadReddit()}
-                        disabled={busy || !subreddits.length}
-                      >
-                        Load Reddit
-                      </Button>
-                    </Tip>
-                  ) : null}
-                </div>
-                <div className="flex w-full basis-full flex-wrap items-center gap-1">
                   <span className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
                     GDELT
                   </span>
@@ -3530,50 +3473,6 @@ export function Monitor({
                 </div>
                 <div className="mt-4 border-t border-slate-200/80 pt-3">
                   <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
-                    Subreddits
-                  </div>
-                  <p className="mt-1 text-[12px] text-slate-500">
-                    {isRedditRssSunset()
-                      ? `Public Reddit RSS ended ${REDDIT_RSS_SUNSET_LABEL}. Import names to GDELT keyword queries.`
-                      : "One combined public RSS until 13 Nov 2026. About one request per minute."}
-                  </p>
-                  <div className="mt-2 flex flex-wrap justify-center gap-1">
-                    {subreddits.map((name) => {
-                      const style = tagStyle("reddit");
-                      return (
-                        <span
-                          key={name}
-                          className="tag"
-                          style={{ background: style.bg, color: style.fg }}
-                        >
-                          r/{name}
-                        </span>
-                      );
-                    })}
-                  </div>
-                  <div className="mt-2 flex flex-wrap justify-center gap-2">
-                    <RedditButton
-                      busy={busy}
-                      open={redditDialogOpen}
-                      onOpenChange={setRedditDialogOpen}
-                      onListChange={setSubreddits}
-                      onLoad={(subs) => loadReddit(subs)}
-                      onImportGdelt={importSubredditsToGdelt}
-                    />
-                    {!isRedditRssSunset() ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void loadReddit()}
-                        disabled={busy || !subreddits.length}
-                      >
-                        Load Reddit
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="mt-4 border-t border-slate-200/80 pt-3">
-                  <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
                     GDELT
                   </div>
                   <p className="mt-1 text-[12px] text-slate-500">
@@ -3645,7 +3544,9 @@ export function Monitor({
                     current={familyNow}
                     previous={familyBefore}
                     active={extras.fam}
+                    hidden={hiddenFamilies}
                     onFamily={(id) => updateFilters((filters) => toggleFacet(filters, { kind: "family", value: id }))}
+                    onExclude={(id) => excludeBoardFacet({ kind: "family", value: id })}
                   />
                 }
                 onStoryMenu={(story, event) => {
@@ -3674,8 +3575,11 @@ export function Monitor({
                 onOpenStory={openReader}
                 onLane={openLane}
                 onCategory={setTopic}
+                onExcludeTopic={(name) => excludeBoardFacet({ kind: "topic", value: name })}
+                hiddenTopics={hiddenTopics}
+                hiddenFamilies={hiddenFamilies}
                 range={range}
-                activeTags={nest}
+                activeTags={chipActiveTags}
                 onTopic={clickChip}
                 onPlace={focusPlace}
                 onSource={focusSource}
@@ -3781,31 +3685,33 @@ export function Monitor({
                 ) : null}
                 {sourcesView === "table"
                   ? null
-                  : sourcesByCategory.flatMap(([category, rows]) => [
-                      sourcesByCategory.length > 1 ? (
-                        <div key={`cat-${category}`} className="board-section-head">
-                          <button
-                            type="button"
-                            className="hover:underline"
-                            onClick={() => addBoardFacet({ kind: "category", value: category })}
-                          >
-                            {category}
-                          </button>
-                          <span className="board-section-head-count">{rows.length}</span>
-                        </div>
-                      ) : null,
-                      ...rows.map((source) => (
-                        <SourceLayerCard
-                          key={source.id}
-                          source={source}
-                          itemCount={sourceItemCounts.get(source.id) ?? 0}
-                          sample={items.find((item) => item.sourceId === source.id)?.title}
-                          active={layer === source.id}
-                          onToggle={() => toggleLayer(source.id, true)}
-                          onOpen={() => focusSource(source.id)}
-                        />
-                      )),
-                    ])}
+                  : sourcesByCategory.map(([category, rows]) => (
+                      <Fragment key={`cat-${category}`}>
+                        {sourcesByCategory.length > 1 ? (
+                          <div className="board-section-head">
+                            <button
+                              type="button"
+                              className="hover:underline"
+                              onClick={() => addBoardFacet({ kind: "category", value: category })}
+                            >
+                              {category}
+                            </button>
+                            <span className="board-section-head-count">{rows.length}</span>
+                          </div>
+                        ) : null}
+                        {rows.map((source) => (
+                          <SourceLayerCard
+                            key={`src-${source.id}`}
+                            source={source}
+                            itemCount={sourceItemCounts.get(source.id) ?? 0}
+                            sample={items.find((item) => item.sourceId === source.id)?.title}
+                            active={layer === source.id}
+                            onToggle={() => toggleLayer(source.id, true)}
+                            onOpen={() => focusSource(source.id)}
+                          />
+                        ))}
+                      </Fragment>
+                    ))}
               </div>
             ) : (
               <>
@@ -3818,7 +3724,7 @@ export function Monitor({
                     <div className="mt-2 space-y-1">
                       {uniqueById(weatherEvents).slice(0, 12).map((event) => (
                         <a
-                          key={event.id}
+                          key={`weather-${event.id}`}
                           href={event.url}
                           target="_blank"
                           rel="noreferrer"
@@ -3890,6 +3796,8 @@ export function Monitor({
                         }}
                         onSelect={focusPlace}
                         onCategory={setTopic}
+                        onExcludeTopic={(name) => excludeBoardFacet({ kind: "topic", value: name })}
+                        hiddenTopics={hiddenTopics}
                         topic={topic}
                         range={range}
                         briefContext={situationBrief}
@@ -3906,7 +3814,10 @@ export function Monitor({
                   </>
                 ) : null}
                 {viewDesk === "scan"
-                  ? (() => {
+                  ? (
+                    <>
+                    <p className="board-lead">Every item, unclustered.</p>
+                    {(() => {
                       const slice = items.slice(0, boardCap);
                       const grouped =
                         boardSort === "topic"
@@ -3922,7 +3833,9 @@ export function Monitor({
                             key={item.id}
                             item={item}
                             source={byId.get(item.sourceId)}
-                            activeTags={nest}
+                            activeTags={chipActiveTags}
+                            excludedTags={hiddenTopics}
+                            onExcludeTopic={(name) => excludeBoardFacet({ kind: "topic", value: name })}
                             onTag={(tag, event) => clickItemTag(item, tag, event)}
                             onPlace={focusPlace}
                             onVendor={toggleVendor}
@@ -3952,14 +3865,18 @@ export function Monitor({
                         </div>,
                         ...group.items.map((item) => renderItem(item)),
                       ]);
-                    })()
+                    })()}
+                    </>
+                  )
                   : viewDesk === "pulse"
                     ? stories.slice(0, 12).map((story, index) => (
                         <StoryCard
                           key={story.id}
                           story={story}
                           sources={byId}
-                          activeTags={nest}
+                          activeTags={chipActiveTags}
+                          excludedTags={hiddenTopics}
+                          onExcludeTopic={(name) => excludeBoardFacet({ kind: "topic", value: name })}
                           onOpen={() => openReader(story)}
                           onTopic={clickChip}
                           onPlace={focusPlace}
@@ -3998,7 +3915,9 @@ export function Monitor({
                               key={story.id}
                               story={story}
                               sources={byId}
-                              activeTags={nest}
+                              activeTags={chipActiveTags}
+                              excludedTags={hiddenTopics}
+                              onExcludeTopic={(name) => excludeBoardFacet({ kind: "topic", value: name })}
                               corroboration={storyCorr(story)}
                               onOpen={() => openReader(story)}
                               onTopic={clickChip}
@@ -4298,7 +4217,7 @@ export function Monitor({
                   ) : null}
                   {hiddenLayers.slice(0, 60).map((source) => (
                     <div
-                      key={source.id}
+                      key={`unused-${source.id}`}
                       onContextMenu={(event) => {
                         event.preventDefault();
                         setPoolMenu({ x: event.clientX, y: event.clientY, sourceId: source.id });

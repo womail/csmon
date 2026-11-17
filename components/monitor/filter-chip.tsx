@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Eye, EyeOff, X } from "lucide-react";
 import { Tip } from "@/components/monitor/tip";
 
 export type AppliedFilterVariant =
@@ -72,34 +72,90 @@ export function BoardFilterToggle({
   return tip ? <Tip text={tip}>{chip}</Tip> : chip;
 }
 
-/** Topic / place / vendor chip: shows × when filtered on. */
+/** Hide / show this value without isolating the board to it. */
+export function VisibilityToggle({
+  hidden,
+  label,
+  onToggle,
+}: {
+  hidden: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  const Icon = hidden ? EyeOff : Eye;
+  const word = hidden ? "Show" : "Hide";
+  return (
+    <button
+      type="button"
+      className="filter-vis-btn"
+      data-hidden={hidden ? "true" : "false"}
+      aria-pressed={hidden}
+      aria-label={`${word} ${label}`}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onToggle();
+      }}
+    >
+      <Icon className="filter-vis-icon" aria-hidden />
+      <span className="filter-vis-word">{word}</span>
+    </button>
+  );
+}
+
+/** Topic / place / vendor chip: shows × when filtered on, eye to hide / show. */
 export function ToggleFilterChip({
   label,
+  count,
+  kindLabel,
   active,
+  excluded,
   onToggle,
   onDismiss,
+  onExclude,
   tip,
   accent = "place",
 }: {
   label: string;
+  /** Secondary figure, omitted from the accessible name. */
+  count?: number;
+  /** Kind prefix, as in "Place · Ireland". */
+  kindLabel?: string;
   active: boolean;
+  excluded?: boolean;
   onToggle: () => void;
   onDismiss?: () => void;
+  onExclude?: () => void;
   tip?: string;
   accent?: ToggleAccent;
 }) {
+  const hidden = Boolean(excluded);
+  const name = kindLabel ? `${kindLabel} · ${label}` : label;
   const chip = (
-    <button
-      type="button"
-      onClick={active && onDismiss ? onDismiss : onToggle}
-      className={`filter-chip filter-chip-toggle filter-chip-toggle-${accent}`}
+    <span
+      className={`filter-chip filter-chip-toggle filter-chip-toggle-${accent} ${hidden ? "filter-chip-excluded" : ""}`}
       data-active={active ? "true" : "false"}
-      aria-pressed={active}
-      aria-label={active ? `Remove filter: ${label}` : `Filter to ${label}`}
+      data-hidden={hidden ? "true" : "false"}
     >
-      <span className="filter-chip-label">{label}</span>
-      {active ? <X className="filter-chip-x" aria-hidden /> : null}
-    </button>
+      <button
+        type="button"
+        onClick={hidden && onExclude ? onExclude : active && onDismiss ? onDismiss : onToggle}
+        className="filter-chip-main"
+        aria-pressed={active}
+        aria-label={
+          hidden ? `Show ${name}` : active ? `Remove filter: ${name}` : name
+        }
+      >
+        <span className="filter-chip-label">{name}</span>
+        {count != null ? (
+          <span className="filter-chip-count" aria-hidden>
+            {count}
+          </span>
+        ) : null}
+        {active ? <X className="filter-chip-x" aria-hidden /> : null}
+      </button>
+      {onExclude ? <VisibilityToggle hidden={hidden} label={label} onToggle={onExclude} /> : null}
+    </span>
   );
   return tip ? <Tip text={tip}>{chip}</Tip> : chip;
 }

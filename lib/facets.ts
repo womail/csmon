@@ -484,6 +484,35 @@ export function toggleFacet(filters: BoardFilters, facet: FacetInput, ctx: Ctx =
   return existing ? removeFacet(filters, existing) : addFacet(filters, facet);
 }
 
+export type FacetPolarity = "none" | "include" | "exclude";
+
+/** Include, exclude, or unset — used by the eye toggle on topic / family chips. */
+export function facetPolarity(filters: BoardFilters, facet: FacetInput, ctx: Ctx = {}): FacetPolarity {
+  const rows = facetsFromFilters(filters, ctx).filter(
+    (row) => row.kind === facet.kind && row.value.toLowerCase() === facet.value.toLowerCase(),
+  );
+  if (rows.some((row) => row.negate)) return "exclude";
+  if (rows.length) return "include";
+  return "none";
+}
+
+/** Hide this value, or show it again when it is already excluded. */
+export function toggleExclude(filters: BoardFilters, facet: FacetInput, ctx: Ctx = {}): BoardFilters {
+  const existing = facetsFromFilters(filters, ctx).find(
+    (row) =>
+      row.kind === facet.kind &&
+      row.value.toLowerCase() === facet.value.toLowerCase() &&
+      row.negate,
+  );
+  return existing ? removeFacet(filters, existing) : addFacet(filters, { ...facet, negate: true });
+}
+
+export function facetValues(filters: BoardFilters, kind: FacetKind, negate = false, ctx: Ctx = {}): string[] {
+  return facetsFromFilters(filters, ctx)
+    .filter((row) => row.kind === kind && Boolean(row.negate) === negate)
+    .map((row) => row.value);
+}
+
 /** Remove every facet; desk, range, stack setting, and the open dossier stay. */
 export function clearFacets(filters: BoardFilters): BoardFilters {
   return {

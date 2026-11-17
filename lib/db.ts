@@ -219,6 +219,19 @@ const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS idx_app_logs_at ON app_logs(at DESC);
     `,
   },
+  {
+    name: "011_drop_reddit",
+    sql: `
+      UPDATE sources
+      SET enabled = 0,
+          description = 'Reddit ingest was removed. This layer is disabled.'
+      WHERE key = 'rss:reddit:combined'
+         OR handle = 'reddit'
+         OR feed_url LIKE '%reddit.com%'
+         OR feed_url LIKE 'reddit-oauth:%'
+         OR url LIKE '%reddit.com/%';
+    `,
+  },
 ];
 
 const TOPIC_LOCK_COLUMNS: { table: string; column: string; ddl: string }[] = [

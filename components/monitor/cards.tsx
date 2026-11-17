@@ -3,6 +3,7 @@
 import type { MouseEvent } from "react";
 import { Lock } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
+import { VisibilityToggle } from "@/components/monitor/filter-chip";
 import { Tip } from "@/components/monitor/tip";
 import { itemTopicChips, storyTopicChips, uniquePlaces } from "@/lib/card-tags";
 import { tagStyle } from "@/lib/colors";
@@ -14,6 +15,7 @@ import { StoryCorroborationBadges } from "@/components/monitor/story-corroborati
 import { VulnCardChips } from "@/components/monitor/vuln-card-chips";
 import { boardCvesForItem, boardCvesForStory } from "@/lib/card-cves";
 import type { EpssScore } from "@/lib/vuln-intel";
+import { displaySummary } from "@/lib/card-summary";
 import { shortSourceName } from "@/lib/source-label";
 import type { StoryCorroboration } from "@/lib/story-corroboration";
 import type { Item, OriginReason, Source } from "@/lib/types";
@@ -54,6 +56,62 @@ export function FamilyDot({ topic, family: id }: { topic?: string; family?: Fami
   return <span className="fam-dot" style={{ background: `var(${family.tone})` }} aria-hidden />;
 }
 
+function topicChipState(name: string, activeTags?: string[], excludedTags?: string[]) {
+  const key = name.toLowerCase();
+  return {
+    on: activeTags?.some((tag) => tag.toLowerCase() === key) ?? false,
+    excluded: excludedTags?.some((tag) => tag.toLowerCase() === key) ?? false,
+  };
+}
+
+export function TopicChip({
+  topic,
+  why,
+  active,
+  excluded,
+  onToggle,
+  onExclude,
+  onContextMenu,
+}: {
+  topic: string;
+  why: string;
+  active: boolean;
+  excluded?: boolean;
+  onToggle: (event: MouseEvent) => void;
+  onExclude?: () => void;
+  onContextMenu?: (event: MouseEvent) => void;
+}) {
+  const style = tagStyle(topic);
+  const hidden = Boolean(excluded);
+  const tip = hidden
+    ? `${why}\nHidden from the board. Click the eye to show ${topic} again.`
+    : `${why}\n${
+        active
+          ? `Remove ${topic}. Click to show the rest of this desk.`
+          : `Show ${topic} inside this desk. Eye hides it from the mix.`
+      }`;
+  return (
+    <Tip text={tip}>
+      <span className={`tag ${active ? "tag-on" : ""} ${hidden ? "tag-excluded" : ""}`} style={{ background: style.bg, color: style.fg }}>
+        <button
+          type="button"
+          className="tag-main"
+          onClick={(event) => {
+            event.stopPropagation();
+            if (hidden && onExclude) onExclude();
+            else onToggle(event);
+          }}
+          onContextMenu={onContextMenu}
+        >
+          <FamilyDot topic={topic} />
+          {topic}
+        </button>
+        {onExclude ? <VisibilityToggle hidden={hidden} label={topic} onToggle={onExclude} /> : null}
+      </span>
+    </Tip>
+  );
+}
+
 /** One-letter source type mark with "{Type} · {category}" in the chip tooltip. */
 export function sourceTypeInfo(source: Source | undefined | null) {
   if (!source || !isSourceType(source.sourceType)) return null;
@@ -61,6 +119,7 @@ export function sourceTypeInfo(source: Source | undefined | null) {
   return {
     type,
     mark: SOURCE_TYPE_MARK[type],
+    label: SOURCE_TYPE_LABEL[type],
     official: OFFICIAL_TYPES.has(type),
     tip: `${SOURCE_TYPE_LABEL[type]} · ${sourceCategory(source)}`,
   };
@@ -81,7 +140,7 @@ export function SourceChip({
 }: {
   name: string;
   color: string;
-  typeMark?: { mark: string; official: boolean; tip: string } | null;
+  typeMark?: { mark: string; label?: string; official: boolean; tip: string } | null;
   extra?: string;
   count?: number;
   filled?: boolean;
@@ -92,7 +151,6 @@ export function SourceChip({
   onClick?: () => void;
   onContextMenu?: (event: MouseEvent) => void;
 }) {
-  const label = shortSourceName(name);
   const showSubState = subscribed != null;
   const isSubscribed = subscribed !== false;
   let chipClass = "source-chip";
@@ -106,6 +164,7 @@ export function SourceChip({
     <button
       type="button"
       className={chipClass}
+      aria-label={typeMark?.label ? `${typeMark.label} · ${name}` : name}
       onClick={(event) => {
         event.stopPropagation();
         onClick?.();
@@ -130,7 +189,7 @@ export function SourceChip({
         </span>
       ) : null}
       <span className="source-chip-label">
-        {label}
+        {name}
         {count != null ? ` ${count}` : ""}
         {extra ? ` · ${extra}` : ""}
       </span>
@@ -150,7 +209,6 @@ const ORIGIN_LABEL: Record<OriginReason, string> = {
   link: "Linked from coverage",
   intel: "Security intel",
   explore: "Auto-explored",
-  reddit: "Reddit",
   gdelt: "GDELT",
   acled: "ACLED",
 };
@@ -306,6 +364,8 @@ export function StoryCard({
   onOpen,
   onTopic,
   activeTags,
+  excludedTags,
+  onExcludeTopic,
   onPlace,
   onVendor,
   onSource,
@@ -336,6 +396,8 @@ export function StoryCard({
   onTopic: (topic: string) => void;
   /** Tags currently narrowing the desk. Clicking one again clears it. */
   activeTags?: string[];
+  excludedTags?: string[];
+  onExcludeTopic?: (topic: string) => void;
   onPlace: (place: string) => void;
   onVendor?: (vendor: string) => void;
   onSource?: (sourceId: number) => void;
@@ -353,6 +415,7 @@ export function StoryCard({
   const extra = story.sourceIds.length - shownIds.length;
   const vendors = [...new Set(story.items.flatMap((item) => mineItem(item).vendors))].slice(0, 4);
   const boardCves = boardCvesForStory(story);
+  const blurb = displaySummary(story.title, story.summary);
 
   return (
     <article
@@ -368,31 +431,18 @@ export function StoryCard({
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-wrap gap-1">
           {storyTopicChips(story).slice(0, 4).map((topic) => {
-            const style = tagStyle(topic);
-            const on = activeTags?.some((tag) => tag.toLowerCase() === topic.toLowerCase()) ?? false;
+            const { on, excluded } = topicChipState(topic, activeTags, excludedTags);
             return (
-              <Tip
+              <TopicChip
                 key={topic}
-                text={`${explainTopic(story.items[0] ?? { title: story.title, summary: story.summary }, topic, sources.get(story.items[0]?.sourceId ?? -1))}\n${
-                  on
-                    ? `Remove ${topic}. Click to show the rest of this desk.`
-                    : `Show ${topic} inside this desk. Click again to clear. Choose more than one to see all of them.`
-                }`}
-              >
-              <button
-                type="button"
-                className={on ? "tag tag-on" : "tag"}
-                style={{ background: style.bg, color: style.fg }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onTopic(topic);
-                }}
+                topic={topic}
+                why={explainTopic(story.items[0] ?? { title: story.title, summary: story.summary }, topic, sources.get(story.items[0]?.sourceId ?? -1))}
+                active={on}
+                excluded={excluded}
+                onToggle={() => onTopic(topic)}
+                onExclude={onExcludeTopic ? () => onExcludeTopic(topic) : undefined}
                 onContextMenu={chipMenuHandler({ kind: "topic", value: topic }, onChipMenu)}
-              >
-                <FamilyDot topic={topic} />
-                {topic}
-              </button>
-              </Tip>
+              />
             );
           })}
           {uniquePlaces(story.locations).slice(0, 2).map((place) => (
@@ -431,14 +481,10 @@ export function StoryCard({
         </div>
         <Ago ts={story.latestAt} className="shrink-0 text-[10px] text-slate-400" />
       </div>
-      <p className="mt-1.5 line-clamp-4 text-[12px] leading-snug font-medium text-foreground">
+      <p className="mt-1.5 line-clamp-4 text-[15px] leading-snug font-medium text-foreground">
         {story.title}
       </p>
-      {story.summary ? (
-        <p className="mt-1 line-clamp-2 text-[10.5px] leading-snug text-muted-foreground">
-          {story.summary}
-        </p>
-      ) : null}
+      {blurb ? <p className="card-summary line-clamp-3">{blurb}</p> : null}
       {kevCveIds && epss ? (
         <VulnCardChips cves={boardCves} kevCveIds={kevCveIds} epss={epss} onCve={onCve} />
       ) : null}
@@ -454,7 +500,7 @@ export function StoryCard({
           const source = sources.get(id);
           return (
             <SourceChip
-              key={id}
+              key={`src-${id}`}
               name={source?.name ?? "source"}
               color={source?.color ?? "#94a3b8"}
               typeMark={sourceTypeInfo(source)}
@@ -483,6 +529,8 @@ export function ItemCard({
   source,
   onTag,
   activeTags,
+  excludedTags,
+  onExcludeTopic,
   onPlace,
   onVendor,
   onOpen,
@@ -510,6 +558,8 @@ export function ItemCard({
   onCve?: (cve: string) => void;
   onTag: (tag: string, event: MouseEvent) => void;
   activeTags?: string[];
+  excludedTags?: string[];
+  onExcludeTopic?: (topic: string) => void;
   onPlace?: (place: string) => void;
   onVendor?: (vendor: string) => void;
   onOpen?: () => void;
@@ -527,6 +577,7 @@ export function ItemCard({
   const author = personName(item, source) ?? undefined;
   const vendors = mineItem(item).vendors.slice(0, 4);
   const boardCves = boardCvesForItem(item);
+  const blurb = displaySummary(item.title, item.summary);
 
   return (
     <article
@@ -542,31 +593,18 @@ export function ItemCard({
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-wrap gap-1">
           {itemTopicChips(item).map((tag) => {
-            const style = tagStyle(tag);
-            const on = activeTags?.some((name) => name.toLowerCase() === tag.toLowerCase()) ?? false;
+            const { on, excluded } = topicChipState(tag, activeTags, excludedTags);
             return (
-              <Tip
+              <TopicChip
                 key={tag}
-                text={`${explainTopic(item, tag, source)}\n${
-                  on
-                    ? `Remove ${tag}. Shift+click still drops the tag from this card.`
-                    : `Show ${tag} inside this desk. Click again to clear. Shift+click removes the tag from this card.`
-                }`}
-              >
-              <button
-                type="button"
-                className={on ? "tag tag-on" : "tag"}
-                style={{ background: style.bg, color: style.fg }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onTag(tag, event);
-                }}
+                topic={tag}
+                why={`${explainTopic(item, tag, source)}${on ? "\nShift+click still drops the tag from this card." : "\nShift+click removes the tag from this card."}`}
+                active={on}
+                excluded={excluded}
+                onToggle={(event) => onTag(tag, event)}
+                onExclude={onExcludeTopic ? () => onExcludeTopic(tag) : undefined}
                 onContextMenu={chipMenuHandler({ kind: "topic", value: tag }, onChipMenu)}
-              >
-                <FamilyDot topic={tag} />
-                {tag}
-              </button>
-              </Tip>
+              />
             );
           })}
           {item.topicsLocked ? (
@@ -616,14 +654,10 @@ export function ItemCard({
         />
       </div>
       <div className="mt-1.5">
-        <p className="line-clamp-4 text-[12px] leading-snug font-medium text-foreground">
+        <p className="line-clamp-4 text-[15px] leading-snug font-medium text-foreground">
           {item.title}
         </p>
-        {item.summary ? (
-          <p className="mt-1 line-clamp-2 text-[10.5px] leading-snug text-muted-foreground">
-            {item.summary}
-          </p>
-        ) : null}
+        {blurb ? <p className="card-summary line-clamp-3">{blurb}</p> : null}
         {kevCveIds && epss ? (
           <VulnCardChips cves={boardCves} kevCveIds={kevCveIds} epss={epss} onCve={onCve} />
         ) : null}

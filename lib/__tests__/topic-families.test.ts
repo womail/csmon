@@ -13,7 +13,7 @@ test("every known topic belongs to exactly one family", () => {
 
 test("items with no topic are General", () => {
   assert.deepEqual(familiesForItem({ topics: [] }), ["general"]);
-  assert.deepEqual(familiesForItem({ topics: ["reddit"] }), ["general"]);
+  assert.deepEqual(familiesForItem({ topics: ["unlisted"] }), ["general"]);
   assert.equal(itemInFamilies({ topics: [] }, ["general"]), true);
   assert.equal(itemInFamilies({ topics: ["cyber"] }, ["general"]), false);
   assert.equal(itemInFamilies({ topics: ["war"] }, ["security", "conflict"]), true);

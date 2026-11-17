@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { FACET_ICON } from "@/components/monitor/facet-chip";
-import { ToggleFilterChip } from "@/components/monitor/filter-chip";
+import { ToggleFilterChip, VisibilityToggle } from "@/components/monitor/filter-chip";
 import { Tip } from "@/components/monitor/tip";
 import { FamilyDot } from "@/components/monitor/cards";
 import { Input } from "@/components/ui/input";
@@ -104,14 +104,22 @@ export function FamilyFacetRows({
   items,
   activeFamilies,
   activeTopics,
+  hiddenFamilies = [],
+  hiddenTopics = [],
   onFamily,
   onTopic,
+  onExcludeFamily,
+  onExcludeTopic,
 }: {
   items: Item[];
   activeFamilies: FamilyId[];
   activeTopics: string[];
+  hiddenFamilies?: string[];
+  hiddenTopics?: string[];
   onFamily: (id: FamilyId) => void;
   onTopic: (topic: string) => void;
+  onExcludeFamily?: (id: FamilyId) => void;
+  onExcludeTopic?: (topic: string) => void;
 }) {
   const counts = useMemo(() => {
     const families = new Map<FamilyId, number>();
@@ -133,31 +141,40 @@ export function FamilyFacetRows({
           .filter(([, count]) => count > 0)
           .sort((a, b) => b[1] - a[1]);
         const familyActive = activeFamilies.includes(family.id);
+        const familyHidden = hiddenFamilies.some((name) => name.toLowerCase() === family.id);
         return (
           <div key={family.id} className="family-facet-row">
-            <Tip text={familyActive ? `Remove ${family.label}` : `Everything in ${family.label}: ${family.topics.join(", ") || "items with no topic"}`}>
-              <button
-                type="button"
-                className="family-facet-name"
-                data-active={familyActive ? "true" : "false"}
-                aria-pressed={familyActive}
-                onClick={() => onFamily(family.id)}
-              >
-                <FamilyDot family={family.id} />
-                {family.label}
-                <span className="family-facet-count">{total}</span>
-              </button>
+            <Tip text={familyHidden ? `Show ${family.label} again` : familyActive ? `Remove ${family.label}` : `Everything in ${family.label}: ${family.topics.join(", ") || "items with no topic"}\nEye hides the family from the mix.`}>
+              <span className={`family-facet-name ${familyHidden ? "is-hidden" : ""}`} data-active={familyActive ? "true" : "false"}>
+                <button
+                  type="button"
+                  className="family-facet-name-main"
+                  aria-pressed={familyActive}
+                  onClick={() => (familyHidden && onExcludeFamily ? onExcludeFamily(family.id) : onFamily(family.id))}
+                >
+                  <FamilyDot family={family.id} />
+                  {family.label}
+                  <span className="family-facet-count">{total}</span>
+                </button>
+                {onExcludeFamily ? (
+                  <VisibilityToggle hidden={familyHidden} label={family.label} onToggle={() => onExcludeFamily(family.id)} />
+                ) : null}
+              </span>
             </Tip>
             {members.slice(0, 8).map(([topic, count]) => {
               const active = activeTopics.includes(topic);
+              const excluded = hiddenTopics.some((name) => name.toLowerCase() === topic.toLowerCase());
               return (
                 <ToggleFilterChip
                   key={topic}
                   label={`${topic} ${count}`}
                   active={active}
+                  excluded={excluded}
                   accent="neutral"
+                  tip={excluded ? `Show ${topic} again` : `Filter to ${topic}. Eye hides it from the mix.`}
                   onToggle={() => onTopic(topic)}
                   onDismiss={() => onTopic(topic)}
+                  onExclude={onExcludeTopic ? () => onExcludeTopic(topic) : undefined}
                 />
               );
             })}

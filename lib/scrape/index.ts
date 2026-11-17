@@ -4,10 +4,8 @@ import { acledIngestEnabled, gdeltIngestEnabled } from "../ingest-flags";
 import { parseTarget } from "../parse-target";
 import type { ScrapedItem, Source } from "../types";
 import { fetchBskySource, scrapeBskyUser } from "./bsky";
-import { isRedditOAuthFeedUrl } from "../reddit";
 import { fetchAcledFeed } from "./acled";
 import { fetchGdeltDoc } from "./gdelt";
-import { fetchRedditOAuthFeed } from "./reddit-oauth";
 import { fetchRss, hydrateLinkSources, scrapeRssUrl, scrapeWeb } from "./rss";
 
 export async function scrapeInput(
@@ -27,9 +25,6 @@ export async function scrapeInput(
 export async function fetchSourceItems(source: Source): Promise<ScrapedItem[]> {
   if (source.platform === "bluesky" && source.handle) {
     return fetchBskySource(source.handle);
-  }
-  if (source.feedUrl && isRedditOAuthFeedUrl(source.feedUrl)) {
-    return fetchRedditOAuthFeed(source.feedUrl);
   }
   if (source.feedUrl && isAcledFeedUrl(source.feedUrl)) {
     if (!acledIngestEnabled()) return [];

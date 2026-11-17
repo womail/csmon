@@ -159,7 +159,6 @@ function build(title: string, summary: string | null | undefined, hint?: TopicHi
   };
   if (hint) {
     const feed = `${hint.feedUrl ?? ""} ${hint.handle ?? ""}`;
-    if (/reddit/i.test(feed)) classified = leadWith(classified, "reddit", () => false);
     if (/acled/i.test(feed) && !classified.topics.includes("conflict")) {
       classified = leadWith(classified, "conflict", () => false);
     }
@@ -197,15 +196,13 @@ export function textHasTopic(text: string, topic: string) {
   return new RegExp(`\\b${escaped}\\b`, "i").test(text);
 }
 
-const EXTRA_TOPICS = ["reddit"];
-
 export function isKnownTopic(name: string) {
   const needle = name.trim().toLowerCase();
-  return (topicRuleNames() as string[]).includes(needle) || EXTRA_TOPICS.includes(needle);
+  return (topicRuleNames() as string[]).includes(needle);
 }
 
 export function knownTopicTags() {
-  return [...topicRuleNames(), ...EXTRA_TOPICS];
+  return [...topicRuleNames()];
 }
 
 /** Topic tags available in the reclassify menu (stable order). */

@@ -7,7 +7,7 @@ import { resetItemTopics } from "@/lib/reclassify-backfill";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ALLOWED = new Set(listClassifyTopics());
+const ALLOWED = new Set<string>(listClassifyTopics());
 const MAX_BATCH = 500;
 
 function cleanTopics(raw: unknown) {

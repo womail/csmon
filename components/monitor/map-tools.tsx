@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
+import { VisibilityToggle } from "@/components/monitor/filter-chip";
 import { SITUATION_LANES, type SituationLane } from "@/lib/lanes";
 
 const LANE_LABEL: Record<SituationLane, string> = {
@@ -13,10 +14,14 @@ const LANE_LABEL: Record<SituationLane, string> = {
 
 export function MapLaneBar({
   topic,
+  hiddenTopics = [],
   onCategory,
+  onExclude,
 }: {
   topic: string | null;
+  hiddenTopics?: string[];
   onCategory: (next: string | null) => void;
+  onExclude?: (topic: string) => void;
 }) {
   const extra = topic && !SITUATION_LANES.some((lane) => lane.id === topic) ? topic : null;
   return (
@@ -28,16 +33,26 @@ export function MapLaneBar({
       >
         All
       </button>
-      {SITUATION_LANES.map((lane) => (
-        <button
-          key={lane.id}
-          type="button"
-          className={`map-overlay-tab ${topic === lane.id ? "is-active" : ""}`}
-          onClick={() => onCategory(topic === lane.id ? null : lane.id)}
-        >
-          {LANE_LABEL[lane.id]}
-        </button>
-      ))}
+      {SITUATION_LANES.map((lane) => {
+        const hidden = hiddenTopics.some((name) => name.toLowerCase() === lane.id);
+        return (
+          <div
+            key={lane.id}
+            className={`map-overlay-tab ${topic === lane.id ? "is-active" : ""} ${hidden ? "is-hidden" : ""}`}
+          >
+            <button
+              type="button"
+              className="map-overlay-tab-label"
+              onClick={() => onCategory(hidden ? topic : topic === lane.id ? null : lane.id)}
+            >
+              {LANE_LABEL[lane.id]}
+            </button>
+            {onExclude ? (
+              <VisibilityToggle hidden={hidden} label={LANE_LABEL[lane.id]} onToggle={() => onExclude(lane.id)} />
+            ) : null}
+          </div>
+        );
+      })}
       {extra ? (
         <button type="button" className="map-overlay-tab is-active" onClick={() => onCategory(null)}>
           {extra}

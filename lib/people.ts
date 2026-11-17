@@ -98,7 +98,43 @@ export function newsPeopleFromItems(items: Item[]): PersonRow[] {
       bump(rows, row.name, item, { role: row.role });
     }
   }
-  return sorted(rows);
+  return collapsePersonRows(sorted(rows));
+}
+
+const NAME_SUFFIX = /^(?:jr|sr|ii|iii|iv)$/i;
+
+function extendsName(shortName: string, longName: string) {
+  const short = shortName.trim();
+  const long = longName.trim();
+  if (!long.toLowerCase().startsWith(`${short.toLowerCase()} `)) return false;
+  const extra = long.slice(short.length).trim().split(/\s+/)[0] ?? "";
+  return !NAME_SUFFIX.test(extra);
+}
+
+/** Merge "Thomas Massie Forces" into "Thomas Massie" when both chips exist. */
+export function collapsePersonRows(rows: PersonRow[]): PersonRow[] {
+  const ordered = [...rows].sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name));
+  const kept: PersonRow[] = [];
+  for (const row of ordered) {
+    const host = kept.find((other) => extendsName(other.name, row.name));
+    if (host) {
+      host.count += row.count;
+      for (const id of row.sourceIds) if (!host.sourceIds.includes(id)) host.sourceIds.push(id);
+      for (const topic of row.topics) {
+        if (!host.topics.includes(topic) && host.topics.length < 4) host.topics.push(topic);
+      }
+      for (const id of row.itemIds ?? []) host.itemIds?.push(id);
+      continue;
+    }
+    kept.push({
+      ...row,
+      sourceIds: [...row.sourceIds],
+      topics: [...row.topics],
+      outlets: row.outlets ? [...row.outlets] : [],
+      itemIds: row.itemIds ? [...row.itemIds] : [],
+    });
+  }
+  return kept.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
 /** Journalists and authors, with the outlets they wrote for. */

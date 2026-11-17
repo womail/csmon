@@ -55,10 +55,10 @@ Scoring:
 - Assign the topic when `score >= threshold` and no veto matched (a weight-3 hit overrides vetoes).
 - Return topics sorted by score, capped at 6. `hits` holds the `label`s that fired; task 10 shows them as "Why this topic".
 - **Source prior** (from `hint`): add +2 to the source's home topic (sports layers → sports, weather layers → weather, security/CERT/vendor layers → cyber). For security layers, apply a −2 to `sports`, `health`, `conflict`, and `war` unless a weight-3 signal for those topics fired. Keep `isSportsSource` / `isWeatherSource` as the hint source for now; task 06 adds `category`.
-- **No fallback topic.** Stop pushing `"world"` when nothing scores. An item with no topic has `topics: []`. Grep for every `"world"` use (`lib/classify.ts`, `lib/dive.ts`, `lib/link.ts`, `lib/desk-from-item.ts`, `lib/trends.ts`, `lib/cluster.ts`, `lib/scrape/acled.ts`, `lib/scrape/reddit-oauth.ts`) and every place that reads `topics[0]`; make each one handle an empty list. The UI shows such items under the label **General** (task 10).
+- **No fallback topic.** Stop pushing `"world"` when nothing scores. An item with no topic has `topics: []`. Grep for every `"world"` use (`lib/classify.ts`, `lib/dive.ts`, `lib/link.ts`, `lib/desk-from-item.ts`, `lib/trends.ts`, `lib/cluster.ts`, `lib/scrape/acled.ts`) and every place that reads `topics[0]`; make each one handle an empty list. The UI shows such items under the label **General** (task 10).
 - Keep `tags` = topics + subtags (sport leagues today; task 10 adds cyber and hazard subtags) so existing filters and cards keep working. **Place names never go into `tags`.**
 - Keep `stripCyberWhenWeatherHeadline`, `applyWeatherSourceTopics`, `applySourceTopics` behavior, but fold them into the scorer via `hint`. Their exported names may stay as thin wrappers so callers compile.
-- Call sites to pass `hint`: `lib/scrape/rss.ts` (`asItems` has `fallbackUrl`), `lib/queries.ts` `insertItems` (has `source`), `lib/scrape/bsky.ts`, `lib/scrape/gdelt.ts`, `lib/scrape/acled.ts`, `lib/scrape/reddit-oauth.ts`, `lib/dive.ts`.
+- Call sites to pass `hint`: `lib/scrape/rss.ts` (`asItems` has `fallbackUrl`), `lib/queries.ts` `insertItems` (has `source`), `lib/scrape/bsky.ts`, `lib/scrape/gdelt.ts`, `lib/scrape/acled.ts`, `lib/dive.ts`.
 
 ## Rule changes (minimum set)
 

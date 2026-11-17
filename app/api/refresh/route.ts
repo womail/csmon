@@ -10,12 +10,11 @@ export async function POST(request: Request) {
   const blocked = gate(request, "refresh", 12);
   if (blocked) return blocked;
   try {
-    const body = await readJson<{ ids?: unknown; skipGdelt?: unknown; skipReddit?: unknown; skipAcled?: unknown }>(
+    const body = await readJson<{ ids?: unknown; skipGdelt?: unknown; skipAcled?: unknown }>(
       request,
     );
     const ids = asIdList(body.ids, 200);
     const skipGdelt = body.skipGdelt === true;
-    const skipReddit = body.skipReddit === true;
     const skipAcled = body.skipAcled === true;
     if (!ids.length && listEnabledSources().length === 0) {
       return fail(
@@ -26,7 +25,6 @@ export async function POST(request: Request) {
     }
     const summary = await refreshSources(ids.length ? ids : undefined, {
       skipGdelt,
-      skipReddit,
       skipAcled,
     });
     if (summary.layers > 0 && summary.ok === 0) {

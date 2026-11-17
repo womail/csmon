@@ -80,7 +80,8 @@ export function InvestigationBar({
   return (
     <div className="investigation-bar">
       <div className="investigation-bar-inner">
-        <div className="investigation-bar-context">
+        <div className="investigation-bar-context" role="group" aria-label="Active">
+          <span className="active-kicker">Active</span>
           <span className="investigation-bar-desk">{title}</span>
           <span className="investigation-bar-meta">
             <span>{range}</span>
@@ -94,11 +95,11 @@ export function InvestigationBar({
                 </span>
               </>
             ) : null}
+            <span className="investigation-bar-sep" aria-hidden>
+              ·
+            </span>
             {filterCount > 0 ? (
               <>
-                <span className="investigation-bar-sep" aria-hidden>
-                  ·
-                </span>
                 <span className="investigation-bar-filter-count">
                   {filterCount} filter{filterCount === 1 ? "" : "s"}
                 </span>
@@ -108,7 +109,9 @@ export function InvestigationBar({
                   </span>
                 ) : null}
               </>
-            ) : null}
+            ) : (
+              <span className="investigation-bar-filter-count">No filters</span>
+            )}
           </span>
         </div>
 
@@ -137,7 +140,7 @@ export function InvestigationBar({
 
           <div className="investigation-bar-actions">
             {trail}
-            <Tip text={unreadOnly ? "Show all items" : "Show only stories you have not marked read"}>
+            <Tip text={unreadOnly ? "Show all items" : "Show only stories you have not marked read. Unread stays in this browser."}>
               <button
                 type="button"
                 className={`investigation-bar-btn ${unreadOnly ? "is-active" : ""}`}
@@ -146,20 +149,23 @@ export function InvestigationBar({
                 Unread only
               </button>
             </Tip>
-            <Tip text={copied ? "Copied" : "Copy link to this view"}>
+            <Tip text={copied ? "Copied" : "Copies desk, time range, and filters. Unread and sort stay in this browser."}>
               <button type="button" className="investigation-bar-btn" onClick={() => void copyLink()}>
                 {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-                Link
+                Copy view
               </button>
             </Tip>
-            {filtersActive ? (
-              <Tip text="Clear all filters on this desk">
-                <button type="button" className="investigation-bar-btn investigation-bar-btn-muted" onClick={onClearFilters}>
-                  <X className="size-3" />
-                  Clear
-                </button>
-              </Tip>
-            ) : null}
+            <Tip text={filtersActive ? "Clear filters. Desk and time range stay." : "No filters to clear. Desk and time range stay."}>
+              <button
+                type="button"
+                className="investigation-bar-btn investigation-bar-btn-muted"
+                onClick={onClearFilters}
+                disabled={!filtersActive}
+              >
+                <X className="size-3" />
+                Clear
+              </button>
+            </Tip>
           </div>
         </div>
       </div>

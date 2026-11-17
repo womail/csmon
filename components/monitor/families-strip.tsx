@@ -1,6 +1,7 @@
 "use client";
 
 import { FamilyDot } from "@/components/monitor/cards";
+import { VisibilityToggle } from "@/components/monitor/filter-chip";
 import { Tip } from "@/components/monitor/tip";
 import { TOPIC_FAMILIES, type FamilyId } from "@/lib/topic-families";
 
@@ -9,13 +10,17 @@ export function FamiliesStrip({
   current,
   previous,
   active,
+  hidden = [],
   onFamily,
+  onExclude,
 }: {
   current: Map<FamilyId, number>;
   /** Same-length window before the range; null when the range is "all". */
   previous: Map<FamilyId, number> | null;
   active: FamilyId[];
+  hidden?: string[];
   onFamily: (id: FamilyId) => void;
+  onExclude?: (id: FamilyId) => void;
 }) {
   const rows = TOPIC_FAMILIES.map((family) => ({ family, count: current.get(family.id) ?? 0 })).filter((row) => row.count > 0);
   if (!rows.length) return null;
@@ -25,28 +30,30 @@ export function FamiliesStrip({
         const before = previous?.get(family.id) ?? 0;
         const delta = previous ? count - before : 0;
         const on = active.includes(family.id);
+        const excluded = hidden.some((name) => name.toLowerCase() === family.id);
         return (
           <Tip
             key={family.id}
-            text={`${family.label}: ${count} items${previous ? ` · ${before} in the previous window` : ""}\nClick to ${on ? "remove" : "add"} the ${family.label} filter.`}
+            text={`${family.label}: ${count} items${previous ? ` · ${before} in the previous window` : ""}\nClick to ${on ? "remove" : "add"} the ${family.label} filter. Eye hides it from the mix.`}
           >
-            <button
-              type="button"
-              className="families-strip-cell"
+            <div
+              className={`families-strip-cell ${excluded ? "is-hidden" : ""}`}
               aria-pressed={on}
               style={on ? { boxShadow: `inset 0 0 0 1px var(${family.tone})` } : undefined}
-              onClick={() => onFamily(family.id)}
             >
-              <FamilyDot family={family.id} />
-              {family.label}
-              <span className="font-semibold tabular-nums">{count}</span>
-              {previous && delta !== 0 ? (
-                <span className={delta > 0 ? "families-strip-delta-up" : "families-strip-delta-down"}>
-                  {delta > 0 ? "▲" : "▼"}
-                  {Math.abs(delta)}
-                </span>
-              ) : null}
-            </button>
+              <button type="button" className="families-strip-main" onClick={() => (excluded && onExclude ? onExclude(family.id) : onFamily(family.id))}>
+                <FamilyDot family={family.id} />
+                {family.label}
+                <span className="font-semibold tabular-nums">{count}</span>
+                {previous && delta !== 0 ? (
+                  <span className={delta > 0 ? "families-strip-delta-up" : "families-strip-delta-down"}>
+                    {delta > 0 ? "▲" : "▼"}
+                    {Math.abs(delta)}
+                  </span>
+                ) : null}
+              </button>
+              {onExclude ? <VisibilityToggle hidden={excluded} label={family.label} onToggle={() => onExclude(family.id)} /> : null}
+            </div>
           </Tip>
         );
       })}

@@ -35,6 +35,16 @@ test("threat actor names are not weather", () => {
   assert.equal(topics("Volt Typhoon targets US water utilities").includes("weather"), false);
 });
 
+test("stormcast and the internet storm center are not weather", () => {
+  const got = topics(
+    "ISC Stormcast For Friday, October 16th, 2026",
+    "Copyright SANS Institute. Internet Storm Center. All rights reserved.",
+    { feedUrl: "https://isc.sans.edu/rssfeed_full.xml", sourceType: "research" },
+  );
+  assert.equal(got.includes("weather"), false);
+  assert.ok(got.includes("cyber"));
+});
+
 test("college football talk is sports and a state name alone is not", () => {
   assert.equal(topics("Michigan was never going to win that game with their current offensive coordinator.").includes("sports"), true);
   assert.equal(topics("No game has deserved to end in a tie more than this Michigan-Indiana one").includes("sports"), true);

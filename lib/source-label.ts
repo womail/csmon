@@ -14,8 +14,18 @@ const ALIASES: [RegExp, string][] = [
   [/^sky sports|^skysports/i, "Sky Sport"],
   [/^associated press|\bap news\b/i, "AP"],
   [/^reuters/i, "Reuters"],
-  [/^reddit/i, "Reddit"],
+  [/^cert-fr\b/i, "CERT-FR"],
+  [/^the record\b/i, "The Record"],
 ];
+
+/** Keep a long name whole up to `max`, then stop after a word. */
+function clipAtWord(value: string, max: number) {
+  if (value.length <= max) return value;
+  const slice = value.slice(0, max + 1);
+  const space = slice.lastIndexOf(" ");
+  const word = (space > 10 ? slice.slice(0, space) : (value.split(" ")[0] ?? value)).trim();
+  return word.length < value.length ? `${word}…` : word;
+}
 
 export function shortSourceName(name: string) {
   const trimmed = name.replace(/\s+/g, " ").trim();
@@ -24,6 +34,5 @@ export function shortSourceName(name: string) {
     if (re.test(trimmed)) return label;
   }
   const head = (trimmed.split(/\s+[–—|:]\s+/)[0] ?? trimmed).replace(/\s+rss$/i, "").trim();
-  if (head.length <= 22) return head;
-  return `${head.slice(0, 20).trimEnd()}…`;
+  return clipAtWord(head, 36);
 }

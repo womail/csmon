@@ -26,7 +26,7 @@ const SUGGESTIONS: Record<"rss" | "bsky" | "auto", string[]> = {
     "https://www.cisa.gov/cybersecurity-advisories/all.xml",
     "https://www.bleepingcomputer.com/feed/",
     "https://feeds.bbci.co.uk/news/world/rss.xml",
-    "https://www.reddit.com/r/worldnews/.rss",
+    "https://www.aljazeera.com/xml/rss/all.xml",
   ],
   bsky: ["nytimes.com", "reuters.com", "theguardian.com", "bbc.com"],
   auto: ["nytimes.com", "bbc.com", "reuters.com", "krebsonsecurity.com/feed/"],

@@ -4,6 +4,7 @@ import {
   Building2,
   Bug,
   CircleDot,
+  EyeOff,
   Factory,
   Filter,
   FolderTree,
@@ -68,18 +69,20 @@ export function FacetChip({ facet, onRemove }: { facet: Facet; onRemove: () => v
   const Icon = FACET_ICON[facet.kind];
   const variant = VARIANT[facet.kind] ?? "default";
   const label = facet.kind === "text" ? `“${facet.label.slice(0, 32)}${facet.label.length > 32 ? "…" : ""}”` : facet.label;
-  const tip = `${KIND_LABEL[facet.kind]}${facet.negate ? " (excluded)" : ""} · ${facet.token}\nClick to remove.`;
+  const tip = facet.negate
+    ? `${KIND_LABEL[facet.kind]} hidden · ${facet.token}\nClick the eye to show it again.`
+    : `${KIND_LABEL[facet.kind]} · ${facet.token}\nClick to remove.`;
   return (
     <Tip text={tip}>
       <button
         type="button"
         onClick={onRemove}
         className={`filter-chip filter-chip-applied filter-chip-applied-${variant} ${facet.negate ? "facet-chip-negated" : ""}`}
-        aria-label={`Remove filter: ${facet.label}`}
+        aria-label={facet.negate ? `Show ${facet.label.replace(/^not\s+/i, "")} again` : `Remove filter: ${facet.label}`}
       >
         <Icon className="size-2.5 shrink-0 opacity-70" aria-hidden />
         <span className="filter-chip-label">{label}</span>
-        <X className="filter-chip-x" aria-hidden />
+        {facet.negate ? <EyeOff className="filter-chip-x" aria-hidden /> : <X className="filter-chip-x" aria-hidden />}
       </button>
     </Tip>
   );

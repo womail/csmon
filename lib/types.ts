@@ -1,6 +1,6 @@
 export type Platform = "bluesky" | "rss" | "web";
 export type SourceKind = "account" | "feed" | "site";
-export type OriginReason = "self" | "follow" | "mention" | "link" | "intel" | "explore" | "reddit" | "gdelt" | "acled";
+export type OriginReason = "self" | "follow" | "mention" | "link" | "intel" | "explore" | "gdelt" | "acled";
 
 export type SeedUser = {
   id: number;

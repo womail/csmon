@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { headers } from "next/headers";
+import { CLIENT_BOOT } from "@/lib/client-boot";
 import { THEME_BOOTSTRAP } from "@/lib/theme-bootstrap";
 import "./globals.css";
 
@@ -44,6 +45,12 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: THEME_BOOTSTRAP,
+          }}
+        />
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{
+            __html: CLIENT_BOOT,
           }}
         />
       </head>

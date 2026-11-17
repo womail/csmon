@@ -588,7 +588,7 @@ csmon_print_retention_doc() {
 csmon — persistence and retention (analysed from this repo)
 
 ALWAYS RETAIN (production):
-  ${CSMON_RETAIN_ENV_FILES[*]}     Server secrets (CSMON_TOKEN, ACLED, Reddit, update URLs)
+  ${CSMON_RETAIN_ENV_FILES[*]}     Server secrets (CSMON_TOKEN, ACLED, update URLs)
   ${CSMON_DATA_DIR_NAME}/csmon.sqlite*   All SQLite state: sources, items, reports, fetch_cache, KEV rows, migrations
   ${CSMON_DATA_DIR_NAME}/overrides/feeds.json   Instance RSS overrides (Options → Save instance overrides)
 

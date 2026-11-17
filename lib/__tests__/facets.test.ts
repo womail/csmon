@@ -5,10 +5,13 @@ import { boardQueryString, parseBoardFilters } from "../board-state";
 import {
   addFacet,
   clearFacets,
+  facetPolarity,
+  facetValues,
   facetsFromFilters,
   facetsToSearchLine,
   promoteTypedTokens,
   removeFacet,
+  toggleExclude,
   type FacetInput,
 } from "../facets";
 import type { Item, Source } from "../types";
@@ -133,4 +136,20 @@ test("addFacet positive clears a matching negation", () => {
   const next = addFacet(fromQuery("not=place:Ireland"), input);
   assert.deepEqual(next.not, []);
   assert.equal(next.place, "Ireland");
+});
+
+test("toggleExclude hides a topic and turns it back on", () => {
+  const hidden = toggleExclude(fromQuery(""), { kind: "topic", value: "weather" });
+  assert.equal(boardQueryString(hidden), "?not=topic%3Aweather");
+  assert.equal(facetPolarity(hidden, { kind: "topic", value: "weather" }), "exclude");
+  assert.deepEqual(facetValues(hidden, "topic", true), ["weather"]);
+  const shown = toggleExclude(hidden, { kind: "topic", value: "weather" });
+  assert.equal(boardQueryString(shown), "");
+  assert.equal(facetPolarity(shown, { kind: "topic", value: "weather" }), "none");
+});
+
+test("toggleExclude replaces an include filter with a hide", () => {
+  const next = toggleExclude(fromQuery("topic=weather"), { kind: "topic", value: "weather" });
+  assert.equal(next.topic, null);
+  assert.equal(boardQueryString(next), "?not=topic%3Aweather");
 });

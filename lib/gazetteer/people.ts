@@ -129,6 +129,9 @@ export function figuresInText(text: string): Figure[] {
   return COMPILED.filter((row) => row.test(text)).map((row) => row.figure);
 }
 
+const TRAILING_VERB =
+  /^(?:forces?|says?|said|calls?|called|votes?|voted|backs?|backed|urges?|urged|warns?|warned|seeks?|sought|moves?|moved|plans?|planned|wants?|wanted|asks?|asked|tells?|told|hits?|wins?|won|leads?|led|faces?|faced|joins?|joined|quits?|quit|fires?|fired|blasts?|slams?|pushes?|pushed|blocks?|blocked)$/i;
+
 const ROLE_ANCHOR =
   /(?<![\p{L}])(President|Prime Minister|Foreign Minister|Defen[cs]e Minister|Finance Minister|Minister|Chancellor|Secretary(?: of State| of Defense| General)?|Senator|Sen\.|Rep\.|CEO|chief executive|spokesperson|spokesman|spokeswoman|General|Gen\.|Admiral|Governor|Mayor)\s+((?:[A-Z][\p{L}'’.-]+\s+){1,3}[A-Z][\p{L}'’-]+)/gu;
 
@@ -141,6 +144,7 @@ export function rolePeopleInText(text: string): DiscoveredPerson[] {
     const role = match[1].replace(/\.$/, "");
     let name = match[2].trim();
     const words = name.split(/\s+/);
+    while (words.length > 2 && TRAILING_VERB.test(words[words.length - 1] ?? "")) words.pop();
     while (words.length > 2 && !looksLikePersonName(words.join(" "))) words.pop();
     name = words.join(" ");
     if (!looksLikePersonName(name)) continue;

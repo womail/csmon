@@ -16,7 +16,6 @@ export function rssFeedCategory(source: {
   const pack = source.handle ? packByHandle.get(source.handle) : undefined;
   if (pack) return PACK_LABEL[pack];
   const reason = source.origins[0]?.reason;
-  if (reason === "reddit") return "Reddit";
   if (reason === "gdelt") return "GDELT";
   if (reason === "acled") return "Conflict data";
   if (reason === "explore" || reason === "follow" || reason === "self") return "Added by you";

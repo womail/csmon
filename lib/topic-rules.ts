@@ -1,7 +1,7 @@
 import { INTEL_FEEDS } from "./intel-feeds";
 
 /** Bump when topic or place rules change so stored rows are re-scored (`lib/reclassify-backfill.ts`). */
-export const CLASSIFIER_VERSION = 6;
+export const CLASSIFIER_VERSION = 7;
 
 export type Topic =
   | "weather"
@@ -185,7 +185,10 @@ export const TOPIC_RULES: TopicRule[] = [
       s(/\bnational weather service\b|\bby NWS\b|\bmet (?:office|éireann|eireann)\b|\bmeteoalarm\b/i, 3, "met service"),
       s(/\bsevere weather\b|\bwinter storm\b|\bsnowfall\b|\btemperatures?\b|\bforecast\b/i, 1, "weather"),
     ],
-    vetoes: [{ re: THREAT_ACTOR_WEATHER, label: "threat actor name" }],
+    vetoes: [
+      { re: THREAT_ACTOR_WEATHER, label: "threat actor name" },
+      { re: /\bstormcast\b|\binternet storm center\b/i, label: "security podcast" },
+    ],
   },
   {
     topic: "quake",

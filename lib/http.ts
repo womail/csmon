@@ -2,7 +2,6 @@ import "server-only";
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { cacheGetEntry, cacheSet, cacheTouch, TTL, type CacheKind } from "./cache";
-import { isRedditFeedUrl, isRedditRssSunset, redditRssHttpError, redditRssSunsetError } from "./reddit";
 import { APP_UA } from "./version";
 import { fetchOutbound, readLimited } from "./safe-url";
 
@@ -75,9 +74,6 @@ async function cachedGet(
     ctx?.outcomes.push("cached");
     return entry.body;
   }
-  if (isRedditFeedUrl(url)) {
-    if (isRedditRssSunset()) throw redditRssSunsetError();
-  }
   const headers: Record<string, string> = { "User-Agent": UA, Accept: accept };
   if (entry?.etag) headers["If-None-Match"] = entry.etag;
   if (entry?.lastModified) headers["If-Modified-Since"] = entry.lastModified;
@@ -91,14 +87,6 @@ async function cachedGet(
       return entry.body;
     }
     if (!res.ok) {
-      if (res.status === 429 && host.endsWith("reddit.com")) {
-        throw new Error(
-          "Reddit public RSS allows about one request per minute per IP. Wait a minute, then load again.",
-        );
-      }
-      if (isRedditFeedUrl(url) && (res.status === 404 || res.status === 410)) {
-        throw redditRssHttpError(res.status);
-      }
       throw new Error(`Upstream ${res.status}`);
     }
     const text = await readLimited(res, maxBytes);

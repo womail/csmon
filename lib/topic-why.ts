@@ -25,7 +25,6 @@ export function explainTopic(
     TOPIC_SUBTAGS.find((entry) => entry.tag === key) ??
     (SPORT_SUBTAGS.some((entry) => entry.tag === key) ? { parent: "sports" } : null);
   if (subtag) return `${family} · ${key} — finer tag under ${subtag.parent}.`;
-  if (key === "reddit") return "Reddit — the post came from a Reddit layer.";
   const evidence = scoreTopics(item.title, item.summary, topicHintForSource(source)).find(
     (row) => row.topic === key,
   );

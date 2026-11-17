@@ -5,17 +5,19 @@ import { CloudLightning, Landmark, Siren, Waves } from "lucide-react";
 import { Ago } from "@/components/monitor/ago";
 import type { MouseEvent, ReactNode } from "react";
 import { SourceChip, StoryCard, type CardChip } from "@/components/monitor/cards";
+import { VisibilityToggle } from "@/components/monitor/filter-chip";
+import { MapSlot } from "@/components/monitor/map-slot";
 import { markersForStories } from "@/lib/story-markers";
 
 const SituationMap = dynamic(
   () => import("@/components/monitor/situation-map").then((mod) => ({ default: mod.SituationMap })),
-  { ssr: false, loading: () => null },
+  { ssr: false, loading: () => <MapSlot /> },
 );
 import { Tip } from "@/components/monitor/tip";
 import type { MapMarker } from "@/lib/geo";
 import type { Story } from "@/lib/cluster";
 import { tagStyle } from "@/lib/colors";
-import { SITUATION_LANES, matchesLane, type SituationLane } from "@/lib/lanes";
+import { SITUATION_LANES, storyInLane, type SituationLane } from "@/lib/lanes";
 import type { PersonRow } from "@/lib/people";
 import type { QuakeEvent } from "@/lib/quakes";
 import type { BriefRising, BriefWatch } from "@/lib/situation-brief";
@@ -56,6 +58,9 @@ export function HomeDashboard({
   onLane,
   familiesStrip,
   onCategory,
+  onExcludeTopic,
+  hiddenTopics,
+  hiddenFamilies,
   range,
   onTopic,
   activeTags,
@@ -114,6 +119,9 @@ export function HomeDashboard({
   /** Families strip under the lanes (task 10). */
   familiesStrip?: ReactNode;
   onCategory?: (topic: string | null) => void;
+  onExcludeTopic?: (topic: string) => void;
+  hiddenTopics?: string[];
+  hiddenFamilies?: string[];
   range?: TimeRange;
   onTopic: (topic: string) => void;
   activeTags?: string[];
@@ -153,6 +161,8 @@ export function HomeDashboard({
         onOpen={() => onOpenStory(story)}
         onTopic={onTopic}
         activeTags={activeTags}
+        excludedTags={hiddenTopics}
+        onExcludeTopic={onExcludeTopic}
         onPlace={onPlace}
         onVendor={onVendor}
         onSource={onSource}
@@ -182,35 +192,32 @@ export function HomeDashboard({
   ]
     .filter(Boolean)
     .join(" · ");
+  const hidden = new Set((hiddenTopics ?? []).map((name) => name.toLowerCase()));
+  const hazardsHidden = (hiddenFamilies ?? []).some((name) => name.toLowerCase() === "hazards");
+  const weatherHidden = hidden.has("weather") || hazardsHidden;
+  const quakeHidden = hidden.has("quake") || hazardsHidden;
+  if (weatherHidden) hidden.add("weather");
+  if (quakeHidden) hidden.add("quake");
   const lanes = SITUATION_LANES.map((lane) => {
-    const laneStories = stories.filter(
-      (story) =>
-        story.topics.includes(lane.id) || story.items.some((item) => matchesLane(item, lane.id)),
-    );
-    return { ...lane, stories: laneStories, count: laneStories.length };
+    const laneStories = stories.filter((story) => storyInLane(story, lane.id));
+    return { ...lane, stories: laneStories, count: laneStories.length, hidden: hidden.has(lane.id) };
   });
 
   return (
     <div className="space-y-1.5 p-2">
-      <div>
-        <div className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
-          Home dashboard
-        </div>
-        <p className="mt-1 max-w-2xl text-[13px] text-slate-700">
-          Click a topic, source, or person to filter this dash in place. The map below is its own pane
-          — country outlines, not a background under the copy.
-        </p>
-      </div>
+      <p className="max-w-2xl text-[14px] leading-snug text-slate-700 dark:text-slate-200">
+        Bad weather, earthquakes, war, and unrest lead, with the map under them.
+      </p>
 
       {filtered && onResetFilter ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-cyan-200 bg-cyan-50/80 px-3 py-2">
-          <p className="text-[12px] text-cyan-950">
+          <p className="text-[14px] text-cyan-950">
             Showing filtered view{filteredLabel ? `: ${filteredLabel}` : ""}. Lanes are hidden until you reset.
           </p>
           <Tip text="Clear topic, place, source, and other Home filters">
             <button
               type="button"
-              className="shrink-0 rounded-md border border-cyan-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-cyan-900 hover:bg-cyan-50"
+              className="shrink-0 rounded-md border border-cyan-300 bg-white px-2.5 py-1 text-[12px] font-semibold text-cyan-900 hover:bg-cyan-50"
               onClick={onResetFilter}
             >
               Back to full dashboard
@@ -219,107 +226,38 @@ export function HomeDashboard({
         </div>
       ) : null}
 
-      <section className="card-tile">
-        <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">Topics</div>
-        <div className="mt-2 flex flex-wrap gap-1">
-          {catalogTopics.slice(0, 14).map(([name, count]) => {
-            const style = tagStyle(name);
-            const active = topic === name;
+      {!filtered ? (
+        <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
+          {lanes.map((lane) => {
+            const Icon = LANE_ICON[lane.id];
             return (
-              <Tip key={name} text={active ? `Clear ${name}` : `Filter dashboard to ${name}`}>
-                <button
-                  type="button"
-                  className="tag"
-                  style={{
-                    background: active ? style.fg : style.bg,
-                    color: active ? "#fff" : style.fg,
-                  }}
-                  onClick={() => onTopic(name)}
-                >
-                  {name} {count}
-                </button>
+              <Tip key={lane.id} text={lane.hidden ? `Show ${lane.label.toLowerCase()} again` : `Filter this dashboard to ${lane.label.toLowerCase()}. Eye hides the lane from the mix.`}>
+                <div className={`card-tile w-full text-left ${lane.hidden ? "lane-hidden" : ""}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <button type="button" className="min-w-0 flex-1 text-left" onClick={() => (lane.hidden && onExcludeTopic ? onExcludeTopic(lane.id) : onLane(lane.id))}>
+                      <span className="inline-flex items-center gap-1.5 text-[15px] font-semibold text-slate-800">
+                        <Icon className="size-3.5" />
+                        {lane.label}
+                      </span>
+                      <p className="mt-1 text-[13px] text-slate-600">{lane.hint}</p>
+                    </button>
+                    <span className="flex items-center gap-1">
+                      <span className="text-[14px] text-slate-600">{lane.count}</span>
+                      {onExcludeTopic ? (
+                        <VisibilityToggle hidden={lane.hidden} label={lane.label} onToggle={() => onExcludeTopic(lane.id)} />
+                      ) : null}
+                    </span>
+                  </div>
+                </div>
               </Tip>
             );
           })}
         </div>
-      </section>
-
-      <section className="card-tile">
-        <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
-          Top sources
-        </div>
-        <div className="mt-2 flex flex-wrap content-start gap-1">
-          {catalogSources.slice(0, 16).map((source) => (
-            <SourceChip
-              key={source.id}
-              name={source.name}
-              color={source.color}
-              count={source.count}
-              filled
-              active={layer === source.id}
-              onClick={() => onSource(source.id)}
-            />
-          ))}
-        </div>
-      </section>
-
-      {people.length > 0 ? (
-        <section className="card-tile">
-          <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">People</div>
-          <div className="mt-2 flex flex-wrap gap-1">
-            {people.slice(0, 10).map((row) => (
-              <Tip key={row.name} text={`Filter to items by ${row.name}`}>
-                <button
-                  type="button"
-                  className="tag"
-                  style={{
-                    background: person === row.name ? "#6d28d9" : "#ede9fe",
-                    color: person === row.name ? "#fff" : "#6d28d9",
-                  }}
-                  onClick={() => onPerson(row.name)}
-                >
-                  {row.name} {row.count}
-                </button>
-              </Tip>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {!filtered && trends && trends.length > 0 ? (
-        <section className="card-tile">
-          <div className="flex items-baseline justify-between gap-2">
-            <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
-              Rising now
-            </div>
-            {trendHint ? <div className="text-[10px] text-slate-400">{trendHint}</div> : null}
-          </div>
-          <div className="mt-2 flex flex-wrap gap-1">
-            {trends.map((row) => (
-              <Tip
-                key={`${row.kind}:${row.id}`}
-                text={`${row.label} ${row.prev}→${row.now} · ${row.sample}`}
-              >
-                <button
-                  type="button"
-                  className="tag"
-                  style={{
-                    background: row.direction === "new" ? "#ffedd5" : "#dcfce7",
-                    color: row.direction === "new" ? "#c2410c" : "#15803d",
-                  }}
-                  onClick={() => onTrend?.(row)}
-                >
-                  {row.direction === "new" ? "●" : "▲"} {row.label} {row.prev}→{row.now}
-                </button>
-              </Tip>
-            ))}
-          </div>
-        </section>
       ) : null}
 
       <SituationMap
         title="Where coverage relates"
-        markers={homeMarkers(stories, quakes, weatherEvents, naturalEvents)}
+        markers={homeMarkers(stories, quakes, weatherEvents, naturalEvents, hidden)}
         stories={stories}
         onOpenStory={(storyId) => {
           const story = stories.find((row) => row.id === storyId);
@@ -327,6 +265,8 @@ export function HomeDashboard({
         }}
         onSelect={onPlace}
         onCategory={onCategory}
+        onExcludeTopic={onExcludeTopic}
+        hiddenTopics={[...hidden]}
         topic={topic}
         range={range}
         briefContext={briefContext}
@@ -337,7 +277,7 @@ export function HomeDashboard({
 
       {filtered ? (
         <section>
-          <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+          <div className="section-kicker">
             Filtered stories
             {topic ? ` · ${topic}` : ""}
             {person ? ` · ${person}` : ""}
@@ -355,46 +295,28 @@ export function HomeDashboard({
         </section>
       ) : (
         <>
-          <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
-            {lanes.map((lane) => {
-              const Icon = LANE_ICON[lane.id];
-              return (
-                <Tip key={lane.id} text={`Filter this dashboard to ${lane.label.toLowerCase()}`}>
-                  <button
-                    type="button"
-                    onClick={() => onLane(lane.id)}
-                    className="card-tile w-full text-left"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-slate-800">
-                        <Icon className="size-3.5" />
-                        {lane.label}
-                      </span>
-                      <span className="text-[12px] text-slate-400">{lane.count}</span>
-                    </div>
-                    <p className="mt-1 text-[11px] text-slate-500">{lane.hint}</p>
-                  </button>
-                </Tip>
-              );
-            })}
-          </div>
           {familiesStrip}
           <div className="grid gap-1.5 lg:grid-cols-2">
-            {lanes.map((lane) => (
+            {lanes.filter((lane) => !lane.hidden).map((lane) => (
               <section key={lane.id} className="card-tile">
                 <div className="flex items-center justify-between">
-                  <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+                  <div className="section-kicker">
                     {lane.label}
                   </div>
-                  <Tip text={`Filter the dashboard to ${lane.label.toLowerCase()}`}>
-                    <button
-                      type="button"
-                      className="text-[11px] text-slate-500 hover:text-slate-800"
-                      onClick={() => onLane(lane.id)}
-                    >
-                      Filter lane
-                    </button>
-                  </Tip>
+                  <span className="inline-flex items-center gap-1">
+                    <Tip text={`Filter the dashboard to ${lane.label.toLowerCase()}`}>
+                      <button
+                        type="button"
+                        className="text-[11px] text-slate-500 hover:text-slate-800"
+                        onClick={() => onLane(lane.id)}
+                      >
+                        Filter lane
+                      </button>
+                    </Tip>
+                    {onExcludeTopic ? (
+                      <VisibilityToggle hidden={false} label={lane.label} onToggle={() => onExcludeTopic(lane.id)} />
+                    ) : null}
+                  </span>
                 </div>
                 <div className={`board mt-2 ${compact ? "board-compact" : ""}`}>
                   {lane.stories.slice(0, 4).map((story) => homeStoryCard(story))}
@@ -408,14 +330,117 @@ export function HomeDashboard({
         </>
       )}
 
-      {weatherEvents.length > 0 && !filtered ? (
+      <details className="board-more card-tile">
+        <summary>Topics, sources, and people</summary>
         <section className="card-tile">
-          <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+          <div className="section-kicker">Topics</div>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {catalogTopics.slice(0, 14).map(([name, count]) => {
+              const style = tagStyle(name);
+              const active = topic === name;
+              const excluded = hidden.has(name.toLowerCase());
+              return (
+                <Tip key={name} text={excluded ? `Show ${name} again` : active ? `Clear ${name}` : `Filter dashboard to ${name}. Eye hides it from the mix.`}>
+                  <span
+                    className={`tag ${excluded ? "tag-excluded" : ""}`}
+                    style={{
+                      background: active ? style.fg : style.bg,
+                      color: active ? "#fff" : style.fg,
+                    }}
+                  >
+                    <button type="button" className="tag-main" onClick={() => (excluded && onExcludeTopic ? onExcludeTopic(name) : onTopic(name))}>
+                      {name} {count}
+                    </button>
+                    {onExcludeTopic ? <VisibilityToggle hidden={excluded} label={name} onToggle={() => onExcludeTopic(name)} /> : null}
+                  </span>
+                </Tip>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="card-tile">
+          <div className="section-kicker">
+            Top sources
+          </div>
+          <div className="mt-2 flex flex-wrap content-start gap-1">
+            {catalogSources.slice(0, 16).map((source) => (
+              <SourceChip
+                key={`src-${source.id}`}
+                name={source.name}
+                color={source.color}
+                count={source.count}
+                filled
+                active={layer === source.id}
+                onClick={() => onSource(source.id)}
+              />
+            ))}
+          </div>
+        </section>
+
+        {people.length > 0 ? (
+          <section className="card-tile">
+            <div className="section-kicker">People</div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {people.slice(0, 10).map((row) => (
+                <Tip key={row.name} text={`Filter to items by ${row.name}`}>
+                  <button
+                    type="button"
+                    className="tag"
+                    style={{
+                      background: person === row.name ? "#6d28d9" : "#ede9fe",
+                      color: person === row.name ? "#fff" : "#6d28d9",
+                    }}
+                    onClick={() => onPerson(row.name)}
+                  >
+                    {row.name} {row.count}
+                  </button>
+                </Tip>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {!filtered && trends && trends.length > 0 ? (
+          <section className="card-tile">
+            <div className="flex items-baseline justify-between gap-2">
+              <div className="section-kicker">
+                Rising now
+              </div>
+              {trendHint ? <div className="text-[10px] text-slate-400">{trendHint}</div> : null}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {trends.map((row) => (
+                <Tip
+                  key={`${row.kind}:${row.id}`}
+                  text={`${row.label} ${row.prev}→${row.now} · ${row.sample}`}
+                >
+                  <button
+                    type="button"
+                    className="tag"
+                    style={{
+                      background: row.direction === "new" ? "#ffedd5" : "#dcfce7",
+                      color: row.direction === "new" ? "#c2410c" : "#15803d",
+                    }}
+                    onClick={() => onTrend?.(row)}
+                  >
+                    {row.direction === "new" ? "●" : "▲"} {row.label} {row.prev}→{row.now}
+                  </button>
+                </Tip>
+              ))}
+            </div>
+          </section>
+        ) : null}
+      </details>
+
+      {weatherEvents.length > 0 && !filtered && !weatherHidden ? (
+        <section className="card-tile">
+          <div className="section-kicker">
             Weather events
           </div>
           <div className="mt-2 space-y-1">
             {uniqueById(weatherEvents).slice(0, 8).map((event) => (
-              <Tip key={event.id} text={event.hint || "Open the warning"}>
+              <Tip key={`weather-${event.id}`} text={event.hint || "Open the warning"}>
                 <a
                   href={event.url}
                   target="_blank"
@@ -433,14 +458,14 @@ export function HomeDashboard({
           </div>
         </section>
       ) : null}
-      {naturalEvents.length > 0 && !filtered ? (
+      {naturalEvents.length > 0 && !filtered && !weatherHidden ? (
         <section className="card-tile">
-          <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+          <div className="section-kicker">
             Natural events · NASA EONET
           </div>
           <div className="mt-2 space-y-1">
-            {naturalEvents.slice(0, 6).map((event) => (
-              <Tip key={event.id} text="Open the source record">
+            {uniqueById(naturalEvents).slice(0, 6).map((event) => (
+              <Tip key={`eonet-${event.id}`} text="Open the source record">
                 <a
                   href={event.url}
                   target="_blank"
@@ -460,7 +485,7 @@ export function HomeDashboard({
       ) : null}
       {outages.length > 0 && !filtered ? (
         <section className="card-tile">
-          <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+          <div className="section-kicker">
             Internet outages · IODA, last 24h
           </div>
           <div className="mt-2 space-y-1">
@@ -483,14 +508,14 @@ export function HomeDashboard({
           </div>
         </section>
       ) : null}
-      {quakes.length > 0 && !filtered ? (
+      {quakes.length > 0 && !filtered && !quakeHidden ? (
         <section className="card-tile">
-          <div className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+          <div className="section-kicker">
             USGS significant / M4.5+
           </div>
           <div className="mt-2 space-y-1">
             {quakes.slice(0, 6).map((quake) => (
-              <Tip key={quake.id} text="Open the USGS event page">
+              <Tip key={`quake-${quake.id}`} text="Open the USGS event page">
                 <a
                   href={quake.url}
                   target="_blank"
@@ -522,42 +547,49 @@ function homeMarkers(
   quakes: QuakeEvent[],
   weatherEvents: WeatherEvent[],
   naturalEvents: NaturalEvent[],
+  hidden: Set<string>,
 ): MapMarker[] {
   return [
     ...markersForStories(stories),
-    ...quakes.slice(0, 20).map((quake) => ({
-      id: quake.id,
-      name: quake.place.split(",").at(-1)?.trim() || quake.place,
-      lat: quake.lat,
-      lng: quake.lng,
-      kind: "quake" as const,
-      hint: `M${quake.mag.toFixed(1)} · ${quake.place}`,
-      at: quake.time,
-    })),
-    ...uniqueById(weatherEvents)
-      .filter((event) => event.lat != null && event.lng != null)
-      .slice(0, 16)
-      .map((event) => ({
-        id: event.id,
-        name: event.place,
-        lat: event.lat as number,
-        lng: event.lng as number,
-        kind: "weather" as const,
-        hint: `${event.severity} · ${event.title}`,
-        at: event.time,
-      })),
-    ...naturalEvents
-      .filter((event) => event.lat != null && event.lng != null)
-      .slice(0, 24)
-      .map((event) => ({
-        id: `eonet-${event.id}`,
-        name: event.title,
-        lat: event.lat as number,
-        lng: event.lng as number,
-        kind: "weather" as const,
-        hint: `${event.category} · ${event.title} (NASA EONET)`,
-        at: event.time,
-      })),
+    ...(hidden.has("quake")
+      ? []
+      : quakes.slice(0, 20).map((quake) => ({
+          id: `quake-${quake.id}`,
+          name: quake.place.split(",").at(-1)?.trim() || quake.place,
+          lat: quake.lat,
+          lng: quake.lng,
+          kind: "quake" as const,
+          hint: `M${quake.mag.toFixed(1)} · ${quake.place}`,
+          at: quake.time,
+        }))),
+    ...(hidden.has("weather")
+      ? []
+      : uniqueById(weatherEvents)
+          .filter((event) => event.lat != null && event.lng != null)
+          .slice(0, 16)
+          .map((event) => ({
+            id: `weather-${event.id}`,
+            name: event.place,
+            lat: event.lat as number,
+            lng: event.lng as number,
+            kind: "weather" as const,
+            hint: `${event.severity} · ${event.title}`,
+            at: event.time,
+          }))),
+    ...(hidden.has("weather")
+      ? []
+      : uniqueById(naturalEvents)
+          .filter((event) => event.lat != null && event.lng != null)
+          .slice(0, 24)
+          .map((event) => ({
+            id: `eonet-${event.id}`,
+            name: event.title,
+            lat: event.lat as number,
+            lng: event.lng as number,
+            kind: "weather" as const,
+            hint: `${event.category} · ${event.title} (NASA EONET)`,
+            at: event.time,
+          }))),
   ];
 }
 

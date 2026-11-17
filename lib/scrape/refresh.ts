@@ -5,7 +5,6 @@ import { isGdeltDocUrl } from "../gdelt";
 import { acledIngestEnabled, gdeltIngestEnabled } from "../ingest-flags";
 import { backoffMs, pollIntervalMs } from "../fetch-schedule";
 import { mapPool, withFetchContext } from "../http";
-import { isRedditFeedUrl, isRedditRssFetchError, redditRssErrorDetail } from "../reddit";
 import {
   deferSources,
   insertItems,
@@ -15,7 +14,6 @@ import {
   recordFetchFailure,
   recordFetchSuccess,
   registerIntelFeeds,
-  retireRedditRssSource,
 } from "../queries";
 import { notifyWatchAlerts, type WatchAlert } from "../watchlists";
 
@@ -40,7 +38,6 @@ export async function refreshSources(
     /** Ask upstream conditionally even when the cached body is still fresh (scheduler). */
     revalidate?: boolean;
     skipGdelt?: boolean;
-    skipReddit?: boolean;
     skipAcled?: boolean;
   },
 ): Promise<RefreshResult> {
@@ -56,7 +53,6 @@ export async function refreshSources(
       bustCache: options?.bustCache !== false,
       revalidate: options?.revalidate === true,
       skipGdelt: options?.skipGdelt === true,
-      skipReddit: options?.skipReddit === true,
       skipAcled: options?.skipAcled === true,
     },
   );
@@ -65,9 +61,6 @@ export async function refreshSources(
   const skipAcled = options?.skipAcled || !acledIngestEnabled();
   if (skipGdelt) {
     sources = sources.filter((source) => !(source.feedUrl && isGdeltDocUrl(source.feedUrl)));
-  }
-  if (options?.skipReddit) {
-    sources = sources.filter((source) => !(source.feedUrl && isRedditFeedUrl(source.feedUrl)));
   }
   if (skipAcled) {
     sources = sources.filter((source) => !(source.feedUrl && isAcledFeedUrl(source.feedUrl)));
@@ -117,11 +110,7 @@ export async function refreshSources(
       );
     } catch (error) {
       failed += 1;
-      let message = error instanceof Error ? error.message : "Refresh failed";
-      if (source.feedUrl && isRedditFeedUrl(source.feedUrl) && isRedditRssFetchError(error)) {
-        retireRedditRssSource(source.id, redditRssErrorDetail(error));
-        message = redditRssErrorDetail(error);
-      }
+      const message = error instanceof Error ? error.message : "Refresh failed";
       const interval = pollIntervalMs(source, recentPublishTimes(source.id));
       recordFetchFailure(source.id, message, (failCount) => Date.now() + backoffMs(interval, failCount));
       const label = layerLabel(source);

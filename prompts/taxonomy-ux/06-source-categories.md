@@ -31,7 +31,7 @@ export type SourceType =
   | "think_tank"      // CFR, CSIS, Brookings, Crisis Group
   | "hazard_official" // USGS, NWS, Met Éireann, Met Office, GDACS, NHC, MeteoAlarm
   | "blog"            // personal or independent blogs (Krebs, Schneier)
-  | "social"          // Bluesky accounts, Reddit
+  | "social"          // Bluesky accounts
   | "aggregator";     // GDELT, Google News, combined feeds
 
 export const SOURCE_TYPE_LABEL: Record<SourceType, string>; // "CERT", "Vendor", "Wire", …
@@ -45,7 +45,7 @@ export function sourceCategory(source: Source): string; // stored category, else
 1. **Intel catalog.** Add `type: SourceType` to every entry of `INTEL_FEEDS` in `lib/intel-feeds.ts` (go through all of them; there are about 110). `category` for intel layers is the pack label already used by `rssFeedCategory` ("World", "Security", …).
 2. **OPML.** `lib/opml.ts`: put the folder path in `category` (`"CERTs & Government Advisories"`; nested folders joined with ` › `). Keep `description` for an actual description attribute when the OPML has one. Map folder names to a type with a small keyword table (`cert|government|advisor` → cert, `vendor` → vendor, `news` → outlet, `research|intel|lab` → research, otherwise blog). Extend `CreateSourceInput` (`lib/source-catalog-shared.ts`) and `createManualSource` with optional `category` and `sourceType`.
 3. **Backfill once** in the migration: for `handle = 'manual'` rows whose `description` equals one of the known ThreatFilter folder names (query `SELECT DISTINCT description FROM sources WHERE handle='manual'`), copy it into `category` and derive the type. For everything else leave NULL and derive at read time.
-4. **Derivation fallback** in `deriveSourceType`: Bluesky → social; Reddit / `rss:reddit:` → social; GDELT, Google News (`news.google.com`), combined feeds → aggregator; ACLED → research; hosts on `.gov`, `.gov.uk`, `.gov.ie`, `.europa.eu` → government unless the name contains CERT/CSIRT/NCSC → cert; known wires by host (reuters.com, apnews.com, afp.com) → wire; else outlet.
+4. **Derivation fallback** in `deriveSourceType`: Bluesky → social; GDELT, Google News (`news.google.com`), combined feeds → aggregator; ACLED → research; hosts on `.gov`, `.gov.uk`, `.gov.ie`, `.europa.eu` → government unless the name contains CERT/CSIRT/NCSC → cert; known wires by host (reuters.com, apnews.com, afp.com) → wire; else outlet.
 5. **Catalog API and workbench.** `buildSourceCatalog` returns `category` and `sourceType` (resolved). In `components/monitor/source-workbench.tsx` the row editor gets a **Category** text input with a `<datalist>` of existing categories and a **Type** select. Save via the existing PATCH (`SourcePatch` gains both fields; `validatePatch` checks the enum).
 6. **Feeds desk.** `rssFeedCategory` returns `sourceCategory(source)`. OPML layers now appear under their folder names.
 7. **Sources desk.** Group tiles and table by category (collapsible headers with layer counts). Add a **Type** column to the table and sort by it.

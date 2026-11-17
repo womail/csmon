@@ -27,6 +27,8 @@ export function SituationMap({
   onSelect,
   onOpenStory,
   onCategory,
+  onExcludeTopic,
+  hiddenTopics,
   topic = null,
   range,
   briefContext,
@@ -42,6 +44,8 @@ export function SituationMap({
   onSelect?: (name: string, marker?: MapMarker) => void;
   onOpenStory?: (storyId: string) => void;
   onCategory?: (topic: string | null) => void;
+  onExcludeTopic?: (topic: string) => void;
+  hiddenTopics?: string[];
   topic?: string | null;
   range?: TimeRange;
   briefContext?: {
@@ -155,7 +159,9 @@ export function SituationMap({
             : undefined
         }
       />
-      {onCategory ? <MapLaneBar topic={topic} onCategory={onCategory} /> : null}
+      {onCategory ? (
+        <MapLaneBar topic={topic} hiddenTopics={hiddenTopics} onCategory={onCategory} onExclude={onExcludeTopic} />
+      ) : null}
     </>
   ) : null;
 

@@ -115,7 +115,6 @@ export function fail(error: unknown, fallback: string, status = 400) {
   if (error instanceof OutboundBlockedError) message = error.message;
   else if (error instanceof Error) {
     if (
-      /reddit public rss/i.test(error.message) ||
       /^GDELT /.test(error.message) ||
       /GDELT did not respond/i.test(error.message)
     ) {
