@@ -25,7 +25,7 @@ Re-run the CT script and pick **update**, or inside the container:
 update
 ```
 
-(`update_script` in `ct/csmon.sh` runs `git pull` and `docker compose` rebuild; SQLite stays in the `csmon-data` volume.)
+(`update_script` in `ct/csmon.sh` hard-resets the shallow clone to `FETCH_HEAD` on the configured branch, then runs `proxmox-starter.sh update` to rebuild and wait on `/api/health`. SQLite stays in the `csmon-data` volume.)
 
 ## If install fails and the LXC disappears
 

@@ -1,7 +1,7 @@
 services:
   ubuntu:
     image: docker.io/library/ubuntu:24.04
-    pull_policy: always
+    pull_policy: missing
     restart: "no"
     command: ["true"]
 
@@ -12,6 +12,8 @@ services:
       context: .
       dockerfile: Dockerfile
       pull: true
+      args:
+        CSMON_GIT_SHA: ${CSMON_GIT_SHA:-unknown}
     depends_on:
       ubuntu:
         condition: service_completed_successfully

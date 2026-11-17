@@ -277,8 +277,27 @@ cmd_update() {
     wait_container_network "$CSMON_CTID"
   fi
 
+  # Refresh the tree first so the guest runs the current starter (not the copy from install).
+  if pct exec "$CSMON_CTID" -- test -d "${CSMON_INSTALL_DIR}/.git" 2>/dev/null; then
+    log "Refreshing ${CSMON_INSTALL_DIR} on CT ${CSMON_CTID}…"
+    pct exec "$CSMON_CTID" -- bash -c "
+      set -euo pipefail
+      git config --global --add safe.directory '${CSMON_INSTALL_DIR}' 2>/dev/null || true
+      git -C '${CSMON_INSTALL_DIR}' fetch --prune --depth 1 origin '+${CSMON_GIT_BRANCH}:refs/remotes/origin/${CSMON_GIT_BRANCH}'
+      git -C '${CSMON_INSTALL_DIR}' checkout -f -B '${CSMON_GIT_BRANCH}' FETCH_HEAD
+      git -C '${CSMON_INSTALL_DIR}' reset --hard FETCH_HEAD
+    "
+  fi
+
   if pct exec "$CSMON_CTID" -- test -x "${CSMON_INSTALL_DIR}/scripts/proxmox-starter.sh" 2>/dev/null; then
-    guest_run_starter_local "$CSMON_CTID" update
+    pct exec "$CSMON_CTID" -- env \
+      CSMON_INSTALL_DIR="${CSMON_INSTALL_DIR}" \
+      CSMON_GIT_REPO="${CSMON_GIT_REPO}" \
+      CSMON_GIT_BRANCH="${CSMON_GIT_BRANCH}" \
+      CSMON_COMPOSE_LAN=1 \
+      CSMON_SKIP_GIT=1 \
+      CSMON_UPDATE_REEXEC=1 \
+      bash "${CSMON_INSTALL_DIR}/scripts/proxmox-starter.sh" update
   else
     guest_run_starter "$CSMON_CTID" update
   fi

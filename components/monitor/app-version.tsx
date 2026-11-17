@@ -30,13 +30,9 @@ export function AppVersionLine() {
   return (
     <p className="text-[11px] text-slate-500">
       Running <span className="font-medium text-slate-700">csmon {version}</span>
-      {commit !== "unknown" ? (
-        <>
-          {" "}
-          · build <span className="font-mono text-[10px]">{commit}</span>
-        </>
-      ) : null}
-      {buildDate !== "1970-01-01" ? <> · {buildDate}</> : null}
+      {" "}
+      · build <span className="font-mono text-[10px]">{commit}</span>
+      {buildDate !== "1970-01-01" && buildDate !== "…" ? <> · {buildDate}</> : null}
     </p>
   );
 }

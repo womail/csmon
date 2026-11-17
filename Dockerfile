@@ -19,14 +19,20 @@ RUN apt-get update \
 FROM ubuntu-node AS base
 ENV NEXT_TELEMETRY_DISABLED=1
 # Corepack’s shims point at ~/.cache paths that often break across Docker layers/stages.
-RUN npm install -g pnpm@12.5.1 && pnpm --version
+# 12.7+ is required for `pnpm install --allow-build`.
+RUN npm install -g pnpm@12.16.1 && pnpm --version
 WORKDIR /app
 
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
+# esbuild must run its postinstall (platform binary). pnpm 12 fails the image
+# with ERR_PNPM_IGNORED_BUILDS unless that script is approved here and in
+# pnpm-workspace.yaml allowBuilds.
+RUN pnpm install --frozen-lockfile --allow-build=esbuild
 
 FROM base AS build
+ARG CSMON_GIT_SHA=unknown
+ENV CSMON_GIT_SHA=$CSMON_GIT_SHA
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN node scripts/write-build-info.mjs && pnpm generate-sbom && pnpm build

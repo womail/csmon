@@ -84,7 +84,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/womail/csmon/main/script
 
 Files live in `scripts/community-scripts/` (`ct/csmon.sh`, `install/csmon-install.sh`). Defaults: Debian 13, 4 cores, 4 GiB RAM, 32 GiB disk, nesting + fuse for Docker, app on **http://&lt;container-ip&gt;:3000**.
 
-**Update:** re-run the CT script and choose update, or run `update` inside the container (`git pull` + compose rebuild; `csmon-data` volume kept).
+**Update:** re-run the CT script and choose update, or run `update` inside the container. The script hard-resets `/opt/csmon` to `origin/main` (`FETCH_HEAD` — a shallow `git pull --ff-only` cannot fast-forward), stamps that commit into the image, builds **before** recreating the container (so a failed rebuild leaves the old app running), waits on `/api/health`, and keeps the `csmon-data` volume. If health fails it prints `docker compose logs csmon`.
 
 **Install failed / LXC gone:** Core **destroys the CT** on install failure unless you pick “keep for debugging” or wait out the 60s prompt (default removes it). Re-run the curl command above; see `scripts/community-scripts/README.md`. LAN publish uses `CSMON_PUBLISH_IP=0.0.0.0` in the install script (single `docker-compose.yml`, no merged port conflict).
 
@@ -109,13 +109,15 @@ One-liner (clones to `/opt/csmon`):
 curl -fsSL https://raw.githubusercontent.com/womail/csmon/main/scripts/proxmox-starter.sh | sudo bash -s -- install
 ```
 
-Update after `git push`:
+Update after `git push` (resets `/opt/csmon` to **`origin/main`**, then rebuilds). A stale starter on disk can skip that fetch — curl the script from GitHub if `update` leaves you on the same commit:
 
 ```bash
 sudo /opt/csmon/scripts/proxmox-starter.sh update
+# or:
+curl -fsSL https://raw.githubusercontent.com/womail/csmon/main/scripts/proxmox-starter.sh | sudo bash -s -- update
 ```
 
-The script installs Docker if needed, uses `docker-compose.yml` + `docker-compose.lan.yml` (port **3000** on all interfaces), keeps SQLite in the **`csmon-data`** volume, and waits on `/api/health`. Other commands: `status`, `logs`, `restart`, `stop`. Override `CSMON_INSTALL_DIR`, `CSMON_GIT_REPO`, or `CSMON_GIT_BRANCH` if needed.
+The script installs Docker if needed, publishes port **3000** on all interfaces (`CSMON_PUBLISH_IP=0.0.0.0`), keeps SQLite in the **`csmon-data`** volume, and waits on `/api/health`. **Update** hard-resets the shallow clone to `FETCH_HEAD` (plain `git pull --ff-only` cannot fast-forward a `--depth 1` tree), stamps the commit into the image, builds first, then `up -d --force-recreate`. A failed build retries after stopping the old container to free memory. Other commands: `status`, `logs`, `restart`, `stop`. Override `CSMON_INSTALL_DIR`, `CSMON_GIT_REPO`, or `CSMON_GIT_BRANCH` if needed.
 
 **LXC:** turn on **Nesting** under the container’s Options → Features if `docker build` fails. Restrict LAN access with Proxmox firewall or set **`CSMON_TOKEN`** in `.env` (see `SECURITY.md`).
 
@@ -363,3 +365,5 @@ Troubleshooting: `docker compose ps` and `docker compose logs csmon`. A failing 
 6. **`listen EADDRNOTAVAIL` / `10.x.x.x:3000`** — Something set **`HOSTNAME`** to a host LAN IP. Inside the container, bind **`0.0.0.0`** only; publish with Compose `ports:` (`docker-compose.lan.yml`). Remove `HOSTNAME=…` from a host `.env` if present. Current images use **`CSMON_BIND_HOST=0.0.0.0`** in the entrypoint.
 
 7. **Rebuild** — After pulling fixes, rebuild and recreate the container (image transfer alone is not enough if you only `docker load` an old image).
+
+8. **`ERR_PNPM_IGNORED_BUILDS` / `esbuild`** — pnpm 12 refuses unreviewed install scripts. The image needs `allowBuilds.esbuild: true` in `pnpm-workspace.yaml`. Pull that file, then rebuild.
