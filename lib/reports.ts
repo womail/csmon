@@ -5,6 +5,7 @@ import type { Source } from "./types";
 import {
   articleDisplayBlocks,
   paragraphsToBlocks,
+  presentArticleBlocks,
   type ArticleBlock,
 } from "./article-body";
 import type { ReportVulnPlanSnapshot } from "./report-vuln-plan";
@@ -115,7 +116,7 @@ function isArticleBlock(value: unknown): value is ArticleBlock {
 }
 
 export function reportStoryDisplayBlocks(story: ReportStory): ArticleBlock[] {
-  if (story.blocks?.length) return story.blocks;
+  if (story.blocks?.length) return presentArticleBlocks(story.blocks).slice(0, MAX_REPORT_BLOCKS);
   if (!story.body.length) return [];
   const related = (story.links ?? []).map((link) => ({ href: link.url, label: link.title || link.url }));
   return paragraphsToBlocks(story.body, { title: story.title, related }).slice(0, MAX_REPORT_BLOCKS);

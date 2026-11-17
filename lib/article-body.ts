@@ -1,7 +1,9 @@
 import { isNoiseCopy } from "./article";
+import { reflowProse } from "./prose";
 
 export type ArticleBlock =
   | { kind: "heading"; text: string }
+  | { kind: "kicker"; text: string }
   | { kind: "callout"; text: string }
   | { kind: "cve"; cveId: string; cvss: string | null; detail: string }
   | { kind: "list"; title: string | null; items: string[] }
@@ -106,7 +108,7 @@ export function paragraphsToBlocks(
   }
 
   for (const raw of paragraphs) {
-    const line = raw.replace(/\s+/g, " ").trim();
+    for (const line of reflowProse(raw)) {
     if (!line) continue;
 
     const ref = parseReference(line, related);
@@ -155,6 +157,12 @@ export function paragraphsToBlocks(
     if (title && norm(line) === norm(title)) continue;
     if (SHORT_HEADING.test(line) && blocks.some((b) => b.kind === "heading")) continue;
 
+    if (isByline(line) || isLeadLabel(line, blocks)) {
+      flushList();
+      blocks.push({ kind: "kicker", text: line });
+      continue;
+    }
+
     if (line.length < 100 && /^[A-Z0-9][^.!?]*[a-z)]$/.test(line) && !line.includes(" vulnerability ")) {
       flushList();
       blocks.push({ kind: "heading", text: line });
@@ -163,9 +171,46 @@ export function paragraphsToBlocks(
 
     flushList();
     blocks.push({ kind: "paragraph", text: line });
+    }
   }
   flushList();
   return blocks;
+}
+
+function isByline(line: string) {
+  return (
+    line.length < 100 &&
+    line.split(/\s+/).length <= 8 &&
+    /\b(reporter|correspondent|columnist|editor|writer)\b/i.test(line)
+  );
+}
+
+/** Outlet line or section tags at the top of a piece, before the body starts. */
+function isLeadLabel(line: string, blocks: ArticleBlock[]) {
+  if (blocks.some((block) => block.kind === "paragraph" || block.kind === "heading")) return false;
+  if (blocks.length > 1) return false;
+  if (line.length > 90 || /[.!?]$/.test(line)) return false;
+  if (/^(who|what|when|where|why|how)\b/i.test(line)) return false;
+  const words = line.split(/\s+/);
+  return words.length >= 2 && words.length <= 8;
+}
+
+/** Re-split a stored paragraph that was saved as one glued block. */
+export function presentArticleBlocks(blocks: ArticleBlock[]): ArticleBlock[] {
+  const out: ArticleBlock[] = [];
+  for (const block of blocks) {
+    if (block.kind !== "paragraph") {
+      out.push(block);
+      continue;
+    }
+    const parts = reflowProse(block.text);
+    if (parts.length <= 1) {
+      out.push(parts[0] ? { ...block, text: parts[0] } : block);
+      continue;
+    }
+    out.push(...paragraphsToBlocks(parts));
+  }
+  return out;
 }
 
 export function articleDisplayBlocks(
@@ -174,7 +219,8 @@ export function articleDisplayBlocks(
   paragraphs: string[],
   related: { href: string; label: string }[],
 ): ArticleBlock[] {
-  const clean = cleanArticleParagraphs(title, description, paragraphs);
+  const expanded = paragraphs.flatMap((paragraph) => reflowProse(paragraph));
+  const clean = cleanArticleParagraphs(title, description, expanded);
   const blocks = paragraphsToBlocks(clean, { title, related });
   const descText = description?.replace(/\s+/g, " ").trim() ?? "";
   if (descText && !clean.some((p) => foldKey(p) === foldKey(descText))) {

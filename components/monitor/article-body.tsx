@@ -64,13 +64,19 @@ export function ArticleBody({
 }) {
   if (!blocks.length) return null;
   return (
-    <div className="mt-2 space-y-3">
+    <div className="article-prose mt-3 max-w-[68ch] space-y-3.5">
       {blocks.map((block, index) => {
         const key = `${block.kind}-${index}`;
         switch (block.kind) {
+          case "kicker":
+            return (
+              <p key={key} className="text-[12px] leading-snug font-medium tracking-wide text-slate-500">
+                {block.text}
+              </p>
+            );
           case "heading":
             return (
-              <h3 key={key} className="text-[13px] font-semibold leading-snug text-slate-900">
+              <h3 key={key} className="pt-2 text-[15px] font-semibold leading-snug tracking-tight text-slate-900">
                 {block.text}
               </h3>
             );
@@ -149,7 +155,7 @@ export function ArticleBody({
             );
           case "paragraph":
             return (
-              <p key={key} className="text-[12.5px] leading-relaxed text-slate-700">
+              <p key={key} className="text-[14px] leading-[1.7] text-slate-800">
                 <RichInlineText text={block.text} onCve={onCve} />
               </p>
             );

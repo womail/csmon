@@ -2,6 +2,7 @@ import "server-only";
 
 import { Readability } from "@mozilla/readability";
 import { JSDOM } from "jsdom";
+import { reflowProse } from "./prose";
 
 export type ReadabilityExtract = {
   title: string;
@@ -12,21 +13,7 @@ export type ReadabilityExtract = {
 };
 
 function paragraphsFromText(text: string): string[] {
-  const normalized = text.replace(/\r\n/g, "\n").trim();
-  if (!normalized) return [];
-  let parts = normalized
-    .split(/\n{2,}/)
-    .map((p) => p.replace(/\s+/g, " ").trim())
-    .filter((p) => p.length >= 32);
-  if (parts.length >= 2) return parts;
-  if (normalized.length >= 120) {
-    parts = normalized
-      .split(/(?<=[.!?])\s+(?=[A-Z"“])/)
-      .map((p) => p.replace(/\s+/g, " ").trim())
-      .filter((p) => p.length >= 40);
-  }
-  if (parts.length === 0 && normalized.length >= 80) return [normalized.replace(/\s+/g, " ").trim()];
-  return parts;
+  return reflowProse(text).filter((part) => part.length >= 40 || (part.length >= 12 && !/[.!?…]$/.test(part)));
 }
 
 /** Mozilla Readability (Firefox Reader View) — article body without nav/ads. */

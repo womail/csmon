@@ -145,7 +145,7 @@ export function SourcesTable({
               const status = health?.status;
               return (
                 <tr
-                  key={source.id}
+                  key={`src-${source.id}`}
                   className={activeId === source.id ? "is-active" : undefined}
                   onClick={() => onOpen(source.id)}
                   onContextMenu={onMenu ? (event) => onMenu(source, event) : undefined}

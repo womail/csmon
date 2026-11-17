@@ -209,13 +209,18 @@ export function EntityPane({
               {coverage.map((row) => typeCountLabel(row.type, row.sourceIds.length)).join(" · ")}
             </p>
             <div className="mt-1 flex flex-wrap content-start gap-1">
-              {coverage
-                .flatMap((row) => row.sourceIds)
+              {[...new Set(coverage.flatMap((row) => row.sourceIds))]
                 .slice(0, 12)
                 .map((id) => {
                   const source = sources.get(id);
                   return source ? (
-                    <SourceChip key={id} name={source.name} color={source.color} filled onClick={() => onSource(id)} />
+                    <SourceChip
+                      key={`src-${id}`}
+                      name={source.name}
+                      color={source.color}
+                      filled
+                      onClick={() => onSource(id)}
+                    />
                   ) : null;
                 })}
             </div>

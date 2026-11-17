@@ -221,7 +221,7 @@ export function PeopleDesk({
 
                     return (
                       <SourceChip
-                        key={sourceId}
+                        key={`src-${sourceId}`}
                         name={source.name}
                         color={source.color}
                         count={count}

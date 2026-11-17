@@ -103,7 +103,7 @@ export function PlacePane({
               {sourceRows.map(({ source, count }) =>
                 source ? (
                   <SourceChip
-                    key={source.id}
+                    key={`src-${source.id}`}
                     name={source.name}
                     color={source.color}
                     count={count}

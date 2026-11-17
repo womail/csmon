@@ -415,7 +415,7 @@ function CountMarkers({
     <Pane name="markers" style={{ zIndex: 450 }}>
       {flights.map((marker) => (
         <Marker
-          key={marker.id}
+          key={`flight-${marker.id}`}
           position={[marker.lat, marker.lng]}
           icon={planeIcon(marker.heading, marker.id === focusId, 22)}
           eventHandlers={{ click: () => onSelect?.(marker.name, marker) }}
@@ -423,7 +423,7 @@ function CountMarkers({
       ))}
       {pins.map((pin) => (
         <Marker
-          key={pin.id}
+          key={`pin-${pin.id}`}
           position={[pin.lat, pin.lng]}
           icon={countIcon(
             pin.count,
